@@ -29,6 +29,7 @@ describe('Part 1 application flows', () => {
     await user.type(screen.getByLabelText(/what do you want to remember/i), 'Buy coffee from Agora')
     await user.click(screen.getByRole('button', { name: /save note/i }))
     expect(screen.getByText(/saved to your notes/i)).toBeInTheDocument()
+    expect(screen.getByText('4', { selector: '.summary-number' })).toBeInTheDocument()
     await user.click(screen.getAllByRole('link', { name: /Notes$/i })[0])
     expect(await screen.findByText('Buy coffee from Agora')).toBeInTheDocument()
   })

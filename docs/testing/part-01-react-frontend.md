@@ -48,6 +48,10 @@ npm audit --omit=dev
    - Correction: upgraded to React Router 7 and reran tests, build, and smoke verification.
 7. The dashboard summary did not match the plan's prototype values.
    - Correction: changed the dashboard to show the specified 3 Tasks, 1 Event, and ৳250 Expenses summary.
+8. A Quick Capture task was saved as a Note and `NoteItem`, but was not added to the shared task collection. The dashboard task count was also hardcoded.
+   - Correction: task-shaped captures now create a pending local task, task deletion removes its generated task, and the dashboard count is derived from open tasks.
+
+The regression test confirms that saving `Buy coffee from Agora` increases the dashboard task count from 3 to 4.
 
 ## Remaining Part 1 notes
 

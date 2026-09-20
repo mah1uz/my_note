@@ -39,6 +39,18 @@ export function AppStateProvider({ children }) {
       items.push({ id: `${id}-info`, noteId: id, type: 'INFORMATION', title: trimmedText, domain: 'Personal' })
     }
     setNoteItems((current) => [...current, ...items])
+    const taskItem = items.find((item) => item.type === 'TASK')
+    if (taskItem) {
+      setTasks((current) => [...current, {
+        id: taskItem.id,
+        title: taskItem.title,
+        deadline: 'Upcoming',
+        status: 'PENDING',
+        importance: taskItem.importance || 'Medium',
+        domains: [taskItem.domain],
+        place: lowerText.includes('agora') ? 'Agora' : null
+      }])
+    }
     setNotes((current) => [{ id, originalText: trimmedText, createdAt: new Date().toISOString(), processingStatus: 'Processed', confidence: 92, domains: [...new Set(items.map((item) => item.domain))], itemIds: items.map((item) => item.id) }, ...current])
     return id
   }
@@ -46,8 +58,10 @@ export function AppStateProvider({ children }) {
   const updateNote = (id, text) => setNotes((current) => current.map((note) => note.id === id ? { ...note, originalText: text.trim() } : note))
 
   const deleteNote = (id) => {
+    const note = notes.find((item) => item.id === id)
     setNotes((current) => current.filter((note) => note.id !== id))
     setNoteItems((current) => current.filter((item) => item.noteId !== id))
+    if (note) setTasks((current) => current.filter((task) => !note.itemIds?.includes(task.id)))
   }
 
   const toggleTask = (id) => setTasks((current) => current.map((task) => task.id === id ? { ...task, status: task.status === 'DONE' ? 'PENDING' : 'DONE' } : task))
