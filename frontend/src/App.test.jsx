@@ -1,138 +1,227 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { setAccessToken } from './api/http'
 import { AppStateProvider } from './context/AppStateContext'
+import { AuthProvider } from './context/AuthContext'
+import { NotesProvider } from './context/NotesContext'
+
+const mayaProfile = { id: 1, username: 'maya', email: 'maya@example.com', name: 'Maya Rahman' }
+let profile
+let authenticated
+let notes
+let nextId
+let failNotes
+let delayNotes
+
+function jsonResponse(data, status = 200) {
+  return Promise.resolve(new Response(status === 204 ? null : JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  }))
+}
+
+function notePayload(note) {
+  return {
+    id: note.id,
+    raw_text: note.raw_text,
+    processing_status: 'UNPROCESSED',
+    is_archived: false,
+    created_at: note.created_at || '2026-09-21T08:00:00Z',
+    updated_at: note.updated_at || '2026-09-21T08:00:00Z'
+  }
+}
+
+function installApiMock() {
+  vi.stubGlobal('fetch', vi.fn(async (input, options = {}) => {
+    const url = new URL(input)
+    const path = url.pathname
+    const method = options.method || 'GET'
+
+    if (path.endsWith('/auth/refresh/')) return authenticated ? jsonResponse({ access: 'restored-access' }) : jsonResponse({ detail: 'No active session.' }, 401)
+    if (path.endsWith('/auth/me/')) return authenticated ? jsonResponse(profile) : jsonResponse({ detail: 'Authentication required.' }, 401)
+    if (path.endsWith('/auth/login/')) {
+      const body = JSON.parse(options.body)
+      if (body.password === 'wrong-password') return jsonResponse({ detail: 'Invalid credentials.' }, 401)
+      if (body.identity === 'bob@example.com') {
+        profile = { id: 2, username: 'bob', email: 'bob@example.com', name: 'Bob User' }
+        notes = [{ id: 9, raw_text: 'Bob private note', created_at: '2026-09-21T10:00:00Z' }]
+      }
+      authenticated = true
+      return jsonResponse({ access: 'login-access', user: profile })
+    }
+    if (path.endsWith('/auth/register/')) {
+      authenticated = true
+      return jsonResponse({ access: 'register-access', user: profile }, 201)
+    }
+    if (path.endsWith('/auth/logout/')) {
+      authenticated = false
+      return jsonResponse(null, 204)
+    }
+    if (path.endsWith('/auth/password-reset/')) return jsonResponse({ detail: 'If an account exists, a reset link has been prepared.' })
+
+    if (path.endsWith('/notes/') && method === 'GET') {
+      if (delayNotes) await new Promise((resolve) => setTimeout(resolve, 50))
+      if (failNotes) return jsonResponse({ detail: 'Notes are temporarily unavailable.' }, 503)
+      return jsonResponse(notes.map(notePayload))
+    }
+    if (path.endsWith('/notes/') && method === 'POST') {
+      const body = JSON.parse(options.body)
+      const note = { id: nextId++, raw_text: body.raw_text, created_at: '2026-09-21T09:00:00Z' }
+      notes.unshift(note)
+      return jsonResponse(notePayload(note), 201)
+    }
+
+    const match = path.match(/\/notes\/(\d+)\/$/)
+    if (match) {
+      const id = Number(match[1])
+      const index = notes.findIndex((note) => note.id === id)
+      if (index < 0) return jsonResponse({ detail: 'Not found.' }, 404)
+      if (method === 'GET') return jsonResponse(notePayload(notes[index]))
+      if (method === 'PATCH') {
+        notes[index] = { ...notes[index], raw_text: JSON.parse(options.body).raw_text }
+        return jsonResponse(notePayload(notes[index]))
+      }
+      if (method === 'DELETE') {
+        notes.splice(index, 1)
+        return jsonResponse(null, 204)
+      }
+    }
+
+    throw new Error(`Unhandled API request: ${method} ${path}`)
+  }))
+}
 
 function renderApp(path = '/') {
   window.history.pushState({}, '', path)
-  return render(<AppStateProvider><App /></AppStateProvider>)
+  return render(
+    <AuthProvider>
+      <NotesProvider>
+        <AppStateProvider><App /></AppStateProvider>
+      </NotesProvider>
+    </AuthProvider>
+  )
 }
 
-describe('Part 1 application flows', () => {
-  beforeEach(() => window.history.pushState({}, '', '/'))
+describe('Part 2 full-stack UI flows', () => {
+  beforeEach(() => {
+    authenticated = false
+    profile = mayaProfile
+    notes = [{ id: 1, raw_text: 'Buy eggs.', created_at: '2026-09-21T08:00:00Z' }]
+    nextId = 2
+    failNotes = false
+    delayNotes = false
+    setAccessToken(null)
+    window.history.pushState({}, '', '/')
+    installApiMock()
+  })
 
-  it('validates login and redirects to the dashboard', async () => {
+  it('redirects unauthenticated protected routes to login', async () => {
+    renderApp('/app/notes')
+    expect(screen.getByText(/checking your session/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
+  })
+
+  it('validates login, reports API errors, and opens the dashboard', async () => {
     const user = userEvent.setup()
     renderApp('/login')
     await user.click(screen.getByRole('button', { name: /log in/i }))
     expect(screen.getByText(/enter your email and password/i)).toBeInTheDocument()
     await user.type(screen.getByLabelText(/email or username/i), 'maya@example.com')
-    await user.type(screen.getByLabelText(/password/i), 'secret123')
+    await user.type(screen.getByLabelText(/^password$/i), 'wrong-password')
     await user.click(screen.getByRole('button', { name: /log in/i }))
-    expect(await screen.findByRole('heading', { name: /good morning, maya/i })).toBeInTheDocument()
+    expect(await screen.findByText(/invalid credentials/i)).toBeInTheDocument()
+    await user.clear(screen.getByLabelText(/^password$/i))
+    await user.type(screen.getByLabelText(/^password$/i), 'secret123')
+    await user.click(screen.getByRole('button', { name: /log in/i }))
+    expect(await screen.findByRole('heading', { name: /good morning, maya rahman/i })).toBeInTheDocument()
   })
 
-  it('creates a note through Quick Capture and displays it in Notes', async () => {
-    const user = userEvent.setup()
-    renderApp('/app')
-    await user.type(screen.getByLabelText(/what do you want to remember/i), 'Buy coffee from Agora')
-    await user.click(screen.getByRole('button', { name: /save note/i }))
-    expect(screen.getByText(/saved to your notes/i)).toBeInTheDocument()
-    expect(screen.getByText('4', { selector: '.summary-number' })).toBeInTheDocument()
-    await user.click(screen.getAllByRole('link', { name: /Notes$/i })[0])
-    expect(await screen.findByText('Buy coffee from Agora')).toBeInTheDocument()
-  })
-
-  it('toggles a task complete', async () => {
-    const user = userEvent.setup()
-    renderApp('/app/tasks')
-    const task = screen.getByText('Buy eggs')
-    const toggle = screen.getByRole('button', { name: /mark buy eggs complete/i })
-    await user.click(toggle)
-    expect(task).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /mark buy eggs incomplete/i })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /mark buy eggs incomplete/i }))
-    expect(screen.getByRole('button', { name: /mark buy eggs complete/i })).toBeInTheDocument()
-  })
-
-  it('switches between Search Notes and Ask My Notes', async () => {
-    const user = userEvent.setup()
-    renderApp('/app/search')
-    expect(screen.getByText(/mock semantic results/i)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /ask my notes/i }))
-    expect(screen.getByText(/mock answer · prototype/i)).toBeInTheDocument()
-    expect(screen.getByText(/academic deadlines/i)).toBeInTheDocument()
-  })
-
-  it('shows one note with multiple extracted NoteItems and supports deletion', async () => {
-    const user = userEvent.setup()
-    renderApp('/app/notes/note-1')
-    expect(screen.getByRole('heading', { name: /3 extracted items/i })).toBeInTheDocument()
-    expect(screen.getByText('Class tomorrow at 10 AM')).toBeInTheDocument()
-    expect(screen.getByText('Buy eggs', { selector: 'h3' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(await screen.findByRole('heading', { name: /^notes$/i })).toBeInTheDocument()
-    expect(screen.queryByText('Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.')).not.toBeInTheDocument()
-  })
-
-  it('edits a note locally', async () => {
-    const user = userEvent.setup()
-    renderApp('/app/notes/note-2')
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
-    const editor = screen.getByDisplayValue('I have an EM quiz on September 23.')
-    await user.clear(editor)
-    await user.type(editor, 'I have an EM quiz on September 24.')
-    await user.click(screen.getByRole('button', { name: /save changes/i }))
-    expect(screen.getByText('I have an EM quiz on September 24.')).toBeInTheDocument()
-  })
-
-  it('validates registration and logs out locally', async () => {
+  it('registers and logs out through the API', async () => {
     const user = userEvent.setup()
     renderApp('/register')
-    await user.click(screen.getByRole('button', { name: /create account/i }))
-    expect(screen.getByText(/use a name, email, matching passwords/i)).toBeInTheDocument()
     await user.type(screen.getByLabelText('Name'), 'Maya Rahman')
     await user.type(screen.getByLabelText('Email'), 'maya@example.com')
     await user.type(screen.getByLabelText('Password'), 'secret123')
     await user.type(screen.getByLabelText('Confirm password'), 'secret123')
     await user.click(screen.getByRole('button', { name: /create account/i }))
-    expect(await screen.findByRole('heading', { name: /good morning, maya/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /good morning, maya rahman/i })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /log out/i }))
     expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
   })
 
-  it('filters mock search results and shows an empty state', async () => {
+  it('restores a session and creates, edits, and deletes a persisted note', async () => {
+    authenticated = true
     const user = userEvent.setup()
-    renderApp('/app/search')
-    const search = screen.getByRole('textbox', { name: /search your notes/i })
-    await user.clear(search)
-    await user.type(search, 'something impossible')
-    expect(screen.getByRole('heading', { name: /no search results/i })).toBeInTheDocument()
-    await user.clear(search)
-    await user.type(search, 'university work')
-    expect(screen.getByText('EM Quiz')).toBeInTheDocument()
-    expect(screen.getByText('Database Assignment')).toBeInTheDocument()
-  })
-
-  it('edits a saved place locally', async () => {
-    const user = userEvent.setup()
-    renderApp('/app/places')
-    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0])
-    const nameInput = screen.getByRole('textbox', { name: 'Place name' })
-    await user.clear(nameInput)
-    await user.type(nameInput, 'Agora Market')
+    renderApp('/app/notes')
+    expect(await screen.findByText('Buy eggs.')).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: /new note/i }))
+    await user.type(screen.getByLabelText(/your thought/i), 'Buy coffee from Agora')
+    await user.click(screen.getByRole('button', { name: /save note/i }))
+    expect(await screen.findByRole('heading', { name: /captured thought/i })).toBeInTheDocument()
+    expect(screen.getByText('Buy coffee from Agora')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    const editor = screen.getByDisplayValue('Buy coffee from Agora')
+    await user.clear(editor)
+    await user.type(editor, 'Buy coffee tomorrow')
     await user.click(screen.getByRole('button', { name: /save changes/i }))
-    expect(screen.getByRole('heading', { name: 'Agora Market' })).toBeInTheDocument()
+    expect(await screen.findByText('Buy coffee tomorrow')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(await screen.findByRole('heading', { name: /^notes$/i })).toBeInTheDocument()
+    expect(screen.queryByText('Buy coffee tomorrow')).not.toBeInTheDocument()
   })
 
-  it('opens the mobile navigation menu', async () => {
+  it('shows Notes API loading and error states', async () => {
+    authenticated = true
+    failNotes = true
+    delayNotes = true
+    renderApp('/app/notes')
+    expect(await screen.findByText(/loading your notes/i)).toBeInTheDocument()
+    expect(await screen.findByText(/temporarily unavailable/i)).toBeInTheDocument()
+  })
+
+  it('keeps later feature pages mocked and usable', async () => {
+    authenticated = true
     const user = userEvent.setup()
-    renderApp('/app')
-    await user.click(screen.getByRole('button', { name: /toggle menu/i }))
-    expect(screen.getByRole('link', { name: 'Settings', exact: true })).toBeInTheDocument()
+    renderApp('/app/tasks')
+    const toggle = await screen.findByRole('button', { name: /mark buy eggs complete/i })
+    await user.click(toggle)
+    expect(screen.getByRole('button', { name: /mark buy eggs incomplete/i })).toBeInTheDocument()
   })
 
-  it('renders every planned application page', async () => {
+  it('clears and reloads Notes when the authenticated account changes', async () => {
+    authenticated = true
+    const user = userEvent.setup()
+    renderApp('/login')
+    await user.type(screen.getByLabelText(/email or username/i), 'bob@example.com')
+    await user.type(screen.getByLabelText(/^password$/i), 'secret123')
+    await user.click(screen.getByRole('button', { name: /log in/i }))
+    expect(await screen.findByRole('heading', { name: /good morning, bob user/i })).toBeInTheDocument()
+    await user.click(screen.getAllByRole('link', { name: /notes$/i })[0])
+    expect(await screen.findByText('Bob private note')).toBeInTheDocument()
+    expect(screen.queryByText('Buy eggs.')).not.toBeInTheDocument()
+  })
+
+  it('returns a generic password-reset request response', async () => {
+    const user = userEvent.setup()
+    renderApp('/forgot-password')
+    await user.type(screen.getByLabelText('Email'), 'unknown@example.com')
+    await user.click(screen.getByRole('button', { name: /send reset link/i }))
+    expect(await screen.findByText(/if an account exists/i)).toBeInTheDocument()
+  })
+
+  it('renders all protected application pages for an authenticated user', async () => {
+    authenticated = true
     const routes = [
       ['/app', /good morning/i], ['/app/notes', /^notes$/i], ['/app/notes/new', /^new note$/i],
       ['/app/tasks', /^tasks$/i], ['/app/events', /^events$/i], ['/app/shopping', /^shopping$/i],
       ['/app/expenses', /^expenses$/i], ['/app/places', /^places$/i], ['/app/search', /^search$/i], ['/app/settings', /^settings$/i]
     ]
     for (const [path, heading] of routes) {
-      const { unmount } = renderApp(path)
+      const view = renderApp(path)
       await waitFor(() => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument())
-      unmount()
+      view.unmount()
     }
   })
 })

@@ -1,6 +1,9 @@
-import { useState } from 'react'
-import { BrowserRouter, Link, NavLink, Route, Routes, useNavigate, useParams, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useAppState } from './context/AppStateContext'
+import { useAuth } from './context/AuthContext'
+import { useNotes } from './context/NotesContext'
+import { confirmPasswordReset, requestPasswordReset } from './api/authApi'
 import { mockAskResponse, mockSearchResults } from './data/mockData'
 
 const navItems = [
@@ -33,11 +36,11 @@ function MobileNav() {
 }
 
 function AppLayout({ children }) {
-  const { logout } = useAppState()
+  const { logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
-  const handleLogout = () => { logout(); navigate('/login') }
+  const handleLogout = async () => { try { await logout() } finally { navigate('/login') } }
   return <div className="app-shell">
     <Sidebar onLogout={handleLogout} />
     <main className="main-content"><div className="mobile-topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link><button className="menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">☰</button></div>{menuOpen && <div className="mobile-menu">{navItems.map(([label, path]) => <NavLink key={path} to={path} onClick={() => setMenuOpen(false)} className="mobile-menu-link">{label}</NavLink>)}<button onClick={handleLogout}>Log out</button></div>}<div className="content-wrap" key={location.pathname}>{children}</div></main>
@@ -46,67 +49,76 @@ function AppLayout({ children }) {
 }
 
 function QuickCapture({ compact = false }) {
-  const { addNote } = useAppState()
+  const { addNote } = useNotes()
   const navigate = useNavigate()
   const [text, setText] = useState('')
   const [saved, setSaved] = useState(false)
-  const save = (event) => {
+  const [error, setError] = useState('')
+  const save = async (event) => {
     event.preventDefault()
     if (!text.trim()) return
-    addNote(text)
-    setText('')
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 2400)
+    try {
+      await addNote(text)
+      setText('')
+      setError('')
+      setSaved(true)
+      window.setTimeout(() => setSaved(false), 2400)
+    } catch (requestError) {
+      setError(requestError.message)
+    }
   }
   return <form className={`capture-card ${compact ? 'capture-compact' : ''}`} onSubmit={save}>
     <div className="capture-heading"><span className="capture-icon">✦</span><div><h2>Quick capture</h2><p>Get it out of your head. We&apos;ll help organize it.</p></div></div>
     <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="What do you want to remember?" rows={compact ? 3 : 4} aria-label="What do you want to remember?" />
-    <div className="capture-footer"><span className={saved ? 'save-message visible' : 'save-message'}>{saved ? 'Saved to your notes' : 'Try: “I need eggs from Agora.”'}</span><div className="capture-actions"><button className="button button-ghost" type="button" onClick={() => navigate('/app/notes/new')}>Open full editor</button><button className="button button-primary" type="submit">Save note <span>↗</span></button></div></div>
+    {error && <p className="form-error">{error}</p>}<div className="capture-footer"><span className={saved ? 'save-message visible' : 'save-message'}>{saved ? 'Saved as an unprocessed note' : 'Try: “I need eggs from Agora.”'}</span><div className="capture-actions"><button className="button button-ghost" type="button" onClick={() => navigate('/app/notes/new')}>Open full editor</button><button className="button button-primary" type="submit">Save note <span>↗</span></button></div></div>
   </form>
 }
 
 function DashboardPage() {
   const { dashboardItems, tasks } = useAppState()
-  return <><PageHeader eyebrow="Monday, September 21" title="Good morning, Maya" description="A calm place for everything you want to remember." /><QuickCapture /><section className="section-block"><div className="section-heading"><div><span className="eyebrow">Stay in the loop</span><h2>What matters now</h2></div><Link to="/app/tasks" className="text-link">See all tasks <span>→</span></Link></div><div className="matter-grid">{dashboardItems.map((item) => <article className="matter-card" key={item.id}><div className="matter-top"><Pill tone={item.priority}>{item.type}</Pill><span className={`priority priority-${item.priority.toLowerCase()}`} /> </div><h3>{item.title}</h3><p>{item.reason}</p><span className="card-domain">{item.domain}</span></article>)}</div></section><section className="dashboard-grid"><div className="summary-card"><div className="section-heading"><div><span className="eyebrow">At a glance</span><h2>Today&apos;s rhythm</h2></div><span className="date-chip">Sep 21</span></div><div className="summary-list"><div><span className="summary-number">{tasks.filter((task) => task.status !== 'DONE').length}</span><span>Tasks</span></div><div><span className="summary-number">1</span><span>Event</span></div><div><span className="summary-number">৳250</span><span>Expenses</span></div></div></div><div className="briefing-card"><span className="eyebrow">Daily briefing · prototype</span><h2>A little room to breathe</h2><p>You have a focused day ahead. Your EM quiz is coming up, and there are three small tasks waiting for you.</p><Link to="/app/search" className="button button-light">Ask your notes <span>→</span></Link></div></section></>
+  const { currentUser } = useAuth()
+  return <><PageHeader eyebrow="Monday, September 21" title={`Good morning, ${currentUser?.name || 'there'}`} description="A calm place for everything you want to remember." /><QuickCapture /><section className="section-block"><div className="section-heading"><div><span className="eyebrow">Stay in the loop</span><h2>What matters now</h2></div><Link to="/app/tasks" className="text-link">See all tasks <span>→</span></Link></div><div className="matter-grid">{dashboardItems.map((item) => <article className="matter-card" key={item.id}><div className="matter-top"><Pill tone={item.priority}>{item.type}</Pill><span className={`priority priority-${item.priority.toLowerCase()}`} /> </div><h3>{item.title}</h3><p>{item.reason}</p><span className="card-domain">{item.domain}</span></article>)}</div></section><section className="dashboard-grid"><div className="summary-card"><div className="section-heading"><div><span className="eyebrow">At a glance</span><h2>Today&apos;s rhythm</h2></div><span className="date-chip">Sep 21</span></div><div className="summary-list"><div><span className="summary-number">{tasks.filter((task) => task.status !== 'DONE').length}</span><span>Tasks</span></div><div><span className="summary-number">1</span><span>Event</span></div><div><span className="summary-number">৳250</span><span>Expenses</span></div></div></div><div className="briefing-card"><span className="eyebrow">Daily briefing · prototype</span><h2>A little room to breathe</h2><p>You have a focused day ahead. Your EM quiz is coming up, and there are three small tasks waiting for you.</p><Link to="/app/search" className="button button-light">Ask your notes <span>→</span></Link></div></section></>
 }
 
 function NoteCard({ note, onDelete }) {
-  const { noteItems } = useAppState()
-  const items = noteItems.filter((item) => note.itemIds?.includes(item.id))
-  return <article className="note-card"><div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div><Link to={`/app/notes/${note.id}`} className="note-title">{note.originalText}</Link><div className="note-card-items">{items.slice(0, 3).map((item) => <span key={item.id}>{item.type === 'TASK' ? '✓' : item.type === 'EVENT' ? '◷' : '৳'} {item.title}</span>)}</div><div className="note-card-bottom"><div className="domain-list">{note.domains.map((domain) => <Pill key={domain}>{domain}</Pill>)}</div><div className="card-actions"><Link to={`/app/notes/${note.id}`} aria-label={`View ${note.originalText}`}>View</Link><button onClick={() => onDelete(note.id)}>Delete</button></div></div></article>
+  return <article className="note-card"><div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div><Link to={`/app/notes/${note.id}`} className="note-title">{note.originalText}</Link><div className="note-card-items"><span>Saved securely · AI processing begins in Part 3</span></div><div className="note-card-bottom"><div className="domain-list" /><div className="card-actions"><Link to={`/app/notes/${note.id}`} aria-label={`View ${note.originalText}`}>View</Link><button onClick={() => onDelete(note.id).catch(() => {})}>Delete</button></div></div></article>
 }
 
 function NotesPage() {
-  const { notes, deleteNote } = useAppState()
-  return <><PageHeader eyebrow="Your memory" title="Notes" description={`${notes.length} thoughts captured and organized.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />{notes.length ? <div className="notes-list">{notes.map((note) => <NoteCard key={note.id} note={note} onDelete={deleteNote} />)}</div> : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}</>
-}
-
-function AIReviewPanel({ noteId, onEdit }) {
-  const { noteItems } = useAppState()
-  const items = noteItems.filter((item) => item.noteId === noteId)
-  return <div className="review-panel"><div className="review-header"><div><span className="eyebrow">Mock AI result</span><h2>Here&apos;s what I found</h2></div><Pill tone="success">94% confidence</Pill></div><div className="review-items">{items.map((item) => <div className="review-item" key={item.id}><span className={`type-icon type-${item.type.toLowerCase()}`}>{item.type === 'TASK' ? '✓' : item.type === 'EVENT' ? '◷' : item.type === 'EXPENSE' ? '৳' : 'i'}</span><div><strong>{item.title}</strong><p>{item.type} · {item.domain}{item.amount ? ` · ৳${item.amount}` : ''}</p></div></div>)}</div><div className="review-actions"><button className="button button-primary" onClick={onEdit}>Looks correct</button><button className="button button-ghost" onClick={onEdit}>Edit result</button></div></div>
+  const { notes, loading, error, deleteNote } = useNotes()
+  return <><PageHeader eyebrow="Your memory" title="Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />{loading ? <div className="loading-state">Loading your notes…</div> : error ? <div className="form-error">{error}</div> : notes.length ? <div className="notes-list">{notes.map((note) => <NoteCard key={note.id} note={note} onDelete={deleteNote} />)}</div> : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}</>
 }
 
 function NewNotePage() {
-  const { addNote } = useAppState()
+  const { addNote } = useNotes()
   const navigate = useNavigate()
   const [text, setText] = useState('')
-  const [savedId, setSavedId] = useState(null)
-  const save = (event) => { event.preventDefault(); const id = addNote(text); if (id) setSavedId(id) }
-  return <><PageHeader eyebrow="Capture first" title="New note" description="Write naturally. No categories or forms to fill out first." /><div className="editor-layout"><form className="editor-card" onSubmit={save}><label htmlFor="note-editor">Your thought</label><textarea id="note-editor" value={text} onChange={(event) => setText(event.target.value)} placeholder="I have an EM quiz on September 23..." rows="12" autoFocus /><div className="editor-footer"><span>{text.length} characters</span><button className="button button-primary" type="submit">Save note <span>↗</span></button></div></form>{savedId ? <AIReviewPanel noteId={savedId} onEdit={() => navigate(`/app/notes/${savedId}`)} /> : <div className="editor-tip"><span className="tip-icon">✦</span><h3>One thought, many possibilities</h3><p>After you save, this prototype will simulate how your note could become tasks, events, or expenses.</p><div className="example-note">“Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.”</div></div>}</div></>
+  const [error, setError] = useState('')
+  const save = async (event) => { event.preventDefault(); if (!text.trim()) { setError('A note cannot be empty.'); return } try { const note = await addNote(text); navigate(`/app/notes/${note.id}`) } catch (requestError) { setError(requestError.message) } }
+  return <><PageHeader eyebrow="Capture first" title="New note" description="Write naturally. No categories or forms to fill out first." /><div className="editor-layout"><form className="editor-card" onSubmit={save}><label htmlFor="note-editor">Your thought</label><textarea id="note-editor" value={text} onChange={(event) => setText(event.target.value)} placeholder="I have an EM quiz on September 23..." rows="12" autoFocus />{error && <p className="form-error">{error}</p>}<div className="editor-footer"><span>{text.length} characters</span><button className="button button-primary" type="submit">Save note <span>↗</span></button></div></form><div className="editor-tip"><span className="tip-icon">✦</span><h3>Captured now, organized later</h3><p>Part 2 securely saves the original note. AI classification and extracted items begin in Part 3.</p><div className="example-note">“Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.”</div></div></div></>
 }
 
 function NoteDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { notes, noteItems, updateNote, deleteNote } = useAppState()
+  const { notes, loading, loadNote, updateNote, deleteNote } = useNotes()
   const note = notes.find((item) => item.id === id)
   const [editing, setEditing] = useState(false)
-  const [text, setText] = useState(note?.originalText || '')
-  if (!note) return <EmptyState title="Note not found" text="This note may have been deleted or is no longer available." />
-  const items = noteItems.filter((item) => note.itemIds?.includes(item.id))
-  const save = () => { updateNote(note.id, text); setEditing(false) }
-  return <><Link to="/app/notes" className="back-link">← Back to notes</Link><div className="detail-header"><div><span className="eyebrow">Note detail</span><h1>Captured thought</h1><p>{new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="header-actions"><button className="button button-ghost" onClick={() => setEditing(!editing)}>{editing ? 'Cancel' : 'Edit'}</button><button className="button button-danger" onClick={() => { deleteNote(note.id); navigate('/app/notes') }}>Delete</button></div></div><div className="detail-card"><div className="original-note"><span className="eyebrow">Original note</span>{editing ? <textarea value={text} onChange={(event) => setText(event.target.value)} rows="5" /> : <p>{note.originalText}</p>}{editing && <button className="button button-primary" onClick={save}>Save changes</button>}</div><div className="detail-meta"><Pill tone="success">{note.processingStatus}</Pill><span>{note.confidence}% confidence</span>{note.domains.map((domain) => <Pill key={domain}>{domain}</Pill>)}</div></div><section className="section-block detail-items"><div className="section-heading"><div><span className="eyebrow">Organized automatically · prototype</span><h2>{items.length} extracted items</h2></div></div><div className="extracted-grid">{items.map((item) => <article className="extracted-card" key={item.id}><span className={`type-icon type-${item.type.toLowerCase()}`}>{item.type === 'TASK' ? '✓' : item.type === 'EVENT' ? '◷' : '৳'}</span><Pill>{item.type}</Pill><h3>{item.title}</h3><p>{item.domain}{item.deadline ? ` · ${item.deadline}` : ''}{item.amount ? ` · ৳${item.amount}` : ''}</p></article>)}</div></section></>
+  const [text, setText] = useState('')
+  const [error, setError] = useState('')
+  const [detailLoading, setDetailLoading] = useState(true)
+  useEffect(() => { if (note) setText(note.originalText) }, [note])
+  useEffect(() => {
+    let active = true
+    setDetailLoading(true)
+    loadNote(id).catch((requestError) => { if (active) setError(requestError.message) }).finally(() => { if (active) setDetailLoading(false) })
+    return () => { active = false }
+  }, [id])
+  if (loading || detailLoading) return <div className="loading-state">Loading note…</div>
+  if (!note) return <EmptyState title="Note not found" text={error || 'This note may have been deleted or is no longer available.'} />
+  const save = async () => { if (!text.trim()) { setError('A note cannot be empty.'); return } try { await updateNote(note.id, text); setEditing(false); setError('') } catch (requestError) { setError(requestError.message) } }
+  const remove = async () => { try { await deleteNote(note.id); navigate('/app/notes') } catch (requestError) { setError(requestError.message) } }
+  return <><Link to="/app/notes" className="back-link">← Back to notes</Link><div className="detail-header"><div><span className="eyebrow">Note detail</span><h1>Captured thought</h1><p>{new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="header-actions"><button className="button button-ghost" onClick={() => setEditing(!editing)}>{editing ? 'Cancel' : 'Edit'}</button><button className="button button-danger" onClick={remove}>Delete</button></div></div>{error && <p className="form-error">{error}</p>}<div className="detail-card"><div className="original-note"><span className="eyebrow">Original note</span>{editing ? <textarea value={text} onChange={(event) => setText(event.target.value)} rows="5" /> : <p>{note.originalText}</p>}{editing && <button className="button button-primary" onClick={save}>Save changes</button>}</div><div className="detail-meta"><Pill tone="success">{note.processingStatus}</Pill><span>Owned by your account</span></div></div><section className="section-block detail-items"><EmptyState title="Awaiting organization" text="AI extraction and NoteItems are intentionally deferred to Part 3. Your original note is safely stored." /></section></>
 }
 
 function TasksPage() {
@@ -158,22 +170,50 @@ function SettingsPage() {
 }
 
 function LoginPage() {
-  const { login } = useAppState()
+  const { login } = useAuth()
   const navigate = useNavigate()
   const [identity, setIdentity] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const submit = (event) => { event.preventDefault(); if (!identity.trim() || !password) { setError('Enter your email and password to continue.'); return } login(identity); navigate('/app') }
-  return <AuthLayout title="Welcome back" description="Pick up where you left off."><form className="auth-form" onSubmit={submit}><label>Email or username<input value={identity} onChange={(event) => setIdentity(event.target.value)} placeholder="maya@example.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide">Log in <span>↗</span></button></form><p className="auth-switch">New here? <Link to="/register">Create an account</Link></p></AuthLayout>
+  const [submitting, setSubmitting] = useState(false)
+  const submit = async (event) => { event.preventDefault(); if (!identity.trim() || !password) { setError('Enter your email and password to continue.'); return } setSubmitting(true); try { await login(identity, password); navigate('/app') } catch (requestError) { setError(requestError.message) } finally { setSubmitting(false) } }
+  return <AuthLayout title="Welcome back" description="Pick up where you left off."><form className="auth-form" onSubmit={submit}><label>Email or username<input value={identity} onChange={(event) => setIdentity(event.target.value)} placeholder="maya@example.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /></label><Link className="text-link auth-help" to="/forgot-password">Forgot password?</Link>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide" disabled={submitting}>{submitting ? 'Logging in…' : 'Log in'} <span>↗</span></button></form><p className="auth-switch">New here? <Link to="/register">Create an account</Link></p></AuthLayout>
 }
 
 function RegisterPage() {
-  const { login } = useAppState()
+  const { register } = useAuth()
   const navigate = useNavigate()
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
   const [error, setError] = useState('')
-  const submit = (event) => { event.preventDefault(); if (!form.name || !form.email || form.password.length < 6 || form.password !== form.confirm) { setError('Use a name, email, matching passwords, and at least 6 password characters.'); return } login(form.email); navigate('/app') }
-  return <AuthLayout title="Make space for more" description="A gentle home for the things you want to remember."><form className="auth-form" onSubmit={submit}><label>Name<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Maya Rahman" /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="maya@example.com" /></label><label>Password<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 6 characters" /></label><label>Confirm password<input type="password" value={form.confirm} onChange={(event) => setForm({ ...form, confirm: event.target.value })} placeholder="Repeat your password" /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide">Create account <span>↗</span></button></form><p className="auth-switch">Already have an account? <Link to="/login">Log in</Link></p></AuthLayout>
+  const [submitting, setSubmitting] = useState(false)
+  const submit = async (event) => { event.preventDefault(); if (!form.name.trim() || !form.email.trim() || form.password.length < 8 || form.password !== form.confirm) { setError('Use a name, email, matching passwords, and at least 8 password characters.'); return } setSubmitting(true); try { await register({ name: form.name, email: form.email, password: form.password, password_confirm: form.confirm }); navigate('/app') } catch (requestError) { setError(requestError.message) } finally { setSubmitting(false) } }
+  return <AuthLayout title="Make space for more" description="A gentle home for the things you want to remember."><form className="auth-form" onSubmit={submit}><label>Name<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Maya Rahman" /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="maya@example.com" /></label><label>Password<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 8 characters" /></label><label>Confirm password<input type="password" value={form.confirm} onChange={(event) => setForm({ ...form, confirm: event.target.value })} placeholder="Repeat your password" /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide" disabled={submitting}>{submitting ? 'Creating account…' : 'Create account'} <span>↗</span></button></form><p className="auth-switch">Already have an account? <Link to="/login">Log in</Link></p></AuthLayout>
+}
+
+function ForgotPasswordPage() {
+  const [email, setEmail] = useState('')
+  const [message, setMessage] = useState('')
+  const [resetUrl, setResetUrl] = useState('')
+  const [error, setError] = useState('')
+  const submit = async (event) => { event.preventDefault(); try { const data = await requestPasswordReset(email); setMessage(data.detail); setResetUrl(data.reset_url || ''); setError('') } catch (requestError) { setError(requestError.message) } }
+  return <AuthLayout title="Reset your password" description="Enter your account email. The response stays private even if the address is unknown."><form className="auth-form" onSubmit={submit}><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>{message && <p className="form-success">{message}</p>}{resetUrl && <a className="button button-ghost" href={resetUrl}>Open development reset link</a>}{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide">Send reset link</button></form><p className="auth-switch"><Link to="/login">Back to login</Link></p></AuthLayout>
+}
+
+function ResetPasswordPage() {
+  const { uid, token } = useParams()
+  const navigate = useNavigate()
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState('')
+  const submit = async (event) => { event.preventDefault(); if (password.length < 8 || password !== confirm) { setError('Use matching passwords with at least 8 characters.'); return } try { await confirmPasswordReset({ uid, token, password, password_confirm: confirm }); navigate('/login', { replace: true }) } catch (requestError) { setError(requestError.message) } }
+  return <AuthLayout title="Choose a new password" description="Use a strong password you do not reuse elsewhere."><form className="auth-form" onSubmit={submit}><label>New password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><label>Confirm new password<input type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide">Reset password</button></form></AuthLayout>
+}
+
+function ProtectedPage({ children }) {
+  const { isAuthenticated, loading } = useAuth()
+  if (loading) return <div className="route-loading">Checking your session…</div>
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  return <AppLayout>{children}</AppLayout>
 }
 
 function AuthLayout({ title, description, children }) {
@@ -181,7 +221,7 @@ function AuthLayout({ title, description, children }) {
 }
 
 function App() {
-  return <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path="/" element={<LoginPage />} /><Route path="/login" element={<LoginPage />} /><Route path="/register" element={<RegisterPage />} /><Route path="/app" element={<AppLayout><DashboardPage /></AppLayout>} /><Route path="/app/notes" element={<AppLayout><NotesPage /></AppLayout>} /><Route path="/app/notes/new" element={<AppLayout><NewNotePage /></AppLayout>} /><Route path="/app/notes/:id" element={<AppLayout><NoteDetailPage /></AppLayout>} /><Route path="/app/tasks" element={<AppLayout><TasksPage /></AppLayout>} /><Route path="/app/events" element={<AppLayout><EventsPage /></AppLayout>} /><Route path="/app/shopping" element={<AppLayout><ShoppingPage /></AppLayout>} /><Route path="/app/expenses" element={<AppLayout><ExpensesPage /></AppLayout>} /><Route path="/app/places" element={<AppLayout><PlacesPage /></AppLayout>} /><Route path="/app/search" element={<AppLayout><SearchPage /></AppLayout>} /><Route path="/app/settings" element={<AppLayout><SettingsPage /></AppLayout>} /><Route path="*" element={<LoginPage />} /></Routes></BrowserRouter>
+  return <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path="/" element={<LoginPage />} /><Route path="/login" element={<LoginPage />} /><Route path="/register" element={<RegisterPage />} /><Route path="/forgot-password" element={<ForgotPasswordPage />} /><Route path="/reset-password/:uid/:token" element={<ResetPasswordPage />} /><Route path="/app" element={<ProtectedPage><DashboardPage /></ProtectedPage>} /><Route path="/app/notes" element={<ProtectedPage><NotesPage /></ProtectedPage>} /><Route path="/app/notes/new" element={<ProtectedPage><NewNotePage /></ProtectedPage>} /><Route path="/app/notes/:id" element={<ProtectedPage><NoteDetailPage /></ProtectedPage>} /><Route path="/app/tasks" element={<ProtectedPage><TasksPage /></ProtectedPage>} /><Route path="/app/events" element={<ProtectedPage><EventsPage /></ProtectedPage>} /><Route path="/app/shopping" element={<ProtectedPage><ShoppingPage /></ProtectedPage>} /><Route path="/app/expenses" element={<ProtectedPage><ExpensesPage /></ProtectedPage>} /><Route path="/app/places" element={<ProtectedPage><PlacesPage /></ProtectedPage>} /><Route path="/app/search" element={<ProtectedPage><SearchPage /></ProtectedPage>} /><Route path="/app/settings" element={<ProtectedPage><SettingsPage /></ProtectedPage>} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes></BrowserRouter>
 }
 
 export default App

@@ -1,8 +1,21 @@
 # Local environment and editor files
 .env
 .env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
 .DS_Store
 .vscode/
+
+# Python and Django generated files
+backend/.venv/
+backend/.venv-win/
+backend/db.sqlite3
+backend/staticfiles/
+**/__pycache__/
+*.py[cod]
+.coverage
+htmlcov/
 
 # Frontend dependencies and generated output
 frontend/node_modules/

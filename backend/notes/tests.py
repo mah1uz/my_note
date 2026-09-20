@@ -1,0 +1,93 @@
+from django.contrib import admin
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from .models import Note
+
+User = get_user_model()
+
+
+class NoteModelTests(TestCase):
+    def test_defaults_ordering_and_user_cascade(self):
+        user = User.objects.create_user(username='owner', password='SafePass!2026')
+        older = Note.objects.create(user=user, raw_text='Older')
+        newer = Note.objects.create(user=user, raw_text='Newer')
+        self.assertEqual(Note.objects.first(), newer)
+        self.assertEqual(older.processing_status, Note.ProcessingStatus.UNPROCESSED)
+        user.delete()
+        self.assertFalse(Note.objects.exists())
+
+    def test_note_is_registered_in_admin(self):
+        self.assertIn(Note, admin.site._registry)
+
+
+class NoteApiTests(APITestCase):
+    def setUp(self):
+        self.user_a = User.objects.create_user(username='a@example.com', email='a@example.com', password='SafePass!2026')
+        self.user_b = User.objects.create_user(username='b@example.com', email='b@example.com', password='SafePass!2026')
+        self.note_a = Note.objects.create(user=self.user_a, raw_text='User A private note')
+        self.note_b = Note.objects.create(user=self.user_b, raw_text='User B private note')
+
+    def authenticate(self, user):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+
+    def test_unauthenticated_requests_are_rejected(self):
+        self.assertEqual(self.client.get('/api/v1/notes/').status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_list_is_user_scoped_and_newest_first(self):
+        Note.objects.create(user=self.user_a, raw_text='Newest A note')
+        self.authenticate(self.user_a)
+        response = self.client.get('/api/v1/notes/')
+        self.assertEqual([item['raw_text'] for item in response.data], ['Newest A note', 'User A private note'])
+
+    def test_create_trims_text_sets_owner_and_unprocessed_status(self):
+        self.authenticate(self.user_a)
+        response = self.client.post('/api/v1/notes/', {'raw_text': '  Buy eggs  ', 'user': self.user_b.pk, 'processing_status': 'PROCESSED'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        note = Note.objects.get(pk=response.data['id'])
+        self.assertEqual(note.user, self.user_a)
+        self.assertEqual(note.raw_text, 'Buy eggs')
+        self.assertEqual(note.processing_status, Note.ProcessingStatus.UNPROCESSED)
+
+    def test_blank_note_is_rejected(self):
+        self.authenticate(self.user_a)
+        response = self.client.post('/api/v1/notes/', {'raw_text': '   '}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_owner_can_retrieve_update_and_delete(self):
+        self.authenticate(self.user_a)
+        detail = f'/api/v1/notes/{self.note_a.pk}/'
+        self.assertEqual(self.client.get(detail).status_code, status.HTTP_200_OK)
+        update = self.client.patch(detail, {'raw_text': 'Updated note'}, format='json')
+        self.assertEqual(update.data['raw_text'], 'Updated note')
+        self.assertEqual(self.client.delete(detail).status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Note.objects.filter(pk=self.note_a.pk).exists())
+
+    def test_user_b_cannot_retrieve_update_or_delete_user_a_note(self):
+        self.authenticate(self.user_b)
+        detail = f'/api/v1/notes/{self.note_a.pk}/'
+        self.assertEqual(self.client.get(detail).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.patch(detail, {'raw_text': 'Stolen'}, format='json').status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.delete(detail).status_code, status.HTTP_404_NOT_FOUND)
+        self.note_a.refresh_from_db()
+        self.assertEqual(self.note_a.raw_text, 'User A private note')
+
+
+class AdminAccessTests(TestCase):
+    def setUp(self):
+        self.regular = User.objects.create_user(username='regular', password='SafePass!2026')
+        self.admin_user = User.objects.create_superuser(username='admin', email='admin@example.com', password='AdminPass!2026')
+
+    def test_anonymous_and_regular_users_cannot_access_admin_index(self):
+        admin_url = reverse('admin:index')
+        self.assertEqual(self.client.get(admin_url).status_code, status.HTTP_302_FOUND)
+        self.client.force_login(self.regular)
+        self.assertEqual(self.client.get(admin_url).status_code, status.HTTP_302_FOUND)
+
+    def test_superuser_can_access_note_admin(self):
+        self.client.force_login(self.admin_user)
+        self.assertEqual(self.client.get(reverse('admin:notes_note_changelist')).status_code, status.HTTP_200_OK)
