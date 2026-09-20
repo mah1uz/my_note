@@ -25,8 +25,8 @@ npm audit --omit=dev
 
 ## Coverage
 
-- 6 automated frontend tests passed.
-- Source statement/line coverage: approximately 92%.
+- 11 automated frontend tests passed.
+- Source statement/line coverage: approximately 96.89%.
 - Configured minimum gates: 80% statements and lines, 75% branches, 50% functions.
 - Playwright smoke flow passed for login, Quick Capture, Notes, and Note Detail.
 - Production build passed.
@@ -53,7 +53,19 @@ npm audit --omit=dev
 
 The regression test confirms that saving `Buy coffee from Agora` increases the dashboard task count from 3 to 4.
 
+9. Places had delete/add behavior but no edit behavior.
+   - Correction: added local place editing with a shared `updatePlace` action and regression coverage.
+10. Search displayed all fixed mock results for every query.
+    - Correction: added keyword-aware mock filtering and a tested no-results state. Real semantic search remains deferred to Part 4.
+11. Expense category values were overwritten by recent-record totals and did not reconcile with the displayed monthly mock total.
+    - Correction: category totals are now a stable mock summary that reconciles to ৳4,850. Real expense intelligence remains deferred to later parts.
+12. Regression coverage did not include registration, logout, note editing, task uncompletion, place editing, search empty states, or mobile menu opening.
+    - Correction: added automated tests for each of those frontend-owned flows.
+
 ## Remaining Part 1 notes
 
 - Notes and task changes are in-memory mock state and are not intended to persist after a full browser refresh.
+- Real authentication, protected routes, server persistence, API errors, and user isolation are intentionally deferred to Part 2.
+- Real semantic search and query ranking are intentionally deferred to Part 4; Part 1 only filters deterministic mock results.
+- Real expense calculations and backend expense intelligence are intentionally deferred to later parts.
 - The full audit still reports development-tool advisories; the production dependency audit is clean. These will be reviewed when the tooling versions are refreshed.

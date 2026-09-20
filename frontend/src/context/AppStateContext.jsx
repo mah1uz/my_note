@@ -67,6 +67,7 @@ export function AppStateProvider({ children }) {
   const toggleTask = (id) => setTasks((current) => current.map((task) => task.id === id ? { ...task, status: task.status === 'DONE' ? 'PENDING' : 'DONE' } : task))
 
   const addPlace = (place) => setPlaces((current) => [...current, { ...place, id: `place-${Date.now()}` }])
+  const updatePlace = (id, changes) => setPlaces((current) => current.map((place) => place.id === id ? { ...place, ...changes } : place))
   const deletePlace = (id) => setPlaces((current) => current.filter((place) => place.id !== id))
 
   const login = (identity) => setUser({ ...mockUser, email: identity || mockUser.email })
@@ -75,7 +76,7 @@ export function AppStateProvider({ children }) {
   const value = useMemo(() => ({
     user, notes, noteItems, tasks, events: mockEvents, expenses: mockExpenses, places,
     shoppingGroups: mockShoppingGroups, dashboardItems: mockDashboardItems,
-    addNote, updateNote, deleteNote, toggleTask, addPlace, deletePlace, login, logout
+    addNote, updateNote, deleteNote, toggleTask, addPlace, updatePlace, deletePlace, login, logout
   }), [user, notes, noteItems, tasks, places])
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>

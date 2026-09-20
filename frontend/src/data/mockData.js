@@ -79,8 +79,8 @@ export const mockDashboardItems = [
 ]
 
 export const mockSearchResults = [
-  { id: 'result-1', title: 'EM Quiz', excerpt: 'I have an EM quiz on September 23.', domain: 'Education', noteId: 'note-2' },
-  { id: 'result-2', title: 'Database Assignment', excerpt: 'Submit the database assignment this week.', domain: 'Education', noteId: 'note-1' }
+  { id: 'result-1', title: 'EM Quiz', excerpt: 'I have an EM quiz on September 23.', domain: 'Education', keywords: ['university', 'work', 'exam', 'deadline'], noteId: 'note-2' },
+  { id: 'result-2', title: 'Database Assignment', excerpt: 'Submit the database assignment this week.', domain: 'Education', keywords: ['university', 'work', 'assignment', 'deadline'], noteId: 'note-1' }
 ]
 
 export const mockAskResponse = {

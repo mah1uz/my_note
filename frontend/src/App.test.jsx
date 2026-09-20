@@ -42,6 +42,8 @@ describe('Part 1 application flows', () => {
     await user.click(toggle)
     expect(task).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /mark buy eggs incomplete/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /mark buy eggs incomplete/i }))
+    expect(screen.getByRole('button', { name: /mark buy eggs complete/i })).toBeInTheDocument()
   })
 
   it('switches between Search Notes and Ask My Notes', async () => {
@@ -62,6 +64,63 @@ describe('Part 1 application flows', () => {
     await user.click(screen.getByRole('button', { name: 'Delete' }))
     expect(await screen.findByRole('heading', { name: /^notes$/i })).toBeInTheDocument()
     expect(screen.queryByText('Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.')).not.toBeInTheDocument()
+  })
+
+  it('edits a note locally', async () => {
+    const user = userEvent.setup()
+    renderApp('/app/notes/note-2')
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    const editor = screen.getByDisplayValue('I have an EM quiz on September 23.')
+    await user.clear(editor)
+    await user.type(editor, 'I have an EM quiz on September 24.')
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+    expect(screen.getByText('I have an EM quiz on September 24.')).toBeInTheDocument()
+  })
+
+  it('validates registration and logs out locally', async () => {
+    const user = userEvent.setup()
+    renderApp('/register')
+    await user.click(screen.getByRole('button', { name: /create account/i }))
+    expect(screen.getByText(/use a name, email, matching passwords/i)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Name'), 'Maya Rahman')
+    await user.type(screen.getByLabelText('Email'), 'maya@example.com')
+    await user.type(screen.getByLabelText('Password'), 'secret123')
+    await user.type(screen.getByLabelText('Confirm password'), 'secret123')
+    await user.click(screen.getByRole('button', { name: /create account/i }))
+    expect(await screen.findByRole('heading', { name: /good morning, maya/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /log out/i }))
+    expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
+  })
+
+  it('filters mock search results and shows an empty state', async () => {
+    const user = userEvent.setup()
+    renderApp('/app/search')
+    const search = screen.getByRole('textbox', { name: /search your notes/i })
+    await user.clear(search)
+    await user.type(search, 'something impossible')
+    expect(screen.getByRole('heading', { name: /no search results/i })).toBeInTheDocument()
+    await user.clear(search)
+    await user.type(search, 'university work')
+    expect(screen.getByText('EM Quiz')).toBeInTheDocument()
+    expect(screen.getByText('Database Assignment')).toBeInTheDocument()
+  })
+
+  it('edits a saved place locally', async () => {
+    const user = userEvent.setup()
+    renderApp('/app/places')
+    await user.click(screen.getAllByRole('button', { name: 'Edit' })[0])
+    const nameInput = screen.getByRole('textbox', { name: 'Place name' })
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Agora Market')
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+    expect(screen.getByRole('heading', { name: 'Agora Market' })).toBeInTheDocument()
+  })
+
+  it('opens the mobile navigation menu', async () => {
+    const user = userEvent.setup()
+    renderApp('/app')
+    await user.click(screen.getByRole('button', { name: /toggle menu/i }))
+    expect(screen.getByRole('link', { name: 'Settings', exact: true })).toBeInTheDocument()
   })
 
   it('renders every planned application page', async () => {
