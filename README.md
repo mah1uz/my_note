@@ -41,4 +41,6 @@ npm run build
 npm run test:e2e
 ```
 
+The E2E runner creates a fresh ignored `backend/.e2e.sqlite3` database. On Windows, create `backend/.venv-win` or set `BACKEND_PYTHON` to the Python executable for an environment containing `backend/requirements.txt`.
+
 See `docs/architecture.md`, `docs/erd.md`, `docs/api.md`, `docs/admin.md`, and `docs/testing/part-02-django-fullstack.md` for implementation and verification details.

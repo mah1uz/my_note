@@ -10,7 +10,7 @@ Completed and verified on September 21, 2026.
 - `backend/.venv/bin/python manage.py makemigrations --check --dry-run`: passed with no model changes.
 - `backend/.venv/bin/python manage.py test --verbosity 2`: 17 tests passed.
 - `npm test`: 9 React integration tests passed.
-- `npm run test:coverage`: passed with 89.71% statements and 79.74% branches across measured frontend files.
+- `npm run test:coverage`: passed with 91.63% statements and 78.90% branches across measured frontend files.
 - `npm run build`: Vite production build passed.
 - `npm run test:e2e`: one Chromium full-stack test passed against Django and SQLite.
 - `backend/.venv/bin/python -m pip check`: passed with no broken requirements.
@@ -28,17 +28,24 @@ The browser test registers a unique user, creates a Note, reloads to prove persi
 - Removed simulated AI extraction from newly persisted Notes; real Notes remain `UNPROCESSED`.
 - Added protected routes and auth bootstrap loading so `/app/*` does not render before session restoration.
 - Added forgot-password and reset-password UI routes.
+- Removed reset tokens from all API responses; local reset links are delivered only through the configured email backend.
 - Cleared the in-memory access token when session restoration fails.
 - Serialized concurrent refresh attempts to prevent refresh-token rotation races, including React Strict Mode startup.
+- Serialized explicit login, registration, and logout behind startup restoration to prevent stale restore responses from replacing a newer account session.
+- Serialized explicit auth transitions against refreshes triggered by later API 401 responses.
 - Added an unauthorized callback so an unrecoverable refresh failure clears React authentication and cached Notes.
 - Made local logout clear React state and redirect even when the server request fails.
 - Reloaded Notes when the authenticated user ID changes, preventing one account's cached Notes from appearing after an account switch.
+- Discarded delayed detail and mutation responses when the authenticated account changes.
 - Added direct detail API retrieval instead of relying only on the list response.
 - Added visible errors for Note list/create/update/delete failures and cleared stale errors after successful requests.
+- Disabled Note mutation controls while requests are in flight to prevent duplicate creates, updates, and deletes.
 - Restricted DRF API parsing to JSON; cross-origin form posts cannot invoke auth endpoints without a CORS preflight.
+- Made direct-detail failures authoritative so stale cached content is not displayed after a 404 or other retrieval failure.
 - Enabled SimpleJWT password-change revocation and blacklisted all outstanding refresh tokens after a password reset.
 - Updated production email backend selection so non-debug deployments default to SMTP rather than console output.
 - Replaced the old browser test with a real full-stack persistent CRUD test and configured Playwright to launch Django and Vite.
+- Isolated Playwright in a freshly migrated disposable SQLite database and disabled reuse of stale development servers.
 
 ## Acceptance reevaluation
 
@@ -49,3 +56,4 @@ All 17 Part 2 acceptance criteria pass. Authentication and Notes are real; SQLit
 - SQLite and the console email backend are development defaults. Production deployment configuration belongs to Part 6.
 - Django's built-in User model does not make `email` database-unique; the public registration endpoint normalizes email and rejects duplicates, while `username` is set to that normalized email and is database-unique.
 - Browser isolation is enforced and exhaustively tested at the API layer; the E2E test covers one account while React has a separate account-switch cache regression test.
+- Auth transitions and refresh rotation are serialized within one browser tab. Independent tabs can still contend over the shared rotating refresh cookie; cross-tab coordination is deferred beyond the Part 2 single-session scope.

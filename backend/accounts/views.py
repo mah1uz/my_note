@@ -2,9 +2,11 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+from django.db import IntegrityError
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
@@ -50,7 +52,11 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        return auth_response(serializer.save(), status.HTTP_201_CREATED)
+        try:
+            user = serializer.save()
+        except IntegrityError:
+            raise ValidationError({'email': 'An account with this email already exists.'})
+        return auth_response(user, status.HTTP_201_CREATED)
 
 
 class LoginView(APIView):
@@ -66,6 +72,7 @@ class RefreshView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        request.data
         raw_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
         if not raw_token:
             return Response({'detail': 'Refresh token is missing.'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -82,6 +89,7 @@ class LogoutView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        request.data
         raw_token = request.COOKIES.get(settings.REFRESH_COOKIE_NAME)
         if raw_token:
             try:
@@ -111,8 +119,6 @@ class PasswordResetRequestView(APIView):
             token = default_token_generator.make_token(user)
             reset_url = f'{settings.FRONTEND_URL}/reset-password/{uid}/{token}'
             send_mail('Reset your Rememberly password', f'Use this link to reset your password:\n\n{reset_url}', None, [user.email])
-            if settings.DEBUG:
-                payload['reset_url'] = reset_url
         return Response(payload)
 
 
@@ -129,6 +135,7 @@ class PasswordResetConfirmView(APIView):
             return Response({'detail': 'The password reset link is invalid or expired.'}, status=status.HTTP_400_BAD_REQUEST)
         if not default_token_generator.check_token(user, serializer.validated_data['token']):
             return Response({'detail': 'The password reset link is invalid or expired.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer.validate_password_for_user(user)
         user.set_password(serializer.validated_data['password'])
         user.save(update_fields=['password'])
         for outstanding_token in OutstandingToken.objects.filter(user=user):

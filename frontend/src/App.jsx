@@ -54,9 +54,11 @@ function QuickCapture({ compact = false }) {
   const [text, setText] = useState('')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
   const save = async (event) => {
     event.preventDefault()
-    if (!text.trim()) return
+    if (!text.trim() || saving) return
+    setSaving(true)
     try {
       await addNote(text)
       setText('')
@@ -65,12 +67,14 @@ function QuickCapture({ compact = false }) {
       window.setTimeout(() => setSaved(false), 2400)
     } catch (requestError) {
       setError(requestError.message)
+    } finally {
+      setSaving(false)
     }
   }
   return <form className={`capture-card ${compact ? 'capture-compact' : ''}`} onSubmit={save}>
     <div className="capture-heading"><span className="capture-icon">✦</span><div><h2>Quick capture</h2><p>Get it out of your head. We&apos;ll help organize it.</p></div></div>
     <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="What do you want to remember?" rows={compact ? 3 : 4} aria-label="What do you want to remember?" />
-    {error && <p className="form-error">{error}</p>}<div className="capture-footer"><span className={saved ? 'save-message visible' : 'save-message'}>{saved ? 'Saved as an unprocessed note' : 'Try: “I need eggs from Agora.”'}</span><div className="capture-actions"><button className="button button-ghost" type="button" onClick={() => navigate('/app/notes/new')}>Open full editor</button><button className="button button-primary" type="submit">Save note <span>↗</span></button></div></div>
+    {error && <p className="form-error">{error}</p>}<div className="capture-footer"><span className={saved ? 'save-message visible' : 'save-message'}>{saved ? 'Saved as an unprocessed note' : 'Try: “I need eggs from Agora.”'}</span><div className="capture-actions"><button className="button button-ghost" type="button" onClick={() => navigate('/app/notes/new')}>Open full editor</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save note'} <span>↗</span></button></div></div>
   </form>
 }
 
@@ -81,7 +85,9 @@ function DashboardPage() {
 }
 
 function NoteCard({ note, onDelete }) {
-  return <article className="note-card"><div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div><Link to={`/app/notes/${note.id}`} className="note-title">{note.originalText}</Link><div className="note-card-items"><span>Saved securely · AI processing begins in Part 3</span></div><div className="note-card-bottom"><div className="domain-list" /><div className="card-actions"><Link to={`/app/notes/${note.id}`} aria-label={`View ${note.originalText}`}>View</Link><button onClick={() => onDelete(note.id).catch(() => {})}>Delete</button></div></div></article>
+  const [deleting, setDeleting] = useState(false)
+  const remove = async () => { if (deleting) return; setDeleting(true); try { await onDelete(note.id) } catch { setDeleting(false) } }
+  return <article className="note-card"><div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div><Link to={`/app/notes/${note.id}`} className="note-title">{note.originalText}</Link><div className="note-card-items"><span>Saved securely · AI processing begins in Part 3</span></div><div className="note-card-bottom"><div className="domain-list" /><div className="card-actions"><Link to={`/app/notes/${note.id}`} aria-label={`View ${note.originalText}`}>View</Link><button onClick={remove} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></article>
 }
 
 function NotesPage() {
@@ -94,8 +100,9 @@ function NewNotePage() {
   const navigate = useNavigate()
   const [text, setText] = useState('')
   const [error, setError] = useState('')
-  const save = async (event) => { event.preventDefault(); if (!text.trim()) { setError('A note cannot be empty.'); return } try { const note = await addNote(text); navigate(`/app/notes/${note.id}`) } catch (requestError) { setError(requestError.message) } }
-  return <><PageHeader eyebrow="Capture first" title="New note" description="Write naturally. No categories or forms to fill out first." /><div className="editor-layout"><form className="editor-card" onSubmit={save}><label htmlFor="note-editor">Your thought</label><textarea id="note-editor" value={text} onChange={(event) => setText(event.target.value)} placeholder="I have an EM quiz on September 23..." rows="12" autoFocus />{error && <p className="form-error">{error}</p>}<div className="editor-footer"><span>{text.length} characters</span><button className="button button-primary" type="submit">Save note <span>↗</span></button></div></form><div className="editor-tip"><span className="tip-icon">✦</span><h3>Captured now, organized later</h3><p>Part 2 securely saves the original note. AI classification and extracted items begin in Part 3.</p><div className="example-note">“Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.”</div></div></div></>
+  const [saving, setSaving] = useState(false)
+  const save = async (event) => { event.preventDefault(); if (!text.trim()) { setError('A note cannot be empty.'); return } if (saving) return; setSaving(true); try { const note = await addNote(text); navigate(`/app/notes/${note.id}`) } catch (requestError) { setError(requestError.message); setSaving(false) } }
+  return <><PageHeader eyebrow="Capture first" title="New note" description="Write naturally. No categories or forms to fill out first." /><div className="editor-layout"><form className="editor-card" onSubmit={save}><label htmlFor="note-editor">Your thought</label><textarea id="note-editor" value={text} onChange={(event) => setText(event.target.value)} placeholder="I have an EM quiz on September 23..." rows="12" autoFocus />{error && <p className="form-error">{error}</p>}<div className="editor-footer"><span>{text.length} characters</span><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save note'} <span>↗</span></button></div></form><div className="editor-tip"><span className="tip-icon">✦</span><h3>Captured now, organized later</h3><p>Part 2 securely saves the original note. AI classification and extracted items begin in Part 3.</p><div className="example-note">“Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.”</div></div></div></>
 }
 
 function NoteDetailPage() {
@@ -106,19 +113,21 @@ function NoteDetailPage() {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState('')
   const [error, setError] = useState('')
+  const [detailError, setDetailError] = useState('')
   const [detailLoading, setDetailLoading] = useState(true)
+  const [pendingAction, setPendingAction] = useState('')
   useEffect(() => { if (note) setText(note.originalText) }, [note])
   useEffect(() => {
     let active = true
     setDetailLoading(true)
-    loadNote(id).catch((requestError) => { if (active) setError(requestError.message) }).finally(() => { if (active) setDetailLoading(false) })
+    loadNote(id).then(() => { if (active) setDetailError('') }).catch((requestError) => { if (active) setDetailError(requestError.message) }).finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
   }, [id])
   if (loading || detailLoading) return <div className="loading-state">Loading note…</div>
-  if (!note) return <EmptyState title="Note not found" text={error || 'This note may have been deleted or is no longer available.'} />
-  const save = async () => { if (!text.trim()) { setError('A note cannot be empty.'); return } try { await updateNote(note.id, text); setEditing(false); setError('') } catch (requestError) { setError(requestError.message) } }
-  const remove = async () => { try { await deleteNote(note.id); navigate('/app/notes') } catch (requestError) { setError(requestError.message) } }
-  return <><Link to="/app/notes" className="back-link">← Back to notes</Link><div className="detail-header"><div><span className="eyebrow">Note detail</span><h1>Captured thought</h1><p>{new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="header-actions"><button className="button button-ghost" onClick={() => setEditing(!editing)}>{editing ? 'Cancel' : 'Edit'}</button><button className="button button-danger" onClick={remove}>Delete</button></div></div>{error && <p className="form-error">{error}</p>}<div className="detail-card"><div className="original-note"><span className="eyebrow">Original note</span>{editing ? <textarea value={text} onChange={(event) => setText(event.target.value)} rows="5" /> : <p>{note.originalText}</p>}{editing && <button className="button button-primary" onClick={save}>Save changes</button>}</div><div className="detail-meta"><Pill tone="success">{note.processingStatus}</Pill><span>Owned by your account</span></div></div><section className="section-block detail-items"><EmptyState title="Awaiting organization" text="AI extraction and NoteItems are intentionally deferred to Part 3. Your original note is safely stored." /></section></>
+  if (detailError || !note) return <EmptyState title="Note not found" text={detailError || 'This note may have been deleted or is no longer available.'} />
+  const save = async () => { if (!text.trim()) { setError('A note cannot be empty.'); return } if (pendingAction) return; setPendingAction('save'); try { await updateNote(note.id, text); setEditing(false); setError('') } catch (requestError) { setError(requestError.message) } finally { setPendingAction('') } }
+  const remove = async () => { if (pendingAction) return; setPendingAction('delete'); try { await deleteNote(note.id); navigate('/app/notes') } catch (requestError) { setError(requestError.message); setPendingAction('') } }
+  return <><Link to="/app/notes" className="back-link">← Back to notes</Link><div className="detail-header"><div><span className="eyebrow">Note detail</span><h1>Captured thought</h1><p>{new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="header-actions"><button className="button button-ghost" onClick={() => setEditing(!editing)} disabled={Boolean(pendingAction)}>{editing ? 'Cancel' : 'Edit'}</button><button className="button button-danger" onClick={remove} disabled={Boolean(pendingAction)}>{pendingAction === 'delete' ? 'Deleting…' : 'Delete'}</button></div></div>{error && <p className="form-error">{error}</p>}<div className="detail-card"><div className="original-note"><span className="eyebrow">Original note</span>{editing ? <textarea value={text} onChange={(event) => setText(event.target.value)} rows="5" /> : <p>{note.originalText}</p>}{editing && <button className="button button-primary" onClick={save} disabled={Boolean(pendingAction)}>{pendingAction === 'save' ? 'Saving…' : 'Save changes'}</button>}</div><div className="detail-meta"><Pill tone="success">{note.processingStatus}</Pill><span>Owned by your account</span></div></div><section className="section-block detail-items"><EmptyState title="Awaiting organization" text="AI extraction and NoteItems are intentionally deferred to Part 3. Your original note is safely stored." /></section></>
 }
 
 function TasksPage() {
@@ -160,7 +169,7 @@ function SearchPage() {
   const [question, setQuestion] = useState('What academic deadlines do I have?')
   const searchTerms = query.toLowerCase().trim().split(/\s+/).filter(Boolean)
   const results = mockSearchResults.filter((result) => searchTerms.length === 0 || searchTerms.some((term) => [result.title, result.excerpt, result.domain, ...(result.keywords || [])].join(' ').toLowerCase().includes(term)))
-  return <><PageHeader eyebrow="Find the thread" title="Search" description="Explore your notes by meaning, not just by keywords." /><div className="tabs"><button className={tab === 'search' ? 'tab active' : 'tab'} onClick={() => setTab('search')}>Search notes</button><button className={tab === 'ask' ? 'tab active' : 'tab'} onClick={() => setTab('ask')}>Ask my notes</button></div>{tab === 'search' ? <div className="search-panel"><form className="search-bar" onSubmit={(event) => event.preventDefault()}><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your notes..." aria-label="Search your notes" /><button className="button button-primary">Search</button></form>{results.length ? <div className="search-results"><span className="eyebrow">Mock semantic results</span>{results.map((result) => <Link to={`/app/notes/${result.noteId}`} className="search-result" key={result.id}><div><Pill>{result.domain}</Pill><h3>{result.title}</h3><p>{result.excerpt}</p></div><span>→</span></Link>)}</div> : <EmptyState title="No search results" text="Try another phrase, such as “university work”." />}</div> : <div className="ask-panel"><form onSubmit={(event) => event.preventDefault()}><label htmlFor="ask-question">Ask a question about your notes</label><div className="ask-input"><textarea id="ask-question" value={question} onChange={(event) => setQuestion(event.target.value)} rows="3" /><button className="button button-primary">Ask <span>↗</span></button></div></form><div className="answer-card"><div className="answer-label"><span className="sparkle">✦</span><span>Mock answer · prototype</span></div><p>{mockAskResponse.answer}</p><div className="source-list"><span className="eyebrow">Source notes</span>{mockAskResponse.sources.map((source) => <span className="source" key={source}>↗ {source}</span>)}</div></div></div>}</>
+  return <><PageHeader eyebrow="Find the thread" title="Search" description="Explore your notes by meaning, not just by keywords." /><div className="tabs"><button className={tab === 'search' ? 'tab active' : 'tab'} onClick={() => setTab('search')}>Search notes</button><button className={tab === 'ask' ? 'tab active' : 'tab'} onClick={() => setTab('ask')}>Ask my notes</button></div>{tab === 'search' ? <div className="search-panel"><form className="search-bar" onSubmit={(event) => event.preventDefault()}><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your notes..." aria-label="Search your notes" /><button className="button button-primary">Search</button></form>{results.length ? <div className="search-results"><span className="eyebrow">Mock semantic results</span>{results.map((result) => <article className="search-result" key={result.id}><div><Pill>{result.domain}</Pill><h3>{result.title}</h3><p>{result.excerpt}</p></div><span>Prototype</span></article>)}</div> : <EmptyState title="No search results" text="Try another phrase, such as “university work”." />}</div> : <div className="ask-panel"><form onSubmit={(event) => event.preventDefault()}><label htmlFor="ask-question">Ask a question about your notes</label><div className="ask-input"><textarea id="ask-question" value={question} onChange={(event) => setQuestion(event.target.value)} rows="3" /><button className="button button-primary">Ask <span>↗</span></button></div></form><div className="answer-card"><div className="answer-label"><span className="sparkle">✦</span><span>Mock answer · prototype</span></div><p>{mockAskResponse.answer}</p><div className="source-list"><span className="eyebrow">Source notes</span>{mockAskResponse.sources.map((source) => <span className="source" key={source}>↗ {source}</span>)}</div></div></div>}</>
 }
 
 function SettingsPage() {
@@ -170,33 +179,32 @@ function SettingsPage() {
 }
 
 function LoginPage() {
-  const { login } = useAuth()
+  const { login, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [identity, setIdentity] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const submit = async (event) => { event.preventDefault(); if (!identity.trim() || !password) { setError('Enter your email and password to continue.'); return } setSubmitting(true); try { await login(identity, password); navigate('/app') } catch (requestError) { setError(requestError.message) } finally { setSubmitting(false) } }
-  return <AuthLayout title="Welcome back" description="Pick up where you left off."><form className="auth-form" onSubmit={submit}><label>Email or username<input value={identity} onChange={(event) => setIdentity(event.target.value)} placeholder="maya@example.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /></label><Link className="text-link auth-help" to="/forgot-password">Forgot password?</Link>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide" disabled={submitting}>{submitting ? 'Logging in…' : 'Log in'} <span>↗</span></button></form><p className="auth-switch">New here? <Link to="/register">Create an account</Link></p></AuthLayout>
+  return <AuthLayout title="Welcome back" description="Pick up where you left off."><form className="auth-form" onSubmit={submit}><label>Email or username<input value={identity} onChange={(event) => setIdentity(event.target.value)} placeholder="maya@example.com" /></label><label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /></label><Link className="text-link auth-help" to="/forgot-password">Forgot password?</Link>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide" disabled={submitting || authLoading}>{submitting ? 'Logging in…' : authLoading ? 'Checking session…' : 'Log in'} <span>↗</span></button></form><p className="auth-switch">New here? <Link to="/register">Create an account</Link></p></AuthLayout>
 }
 
 function RegisterPage() {
-  const { register } = useAuth()
+  const { register, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const submit = async (event) => { event.preventDefault(); if (!form.name.trim() || !form.email.trim() || form.password.length < 8 || form.password !== form.confirm) { setError('Use a name, email, matching passwords, and at least 8 password characters.'); return } setSubmitting(true); try { await register({ name: form.name, email: form.email, password: form.password, password_confirm: form.confirm }); navigate('/app') } catch (requestError) { setError(requestError.message) } finally { setSubmitting(false) } }
-  return <AuthLayout title="Make space for more" description="A gentle home for the things you want to remember."><form className="auth-form" onSubmit={submit}><label>Name<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Maya Rahman" /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="maya@example.com" /></label><label>Password<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 8 characters" /></label><label>Confirm password<input type="password" value={form.confirm} onChange={(event) => setForm({ ...form, confirm: event.target.value })} placeholder="Repeat your password" /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide" disabled={submitting}>{submitting ? 'Creating account…' : 'Create account'} <span>↗</span></button></form><p className="auth-switch">Already have an account? <Link to="/login">Log in</Link></p></AuthLayout>
+  return <AuthLayout title="Make space for more" description="A gentle home for the things you want to remember."><form className="auth-form" onSubmit={submit}><label>Name<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Maya Rahman" /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="maya@example.com" /></label><label>Password<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 8 characters" /></label><label>Confirm password<input type="password" value={form.confirm} onChange={(event) => setForm({ ...form, confirm: event.target.value })} placeholder="Repeat your password" /></label>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide" disabled={submitting || authLoading}>{submitting ? 'Creating account…' : authLoading ? 'Checking session…' : 'Create account'} <span>↗</span></button></form><p className="auth-switch">Already have an account? <Link to="/login">Log in</Link></p></AuthLayout>
 }
 
 function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
-  const [resetUrl, setResetUrl] = useState('')
   const [error, setError] = useState('')
-  const submit = async (event) => { event.preventDefault(); try { const data = await requestPasswordReset(email); setMessage(data.detail); setResetUrl(data.reset_url || ''); setError('') } catch (requestError) { setError(requestError.message) } }
-  return <AuthLayout title="Reset your password" description="Enter your account email. The response stays private even if the address is unknown."><form className="auth-form" onSubmit={submit}><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>{message && <p className="form-success">{message}</p>}{resetUrl && <a className="button button-ghost" href={resetUrl}>Open development reset link</a>}{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide">Send reset link</button></form><p className="auth-switch"><Link to="/login">Back to login</Link></p></AuthLayout>
+  const submit = async (event) => { event.preventDefault(); try { const data = await requestPasswordReset(email); setMessage(data.detail); setError('') } catch (requestError) { setError(requestError.message) } }
+  return <AuthLayout title="Reset your password" description="Enter your account email. The response stays private even if the address is unknown."><form className="auth-form" onSubmit={submit}><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>{message && <p className="form-success">{message}</p>}{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide">Send reset link</button></form><p className="auth-switch"><Link to="/login">Back to login</Link></p></AuthLayout>
 }
 
 function ResetPasswordPage() {

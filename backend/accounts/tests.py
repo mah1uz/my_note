@@ -1,5 +1,6 @@
 from urllib.parse import urlparse
 
+from django.core import mail
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from rest_framework import status
@@ -50,7 +51,7 @@ class AuthenticationApiTests(APITestCase):
         self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(refresh.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @override_settings(DEBUG=True, FRONTEND_URL='http://localhost:5173')
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend', FRONTEND_URL='http://localhost:5173')
     def test_password_reset_is_generic_and_changes_password_with_valid_token(self):
         login = self.client.post('/api/v1/auth/login/', {'identity': self.user.email, 'password': 'SafePass!2026'}, format='json')
         old_access = login.data['access']
@@ -58,7 +59,12 @@ class AuthenticationApiTests(APITestCase):
         request = self.client.post('/api/v1/auth/password-reset/', {'email': self.user.email}, format='json')
         self.assertEqual(missing.data['detail'], request.data['detail'])
         self.assertNotIn('reset_url', missing.data)
-        reset_path = urlparse(request.data['reset_url']).path.split('/')
+        self.assertNotIn('reset_url', request.data)
+        self.assertEqual(len(mail.outbox), 1)
+        reset_url = mail.outbox[0].body.split()[-1]
+        reset_path = urlparse(reset_url).path.split('/')
+        weak = self.client.post('/api/v1/auth/password-reset/confirm/', {'uid': reset_path[-2], 'token': reset_path[-1], 'password': 'user@example.com', 'password_confirm': 'user@example.com'}, format='json')
+        self.assertEqual(weak.status_code, status.HTTP_400_BAD_REQUEST)
         response = self.client.post('/api/v1/auth/password-reset/confirm/', {'uid': reset_path[-2], 'token': reset_path[-1], 'password': 'ChangedPass!2026', 'password_confirm': 'ChangedPass!2026'}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.user.refresh_from_db()
@@ -69,8 +75,12 @@ class AuthenticationApiTests(APITestCase):
         self.assertEqual(self.client.post('/api/v1/auth/refresh/', {}, format='json').status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_auth_endpoints_reject_form_posts(self):
-        response = self.client.post('/api/v1/auth/login/', {'identity': self.user.email, 'password': 'SafePass!2026'})
-        self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+        login = self.client.post('/api/v1/auth/login/', {'identity': self.user.email, 'password': 'SafePass!2026'})
+        refresh = self.client.post('/api/v1/auth/refresh/', {})
+        logout = self.client.post('/api/v1/auth/logout/', {})
+        self.assertEqual(login.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+        self.assertEqual(refresh.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+        self.assertEqual(logout.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
 
     def test_invalid_password_reset_token_is_rejected(self):
         response = self.client.post('/api/v1/auth/password-reset/confirm/', {'uid': 'invalid', 'token': 'invalid', 'password': 'ChangedPass!2026', 'password_confirm': 'ChangedPass!2026'}, format='json')

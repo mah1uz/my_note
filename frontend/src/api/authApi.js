@@ -1,15 +1,19 @@
-import { apiRequest, refreshAccessToken, setAccessToken } from './http'
+import { apiRequest, refreshAccessToken, setAccessToken, withAuthTransition } from './http'
 
 export async function registerAccount(payload) {
-  const data = await apiRequest('/auth/register/', { method: 'POST', body: JSON.stringify(payload) }, false)
-  setAccessToken(data.access)
-  return data.user
+  return withAuthTransition(async () => {
+    const data = await apiRequest('/auth/register/', { method: 'POST', body: JSON.stringify(payload) }, false)
+    setAccessToken(data.access)
+    return data.user
+  })
 }
 
 export async function loginAccount(identity, password) {
-  const data = await apiRequest('/auth/login/', { method: 'POST', body: JSON.stringify({ identity, password }) }, false)
-  setAccessToken(data.access)
-  return data.user
+  return withAuthTransition(async () => {
+    const data = await apiRequest('/auth/login/', { method: 'POST', body: JSON.stringify({ identity, password }) }, false)
+    setAccessToken(data.access)
+    return data.user
+  })
 }
 
 export async function restoreSession() {
@@ -23,11 +27,13 @@ export async function restoreSession() {
 }
 
 export async function logoutAccount() {
-  try {
-    await apiRequest('/auth/logout/', { method: 'POST', body: '{}' }, false)
-  } finally {
-    setAccessToken(null)
-  }
+  return withAuthTransition(async () => {
+    try {
+      await apiRequest('/auth/logout/', { method: 'POST', body: '{}' }, false)
+    } finally {
+      setAccessToken(null)
+    }
+  })
 }
 
 export const requestPasswordReset = (email) => apiRequest('/auth/password-reset/', { method: 'POST', body: JSON.stringify({ email }) }, false)

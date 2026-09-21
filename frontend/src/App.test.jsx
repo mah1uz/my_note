@@ -126,7 +126,7 @@ describe('Part 2 full-stack UI flows', () => {
   it('validates login, reports API errors, and opens the dashboard', async () => {
     const user = userEvent.setup()
     renderApp('/login')
-    await user.click(screen.getByRole('button', { name: /log in/i }))
+    await user.click(await screen.findByRole('button', { name: /log in/i }))
     expect(screen.getByText(/enter your email and password/i)).toBeInTheDocument()
     await user.type(screen.getByLabelText(/email or username/i), 'maya@example.com')
     await user.type(screen.getByLabelText(/^password$/i), 'wrong-password')

@@ -1,5 +1,6 @@
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 User = get_user_model()
@@ -31,12 +32,16 @@ class RegisterSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({'password_confirm': 'Passwords do not match.'})
-        validate_password(attrs['password'])
+        name = attrs['name'].strip()
+        email = attrs['email']
+        candidate = User(username=email, email=email, first_name=name)
+        validate_password(attrs['password'], candidate)
+        attrs['name'] = name
         return attrs
 
     def create(self, validated_data):
         validated_data.pop('password_confirm')
-        name = validated_data.pop('name').strip()
+        name = validated_data.pop('name')
         email = validated_data.pop('email')
         return User.objects.create_user(
             username=email,
@@ -76,5 +81,10 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({'password_confirm': 'Passwords do not match.'})
-        validate_password(attrs['password'])
         return attrs
+
+    def validate_password_for_user(self, user):
+        try:
+            validate_password(self.validated_data['password'], user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({'password': error.messages})

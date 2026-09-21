@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { loginAccount, logoutAccount, registerAccount, restoreSession } from '../api/authApi'
 import { setUnauthorizedHandler } from '../api/http'
 
@@ -7,6 +7,7 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const restorePromiseRef = useRef(Promise.resolve())
 
   useEffect(() => {
     setUnauthorizedHandler(() => setCurrentUser(null))
@@ -15,7 +16,9 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let active = true
-    restoreSession().then((user) => {
+    const restorePromise = restoreSession()
+    restorePromiseRef.current = restorePromise
+    restorePromise.then((user) => {
       if (active) setCurrentUser(user)
     }).catch(() => {
       if (active) setCurrentUser(null)
@@ -26,18 +29,21 @@ export function AuthProvider({ children }) {
   }, [])
 
   const login = async (identity, password) => {
+    await restorePromiseRef.current.catch(() => {})
     const user = await loginAccount(identity, password)
     setCurrentUser(user)
     return user
   }
 
   const register = async (details) => {
+    await restorePromiseRef.current.catch(() => {})
     const user = await registerAccount(details)
     setCurrentUser(user)
     return user
   }
 
   const logout = async () => {
+    await restorePromiseRef.current.catch(() => {})
     try {
       await logoutAccount()
     } finally {

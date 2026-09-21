@@ -3,6 +3,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `http://${defaultHost}
 
 let accessToken = null
 let refreshPromise = null
+let authTransitionPromise = null
 let unauthorizedHandler = () => {}
 
 export class ApiError extends Error {
@@ -22,6 +23,19 @@ export function setUnauthorizedHandler(handler) {
   unauthorizedHandler = handler
 }
 
+export async function withAuthTransition(operation) {
+  while (authTransitionPromise) await authTransitionPromise
+  let releaseTransition
+  authTransitionPromise = new Promise((resolve) => { releaseTransition = resolve })
+  try {
+    if (refreshPromise) await refreshPromise.catch(() => {})
+    return await operation()
+  } finally {
+    authTransitionPromise = null
+    releaseTransition()
+  }
+}
+
 function errorMessage(data, fallback) {
   if (typeof data?.detail === 'string') return data.detail
   if (data && typeof data === 'object') {
@@ -39,6 +53,7 @@ async function parseResponse(response) {
 }
 
 export function refreshAccessToken() {
+  if (authTransitionPromise) return authTransitionPromise.then(() => refreshAccessToken())
   if (!refreshPromise) {
     refreshPromise = fetch(`${API_BASE_URL}/auth/refresh/`, {
       method: 'POST',

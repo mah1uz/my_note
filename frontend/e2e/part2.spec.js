@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 test('user can register and complete persistent Notes CRUD', async ({ page }) => {
   const unique = Date.now()
   const email = `playwright-${unique}@example.com`
-  const password = 'BrowserTest!234'
+  const password = 'Cedar!River9426'
 
   await page.goto('/register')
   await page.getByLabel('Name').fill('Browser Tester')

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createNote, editNote, getNote, listNotes, removeNote } from '../api/notesApi'
 import { useAuth } from './AuthContext'
 
@@ -9,6 +9,8 @@ export function NotesProvider({ children }) {
   const [notes, setNotes] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const accountIdRef = useRef(currentUser?.id)
+  accountIdRef.current = currentUser?.id
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -31,48 +33,56 @@ export function NotesProvider({ children }) {
   }, [currentUser?.id, isAuthenticated])
 
   const addNote = async (text) => {
+    const accountId = accountIdRef.current
     try {
       const note = await createNote(text.trim())
+      if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
       setNotes((current) => [note, ...current])
       setError('')
       return note
     } catch (requestError) {
-      setError(requestError.message)
+      if (accountIdRef.current === accountId) setError(requestError.message)
       throw requestError
     }
   }
 
   const loadNote = async (id) => {
+    const accountId = accountIdRef.current
     try {
       const note = await getNote(id)
+      if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
       setNotes((current) => [note, ...current.filter((item) => item.id !== note.id)])
       setError('')
       return note
     } catch (requestError) {
-      setError(requestError.message)
+      if (accountIdRef.current === accountId) setError(requestError.message)
       throw requestError
     }
   }
 
   const updateNote = async (id, text) => {
+    const accountId = accountIdRef.current
     try {
       const note = await editNote(id, text.trim())
+      if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
       setNotes((current) => current.map((item) => item.id === id ? note : item))
       setError('')
       return note
     } catch (requestError) {
-      setError(requestError.message)
+      if (accountIdRef.current === accountId) setError(requestError.message)
       throw requestError
     }
   }
 
   const deleteNote = async (id) => {
+    const accountId = accountIdRef.current
     try {
       await removeNote(id)
+      if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
       setNotes((current) => current.filter((note) => note.id !== id))
       setError('')
     } catch (requestError) {
-      setError(requestError.message)
+      if (accountIdRef.current === accountId) setError(requestError.message)
       throw requestError
     }
   }

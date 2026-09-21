@@ -16,7 +16,7 @@ Request bodies must use `Content-Type: application/json`. Form-encoded API reque
 | POST | `/auth/password-reset/` | Request a signed password-reset link |
 | POST | `/auth/password-reset/confirm/` | Set a new password using `uid` and `token` |
 
-The password-reset request always returns a generic success message to prevent email enumeration. In `DEBUG` only, a reset URL is included when the account exists so the university prototype can be tested without an email provider.
+The password-reset request always returns the same generic success response and never returns a reset token or URL. In local development, Django's console email backend prints the email containing the link to the backend terminal.
 
 Successful password reset invalidates existing access tokens and blacklists outstanding refresh tokens for that user.
 

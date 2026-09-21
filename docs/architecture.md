@@ -19,6 +19,6 @@ The access token is held in React memory. The refresh token is kept in an HttpOn
 
 Refresh requests are shared while one is in flight so rotating tokens cannot race. An unrecoverable refresh failure clears authenticated React state and cached Notes. Password changes invalidate existing access tokens and blacklist outstanding refresh tokens.
 
-The API accepts JSON request bodies only. Combined with the restricted development CORS allowlist and the refresh cookie's `SameSite=Lax` policy, this prevents cross-origin HTML form submissions from invoking authentication endpoints.
+The API accepts JSON request bodies only, including refresh and logout. Combined with the restricted development CORS allowlist and the refresh cookie's `SameSite=Lax` policy, this prevents cross-origin HTML form submissions from invoking authentication endpoints.
 
 New persisted Notes remain `UNPROCESSED`. Part 2 does not simulate AI extraction for those notes.
