@@ -89,6 +89,15 @@ function installApiMock() {
       return jsonResponse(notePayload(note), 201)
     }
 
+    const analyzeMatch = path.match(/\/notes\/(\d+)\/analyze\/$/)
+    if (analyzeMatch && method === 'POST') {
+      const id = Number(analyzeMatch[1])
+      state.analyzedNoteIds = [...(state.analyzedNoteIds || []), id]
+      const note = state.notes.find((item) => item.id === id)
+      if (!note) return jsonResponse({ detail: 'Not found.' }, 404)
+      return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: [], domains: [], analysis_running: false })
+    }
+
     const match = path.match(/\/notes\/(\d+)\/$/)
     if (match) {
       const id = Number(match[1])
@@ -216,6 +225,15 @@ describe('Part 2 full-stack UI flows', () => {
     await user.click(screen.getByRole('button', { name: /retry/i }))
     expect(await screen.findByRole('heading', { name: /captured thought/i })).toBeInTheDocument()
     expect(screen.getByText('Buy eggs.')).toBeInTheDocument()
+  })
+
+  it('analyzes a note on the spot from the note card', async () => {
+    state.authenticated = true
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /analyze buy eggs\./i }))
+    expect(await screen.findByRole('heading', { name: /captured thought/i })).toBeInTheDocument()
+    expect(state.analyzedNoteIds).toEqual([1])
   })
 
   it('keeps the grounded Ask page usable', async () => {

@@ -316,6 +316,75 @@ class IntelligenceApiTests(APITestCase):
                 note = self.analyze_text(text, [prediction(**item)])
                 self.assertNotIn('tense_conflict', note.items.get().metadata)
 
+    def test_split_items_are_kept_and_all_flagged(self):
+        # The reported shampoo case: one money mention, two same-price items.
+        # Nothing is merged; both drafts survive with a split warning, and the
+        # future-tense EXPENSE additionally carries the tense warning.
+        note = self.analyze_text('i have to buy shampoo for 100 taka', [
+            prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
+                       domains=['shopping']),
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        self.assertEqual(note.items.count(), 2)
+        for draft in note.items.all():
+            self.assertFalse(draft.is_confirmed)
+            self.assertIn('possible_split', draft.metadata)
+            self.assertIn('Keep the one that fits', draft.metadata['possible_split'])
+        expense = note.items.get(item_type='EXPENSE')
+        self.assertIn('future purchase', expense.metadata.get('tense_conflict', ''))
+        task = note.items.get(item_type='TASK')
+        self.assertNotIn('tense_conflict', task.metadata)
+
+    def test_distinct_money_mentions_are_not_flagged_as_split(self):
+        note = self.analyze_text('bought shampoo for 100 taka and soap for 50 taka', [
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+            prediction(type='EXPENSE', title='Soap', amount=50, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        self.assertEqual(note.items.count(), 2)
+        for draft in note.items.all():
+            self.assertNotIn('possible_split', draft.metadata)
+
+    def test_obligation_task_suggests_event_but_dated_shopping_does_not(self):
+        dated = self.analyze_text('have to submit the report on Friday', [
+            prediction(type='TASK', title='Submit report', due_date='2026-09-25',
+                       domains=['work']),
+        ])
+        self.assertIn('event', dated.items.get().metadata.get('tense_conflict', ''))
+        shopping = self.analyze_text('buy milk tomorrow', [
+            prediction(type='TASK', title='Buy milk', due_date='2026-09-23',
+                       domains=['shopping']),
+        ])
+        self.assertNotIn('tense_conflict', shopping.items.get().metadata)
+
+    def test_verify_mode_leaves_flagged_drafts_for_review(self):
+        note = self.analyze_text('i have to buy shampoo for 100 taka', [
+            prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
+                       domains=['shopping']),
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        # Put the analyzed note back on the backlog; bulk verify re-analyzes
+        # (same fixture) and must refuse to confirm either flagged draft.
+        # The shared setUp note is parked as processed to isolate this case.
+        Note.objects.filter(pk=self.note.pk).update(processing_status='PROCESSED')
+        Note.objects.filter(pk=note.pk).update(processing_status='UNPROCESSED')
+        response = self.client.post('/api/v1/notes/process-all/', {'mode': 'verify'},
+                                    format='json', HTTP_X_GROQ_TRIAL='true')
+        self.assertEqual(response.status_code, 200)
+        # The EXPENSE carries a tense flag, the TASK shares one money mention:
+        # verify confirms neither and says so.
+        self.assertEqual(
+            response.data['results'],
+            [{'id': note.pk, 'status': 'verified', 'code': 'review_remaining'}],
+        )
+        note.refresh_from_db()
+        self.assertEqual(note.processing_status, 'REVIEW_REQUIRED')
+        self.assertEqual(note.items.filter(is_confirmed=False).count(), 2)
+        self.assertEqual(note.items.filter(is_confirmed=True).count(), 0)
+
     def test_multi_item_confirmation_correction_removal_and_manual_addition(self):
         self.provider.return_value = json.dumps(example_output(list(EXAMPLES)[3]))
         self.assertEqual(self.analyze().status_code, 200)

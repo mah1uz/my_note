@@ -147,6 +147,19 @@ class FinanceTransactionApiTests(APITestCase):
         self.assertEqual(len(self.client.get('/api/v1/transactions/?primary_domain=shopping').data), 1)
         self.assertEqual(len(self.client.get('/api/v1/transactions/?currency=BDT').data), 2)
 
+    def test_note_item_filter_finds_only_the_linked_row(self):
+        note = Note.objects.create(app_user=self.user, raw_text='Bought books')
+        item = NoteItem.objects.create(
+            note=note, item_type='TASK', title='Books',
+            amount=Decimal('250'), currency='BDT', is_confirmed=True,
+        )
+        linked = self.client.post('/api/v1/transactions/', transaction_payload(note_item=item.pk), format='json')
+        self.client.post('/api/v1/transactions/', transaction_payload(label='Unrelated'), format='json')
+        rows = self.client.get(f'/api/v1/transactions/?note_item={item.pk}').data
+        self.assertEqual([row['id'] for row in rows], [linked.data['id']])
+        self.assertEqual(self.client.get('/api/v1/transactions/?note_item=999999').data, [])
+        self.assertEqual(self.client.get('/api/v1/transactions/?note_item=nope').data, [])
+
 
 class FinanceServiceTests(TestCase):
     def test_summary_reads_ledger_not_noteitem_amounts(self):

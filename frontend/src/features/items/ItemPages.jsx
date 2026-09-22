@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createItem, listItems, patchItem } from '../../api/itemsApi'
+import { createTransaction, deleteTransaction, listTransactions } from '../../api/transactionsApi'
 import { useAuth } from '../../context/AuthContext'
 import ItemFields from './ItemFields'
 import { itemDate, itemForm, itemPayload, requestErrorText } from './itemForm'
@@ -31,27 +32,93 @@ function TaskCard({ item, onChanged }) {
   const [form, setForm] = useState(() => itemForm(item))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // A shopping task with a price can become a ledger expense when done.
+  // The ledger row belongs to this completion: reopening voids it.
+  const recordable = item.item_type === 'TASK'
+    && item.domains.includes('shopping')
+    && item.amount != null && item.currency
+  const [recordedId, setRecordedId] = useState(null)
+  const [recordBusy, setRecordBusy] = useState(false)
+  const [recordMsg, setRecordMsg] = useState('')
   const active = useRef(true)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
 
+  useEffect(() => {
+    if (!(recordable && item.status === 'COMPLETED')) {
+      setRecordedId(null)
+      return
+    }
+    let live = true
+    listTransactions({ note_item: item.id })
+      .then((rows) => { if (live) setRecordedId(rows[0]?.id || null) })
+      .catch(() => { /* Lookup is a hint; recording still attempts the POST. */ })
+    return () => { live = false }
+  }, [recordable, item.status, item.id, item.revision])
+
   const save = async (changes) => {
-    if (busy) return
+    if (busy) return false
     setBusy(true)
     setError('')
     try {
       await patchItem(item.id, item.revision, changes)
       if (active.current) onChanged()
+      return true
     } catch (requestError) {
       if (active.current) setError(requestErrorText(requestError))
+      return false
     } finally { if (active.current) setBusy(false) }
+  }
+
+  const toggle = async () => {
+    const toCompleted = item.status !== 'COMPLETED'
+    const ok = await save({ status: toCompleted ? 'COMPLETED' : 'PENDING' })
+    if (!ok || toCompleted || !recordedId) return
+    try {
+      await deleteTransaction(recordedId)
+      if (active.current) {
+        setRecordedId(null)
+        setRecordMsg('Recorded expense removed.')
+      }
+    } catch (requestError) {
+      if (active.current) setError(requestErrorText(requestError))
+    }
+  }
+
+  const record = async () => {
+    if (recordBusy || recordedId) return
+    setRecordBusy(true)
+    setRecordMsg('')
+    try {
+      const created = await createTransaction({
+        note_item: item.id,
+        direction: 'DEBIT',
+        amount: String(item.amount),
+        currency: item.currency,
+        label: item.title,
+        transaction_at: new Date().toISOString(),
+        primary_domain: item.domains.includes('shopping') ? 'shopping' : item.domains[0],
+      })
+      if (active.current) {
+        setRecordedId(created.id)
+        setRecordMsg('Recorded as expense.')
+      }
+    } catch (requestError) {
+      if (active.current) setRecordMsg(requestErrorText(requestError))
+    } finally { if (active.current) setRecordBusy(false) }
   }
 
   return <article className="structured-card">
     <div className={`task-row ${item.status === 'COMPLETED' ? 'completed' : ''}`}>
-      <button className="check-button" disabled={busy} aria-label={`Mark ${item.title} ${item.status === 'COMPLETED' ? 'incomplete' : 'complete'}`} onClick={() => save({ status: item.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' })}>{item.status === 'COMPLETED' ? '✓' : ''}</button>
+      <button className="check-button" disabled={busy} aria-label={`Mark ${item.title} ${item.status === 'COMPLETED' ? 'incomplete' : 'complete'}`} onClick={toggle}>{item.status === 'COMPLETED' ? '✓' : ''}</button>
       <div className="task-main"><h2>{item.title}</h2><p>{itemDate(item, 'due')}</p><p>{item.domains.join(' · ')}</p></div><span className="pill">{item.importance}</span>
     </div>
     {error && <p role="alert" className="form-error">{error} <button onClick={onChanged}>Reload items</button></p>}
+    {recordable && item.status === 'COMPLETED' && <div className="record-expense">
+      {recordedId
+        ? <span className="pill pill-success">Recorded as expense</span>
+        : <button className="button button-ghost" disabled={recordBusy} onClick={record}>{recordBusy ? 'Recording…' : 'Record as expense'}</button>}
+      {recordMsg && <span className="record-message" role="status">{recordMsg}</span>}
+    </div>}
     <div className="review-actions"><Link to={`/app/notes/${item.note}`}>Source note</Link><button className="text-button" disabled={busy} onClick={() => setEditing(!editing)}>{editing ? 'Cancel edit' : 'Edit task'}</button></div>
     {editing && <form onSubmit={(event) => { event.preventDefault(); const payload = itemPayload(form); delete payload.id; save(payload) }}><fieldset disabled={busy} className="draft-item"><legend>Edit task</legend><ItemFields value={form} onChange={setForm} /><button className="button button-primary">{busy ? 'Saving…' : 'Save task'}</button></fieldset></form>}
   </article>

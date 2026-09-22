@@ -27,6 +27,13 @@ class FinanceTransactionViewSet(viewsets.ModelViewSet):
         domain = self.request.query_params.get('primary_domain')
         if domain:
             queryset = queryset.filter(primary_domain__slug=domain)
+        note_item = self.request.query_params.get('note_item')
+        if note_item:
+            # Lets task cards discover the ledger row recorded for one item.
+            try:
+                queryset = queryset.filter(note_item_id=int(note_item))
+            except (TypeError, ValueError):
+                queryset = queryset.none()
         return queryset
 
     def perform_create(self, serializer):

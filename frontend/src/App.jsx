@@ -5,6 +5,7 @@ import { useAuth } from './context/AuthContext'
 import { useNotes } from './context/NotesContext'
 import { confirmPasswordReset, requestPasswordReset } from './api/authApi'
 import { apiRequest } from './api/http'
+import { analyzeNote } from './api/itemsApi'
 import { LogoutIcon, MenuIcon, NavIcon, PlacesIcon, SparkleIcon } from './components/icons'
 import AIReviewPanel from './features/notes/AIReviewPanel'
 import { EventsPage, ExpensesPage, ShoppingPage, TasksPage } from './features/items/ItemPages'
@@ -116,9 +117,26 @@ function DashboardPage() {
 }
 
 function NoteCard({ note, onDelete }) {
+  const navigate = useNavigate()
+  const { groqApiKey, trialActive } = useAiKey()
   const [deleting, setDeleting] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
   const remove = async () => { if (deleting) return; setDeleting(true); try { await onDelete(note.id) } catch { setDeleting(false) } }
-  return <article className="note-card"><div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div><Link to={`/app/notes/${note.id}`} className="note-title">{note.originalText}</Link><div className="note-card-items"><span>Original saved · open to review or organize</span></div><div className="note-card-bottom"><div className="domain-list" /><div className="card-actions"><Link to={`/app/notes/${note.id}`} aria-label={`View ${note.originalText}`}>View</Link><button onClick={remove} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></article>
+  // On-spot single-note analysis: run it here, then land on the detail page
+  // where drafts (or the failure with retry) are shown.
+  const analyze = async () => {
+    if (analyzing) return
+    setAnalyzing(true)
+    try {
+      await analyzeNote(note.id, note.revision, groqApiKey, trialActive)
+    } catch {
+      // The detail page reloads the saved review and shows the error.
+    } finally {
+      setAnalyzing(false)
+    }
+    navigate(`/app/notes/${note.id}`)
+  }
+  return <article className="note-card"><div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div><Link to={`/app/notes/${note.id}`} className="note-title">{note.originalText}</Link><div className="note-card-items"><span>Original saved · open to review or organize</span></div><div className="note-card-bottom"><div className="domain-list" /><div className="card-actions"><Link to={`/app/notes/${note.id}`} aria-label={`View ${note.originalText}`}>View</Link><button onClick={analyze} disabled={analyzing || deleting} aria-label={`Analyze ${note.originalText}`}>{analyzing ? 'Analyzing…' : 'Analyze'}</button><button onClick={remove} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></article>
 }
 
 function NotesPage() {

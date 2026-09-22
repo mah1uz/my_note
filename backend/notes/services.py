@@ -1,6 +1,7 @@
 """SQLite-friendly revision checks and atomic writes, never a transaction over HTTP."""
 import json
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import transaction
@@ -34,6 +35,14 @@ def tense_conflict_flag(predicted, evidence):
     correct. Never invents, removes, or rewrites provider output.
     """
     if not evidence.get('money'):
+        # No money involved: an obligation with an explicit date belongs on an
+        # EVENT, but a dated shopping TASK (buy milk tomorrow) is legitimate.
+        if (predicted.get('type') == 'TASK' and evidence.get('obligation_hint')
+                and 'shopping' not in (predicted.get('domains') or [])):
+            return {'tense_conflict': (
+                'This has an explicit date. Consider changing it to an event '
+                'with that date instead of a task.'
+            )}
         return {}
     item_type = predicted.get('type')
     domains = predicted.get('domains') or []
@@ -47,6 +56,34 @@ def tense_conflict_flag(predicted, evidence):
             'This looks like money already spent. Consider changing it to an expense.'
         )}
     return {}
+
+
+def split_item_ids(items, evidence):
+    """Ids of items sharing a single money mention across several items.
+
+    One amount in the note but several provider items carrying it means the
+    model split one intent. Per product policy nothing is merged: every item
+    is kept as a draft and flagged so the user keeps all but the fit ones.
+    """
+    money = evidence.get('money') or []
+    if len(money) != 1 or money[0].get('amount') is None:
+        return set()
+    try:
+        target = Decimal(str(money[0]['amount']))
+    except (InvalidOperation, TypeError, ValueError):
+        return set()
+    target_currency = money[0].get('currency')
+    sharing = set()
+    for predicted in items:
+        if predicted.get('amount') is None:
+            continue
+        try:
+            same_amount = Decimal(str(predicted['amount'])) == target
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if same_amount and (predicted.get('currency') or None) == target_currency:
+            sharing.add(id(predicted))
+    return sharing if len(sharing) >= 2 else set()
 
 
 def claim_revision(note, revision, **changes):
@@ -130,6 +167,7 @@ def analyze(note, revision, user_api_key=None, trial=False):
             provider_response = groq_service.analyze_note(note.raw_text, timezone.localtime())
         raw = groq_service.redact(provider_response, extra_key=user_api_key)
         payload = parse_analysis(raw)
+        split_ids = split_item_ids(payload['items'], deterministic_evidence)
         validated = []
         for predicted in payload['items']:
             data = {key: value for key, value in predicted.items() if key not in ('type', 'confidence')}
@@ -139,6 +177,11 @@ def analyze(note, revision, user_api_key=None, trial=False):
                 'deterministic_evidence': deterministic_evidence,
                 **tense_conflict_flag(predicted, deterministic_evidence),
             }
+            if id(predicted) in split_ids:
+                data['metadata']['possible_split'] = (
+                    'One amount in your note produced several items here. '
+                    'Keep the one that fits and remove the rest.'
+                )
             serializer = ItemInputSerializer(data=data)
             serializer.is_valid(raise_exception=True)
             validated.append((serializer.validated_data, predicted['confidence']))
@@ -244,8 +287,11 @@ BULK_LIMIT = 25
 def confirm_all_drafts(note):
     """Verify mode: confirm every current draft unedited.
 
+    Drafts carrying review flags (tense_conflict, possible_split) are left
+    unconfirmed so a human resolves them; the caller reports them back.
     Raw text is never touched; only draft flags change. Used by bulk
     processing after a successful analysis of the same revision.
+    Returns (confirmed_count, skipped_for_review_count).
     """
     if analysis_is_running(note):
         raise Conflict('Wait for analysis to finish before confirming.')
@@ -255,13 +301,20 @@ def confirm_all_drafts(note):
         source_log = note.ai_logs.filter(
             operation='ANALYZE', status__in=['SUCCESS', 'EMPTY'], input_text=note.raw_text,
         ).first()
+        confirmed, skipped = 0, 0
         for item in drafts:
+            flags = item.metadata or {}
+            if flags.get('tense_conflict') or flags.get('possible_split'):
+                skipped += 1
+                continue
             item.is_confirmed = True
             item.save(update_fields=['is_confirmed', 'updated_at'])
+            confirmed += 1
         has_confirmed = note.items.filter(is_confirmed=True).exists()
-        note.processing_status = 'PROCESSED' if (drafts or has_confirmed) else 'REVIEW_REQUIRED'
+        note.processing_status = 'PROCESSED' if (confirmed or has_confirmed) else 'REVIEW_REQUIRED'
         note.save(update_fields=['processing_status', 'updated_at'])
         record_confirmation(note, source_log)
+        return confirmed, skipped
 
 
 def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT):
@@ -309,11 +362,14 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
             continue
         if mode == 'verify':
             try:
-                confirm_all_drafts(note)
+                confirmed, skipped = confirm_all_drafts(note)
             except (Conflict, ValidationError):
                 results.append({'id': note.pk, 'status': 'failed', 'code': 'verify_failed'})
                 continue
-            results.append({'id': note.pk, 'status': 'verified', 'code': 'ok'})
+            results.append({
+                'id': note.pk, 'status': 'verified',
+                'code': 'review_remaining' if skipped else 'ok',
+            })
         else:
             results.append({'id': note.pk, 'status': 'analyzed', 'code': 'ok'})
     return {'mode': mode, 'results': results, 'stopped': stopped}
