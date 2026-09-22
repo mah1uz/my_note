@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useAiKey } from '../../context/AiKeyContext'
 
 export default function AiProviderCard() {
-  const { groqApiKey, setGroqApiKey, clearGroqApiKey } = useAiKey()
+  const { groqApiKey, setGroqApiKey, clearGroqApiKey, trialActive, startTrial, endTrial } = useAiKey()
   const [draftKey, setDraftKey] = useState('')
   const [showKey, setShowKey] = useState(false)
 
@@ -20,11 +20,17 @@ export default function AiProviderCard() {
     setShowKey(false)
   }
 
+  const status = groqApiKey
+    ? 'Personal Groq key active for this session'
+    : trialActive
+      ? 'Free trial active for this session — using the shared Groq key'
+      : 'No key configured — start the free trial or paste a key below'
+
   return <section className="provider-card" aria-label="AI Provider">
     <div>
       <span className="eyebrow">AI Provider</span>
       <h2>Groq API Key</h2>
-      <p>Your Groq API key is used only for AI requests during this browser session and is not saved by this application.</p>
+      <p>Any key you paste is used only for AI requests during this browser session and is not saved by this application. The provider rejects keys it does not accept.</p>
     </div>
     <form className="provider-form" onSubmit={save}>
       <label htmlFor="groq-api-key">Groq API Key</label>
@@ -42,10 +48,12 @@ export default function AiProviderCard() {
         </button>
       </div>
       <div className="provider-actions">
+        {!groqApiKey && !trialActive && <button className="button button-primary" type="button" onClick={startTrial}>Free trial</button>}
+        {trialActive && !groqApiKey && <button className="button button-ghost" type="button" onClick={endTrial}>End trial</button>}
         <button className="button button-primary" type="submit" disabled={!draftKey.trim()}>Use for this session</button>
-        <button className="button button-ghost" type="button" onClick={clear} disabled={!groqApiKey && !draftKey}>Clear Key</button>
+        <button className="button button-ghost" type="button" onClick={clear} disabled={!groqApiKey && !draftKey && !trialActive}>Clear Key</button>
       </div>
     </form>
-    <p className="provider-status" role="status">{groqApiKey ? 'Personal Groq key active for this session' : 'No personal Groq key configured'}</p>
+    <p className="provider-status" role="status">{status}</p>
   </section>
 }

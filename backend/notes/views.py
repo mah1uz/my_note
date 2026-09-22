@@ -60,8 +60,9 @@ class NoteViewSet(viewsets.ModelViewSet):
                 'detail': 'The Groq API key is invalid. Enter a valid key and try again.',
                 'code': 'invalid_key',
             }, status=400)
+        trial = request.headers.get('X-Groq-Trial', '').strip().lower() in ('1', 'true', 'yes', 'on')
         try:
-            services.analyze(note, serializer.validated_data['revision'], user_api_key=user_api_key)
+            services.analyze(note, serializer.validated_data['revision'], user_api_key=user_api_key, trial=trial)
         except ProviderFailure as error:
             return Response({
                 'detail': f'AI organization failed. Your note is saved. {error}',

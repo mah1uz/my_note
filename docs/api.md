@@ -16,6 +16,11 @@ Django password-reset endpoints.
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/auth/me/` | Return the Supabase-authenticated `AppUser` profile |
+| PATCH | `/auth/me/` | Update `display_name`, `timezone`, `locale`, `default_currency` |
+| GET | `/auth/preferences/` | Return the user's notification preferences |
+| PATCH | `/auth/preferences/` | Update notification preferences and `week_starts_on` (0–6) |
+| POST | `/auth/preferences/reset/` | Restore default profile values and notification preferences |
+| GET | `/auth/settings/` | Return profile + preferences in one response for the Settings page |
 
 Password recovery uses Supabase `resetPasswordForEmail` and `updateUser`
 directly from the frontend.
@@ -43,7 +48,7 @@ Another user's note is not present in the scoped queryset and therefore returns 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/notes/:id/review/` | Return an owned Note, its draft/confirmed items, and the seeded domain vocabulary |
-| POST | `/notes/:id/analyze/` | Analyze the current raw Note with Groq and create validated unconfirmed drafts |
+| POST | `/notes/:id/analyze/` | Analyze the current raw Note with Groq and create validated unconfirmed drafts. Requires a credential: personal key via `X-Groq-Api-Key` or free trial via `X-Groq-Trial: true` (uses the server key); otherwise `400 credential_required` |
 | POST | `/notes/:id/confirm-analysis/` | Validate and persist the user's approved/manual item set |
 
 Analyze payload:

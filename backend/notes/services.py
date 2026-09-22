@@ -61,9 +61,20 @@ def record_confirmation(note, source_log=None, operation='CONFIRM'):
     )
 
 
-def analyze(note, revision, user_api_key=None):
+def analyze(note, revision, user_api_key=None, trial=False):
     if len(note.raw_text) > settings.AI_MAX_NOTE_CHARACTERS:
         raise ValidationError({'detail': 'This note is too long for AI analysis. Split it or organize manually.'})
+    if not user_api_key and not trial:
+        raise ValidationError({
+            'detail': 'Start the free trial or enter a personal API key to use AI organization.',
+            'code': 'credential_required',
+        })
+    if trial and not user_api_key and not settings.GROQ_API_KEY:
+        raise groq_service.ProviderFailure(
+            'trial_unavailable',
+            'Free trial is not available right now. Enter a personal API key instead.',
+            503,
+        )
     if analysis_is_running(note):
         raise Conflict('Analysis is already running. Wait, then reload the review.')
     with transaction.atomic():

@@ -165,6 +165,7 @@ class StructuredModelTests(TestCase):
         self.assertEqual(Domain.objects.count(), 9)
 
 
+@override_settings(GROQ_API_KEY='synthetic-test-key')
 class IntelligenceApiTests(APITestCase):
     def setUp(self):
         cache.clear()
@@ -177,9 +178,11 @@ class IntelligenceApiTests(APITestCase):
         self.provider = patch('ai.services.groq_service.analyze_note', return_value=json.dumps(example_output(self.text))).start()
         self.addCleanup(patch.stopall)
 
-    def analyze(self):
+    def analyze(self, **headers):
         self.note.refresh_from_db()
-        return self.client.post(self.base + 'analyze/', {'revision': self.note.revision}, format='json')
+        defaults = {'HTTP_X_GROQ_TRIAL': 'true'}
+        defaults.update(headers)
+        return self.client.post(self.base + 'analyze/', {'revision': self.note.revision}, format='json', **defaults)
 
     def confirm(self, items):
         self.note.refresh_from_db()
@@ -401,16 +404,23 @@ class IntelligenceApiTests(APITestCase):
         self.assertNotIn(personal_key, json.dumps(response.data))
 
     @override_settings(GROQ_API_KEY='server-fallback-key')
-    def test_server_fallback_is_used_when_personal_key_is_absent(self):
+    def test_trial_uses_server_fallback_without_personal_key(self):
         response = self.analyze()
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('api_key', self.provider.call_args.kwargs)
 
+    def test_analyze_without_trial_or_key_is_rejected_before_provider_call(self):
+        self.note.refresh_from_db()
+        response = self.client.post(self.base + 'analyze/', {'revision': self.note.revision}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['code'], 'credential_required')
+        self.assertIn('free trial', response.data['detail'].lower())
+        self.provider.assert_not_called()
+
     @override_settings(GROQ_API_KEY='')
-    def test_missing_both_keys_returns_clear_provider_error(self):
-        self.provider.side_effect = groq_service.ProviderFailure(
-            'not_configured', 'A Groq API key is required to use AI organization.', 503)
+    def test_trial_without_server_key_returns_clear_provider_error(self):
         response = self.analyze()
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.data['code'], 'not_configured')
-        self.assertIn('A Groq API key is required to use AI organization.', response.data['detail'])
+        self.assertEqual(response.data['code'], 'trial_unavailable')
+        self.assertIn('Free trial is not available', response.data['detail'])
+        self.provider.assert_not_called()

@@ -2,9 +2,9 @@ import { apiRequest } from './http'
 
 export const getReview = (noteId) => apiRequest(`/notes/${noteId}/review/`)
 
-export const analyzeNote = (noteId, revision, groqApiKey = '') => apiRequest(`/notes/${noteId}/analyze/`, {
+export const analyzeNote = (noteId, revision, groqApiKey = '', trial = false) => apiRequest(`/notes/${noteId}/analyze/`, {
   method: 'POST', body: JSON.stringify({ revision }),
-  headers: groqApiKey ? { 'X-Groq-Api-Key': groqApiKey } : undefined,
+  headers: groqApiKey ? { 'X-Groq-Api-Key': groqApiKey } : trial ? { 'X-Groq-Trial': 'true' } : undefined,
 })
 
 export const confirmAnalysis = (noteId, revision, items) => apiRequest(`/notes/${noteId}/confirm-analysis/`, {

@@ -33,7 +33,7 @@ describe('session-only Groq BYOK', () => {
     expect(window.localStorage?.length ?? 0).toBe(0)
     expect(window.sessionStorage?.length ?? 0).toBe(0)
     await user.click(screen.getByRole('button', { name: 'Clear Key' }))
-    expect(screen.getByText('No personal Groq key configured')).toBeInTheDocument()
+    expect(screen.getByText(/no key configured/i)).toBeInTheDocument()
     view.unmount()
     render(<AiKeyProvider><KeyHarness /></AiKeyProvider>)
     expect(screen.getByText('inactive')).toBeInTheDocument()
@@ -48,6 +48,38 @@ describe('session-only Groq BYOK', () => {
     expect(screen.getByText('active')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'logout' }))
     expect(screen.getByText('inactive')).toBeInTheDocument()
+  })
+
+  it('starts and ends the free trial without storing anything', async () => {
+    const user = userEvent.setup()
+    render(<AiKeyProvider><AiProviderCard /></AiKeyProvider>)
+    expect(screen.getByText(/no key configured/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Free trial' }))
+    expect(screen.getByText(/free trial active/i)).toBeInTheDocument()
+    expect(window.localStorage?.length ?? 0).toBe(0)
+    expect(window.sessionStorage?.length ?? 0).toBe(0)
+    await user.click(screen.getByRole('button', { name: 'End trial' }))
+    expect(screen.getByText(/no key configured/i)).toBeInTheDocument()
+  })
+
+  it('clears an active trial through the logout clearing operation', async () => {
+    const user = userEvent.setup()
+    render(<AiKeyProvider><><AiProviderCard /><KeyHarness /></></AiKeyProvider>)
+    await user.click(screen.getByRole('button', { name: 'Free trial' }))
+    expect(screen.getByText(/free trial active/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'logout' }))
+    expect(screen.getByText(/no key configured/i)).toBeInTheDocument()
+  })
+
+  it('sends the trial flag only to analyze when no personal key is set', async () => {
+    setAccessToken('test-access')
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    await analyzeNote('1', 2, '', true)
+    await analyzeNote('1', 2)
+    expect(fetchMock.mock.calls[0][1].headers['X-Groq-Trial']).toBe('true')
+    expect(fetchMock.mock.calls[0][1].headers['X-Groq-Api-Key']).toBeUndefined()
+    expect(fetchMock.mock.calls[1][1].headers?.['X-Groq-Trial']).toBeUndefined()
   })
 
   it('sends the key only to analyze and never to unrelated item requests', async () => {

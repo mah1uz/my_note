@@ -9,9 +9,17 @@ import { AuthProvider } from './context/AuthContext'
 import { NotesProvider } from './context/NotesContext'
 
 const mayaProfile = { id: '11111111-1111-4111-8111-111111111111', username: 'maya@example.com', email: 'maya@example.com', name: 'Maya Rahman' }
+const defaultPrefs = {
+  notification_enabled: false,
+  time_reminders_enabled: false,
+  location_reminders_enabled: false,
+  daily_briefing_enabled: true,
+  week_starts_on: 0,
+}
 const state = {
   authenticated: false,
   profile: mayaProfile,
+  prefs: { ...defaultPrefs },
   notes: [],
   nextId: 2,
   failNotes: false,
@@ -43,7 +51,26 @@ function installApiMock() {
     const path = url.pathname
     const method = options.method || 'GET'
 
-    if (path.endsWith('/auth/me/')) return state.authenticated ? jsonResponse(state.profile) : jsonResponse({ detail: 'Authentication required.' }, 401)
+    if (path.endsWith('/auth/me/')) {
+      if (!state.authenticated) return jsonResponse({ detail: 'Authentication required.' }, 401)
+      if (method === 'PATCH') state.profile = { ...state.profile, ...JSON.parse(options.body) }
+      return jsonResponse(state.profile)
+    }
+    if (path.endsWith('/auth/preferences/')) {
+      if (!state.authenticated) return jsonResponse({ detail: 'Authentication required.' }, 401)
+      if (method === 'PATCH') state.prefs = { ...state.prefs, ...JSON.parse(options.body) }
+      return jsonResponse({ ...state.prefs })
+    }
+    if (path.endsWith('/auth/preferences/reset/')) {
+      if (!state.authenticated) return jsonResponse({ detail: 'Authentication required.' }, 401)
+      state.prefs = { ...defaultPrefs }
+      state.profile = { ...state.profile, display_name: '', timezone: 'Asia/Dhaka', default_currency: 'BDT' }
+      return jsonResponse({ user: state.profile, preferences: { ...state.prefs } })
+    }
+    if (path.endsWith('/auth/settings/')) {
+      if (!state.authenticated) return jsonResponse({ detail: 'Authentication required.' }, 401)
+      return jsonResponse({ user: state.profile, preferences: { ...state.prefs } })
+    }
     if (path.endsWith('/items/')) return jsonResponse([])
     if (path.endsWith('/review/')) {
       const note = state.notes.find((item) => item.id === Number(path.split('/').at(-3)))
@@ -97,6 +124,7 @@ describe('Part 2 full-stack UI flows', () => {
   beforeEach(() => {
     state.authenticated = false
     state.profile = mayaProfile
+    state.prefs = { ...defaultPrefs }
     state.notes = [{ id: 1, raw_text: 'Buy eggs.', created_at: '2026-09-21T08:00:00Z' }]
     state.nextId = 2
     state.failNotes = false
@@ -199,6 +227,57 @@ describe('Part 2 full-stack UI flows', () => {
     await user.type(screen.getByLabelText('Email'), 'unknown@example.com')
     await user.click(screen.getByRole('button', { name: /send reset link/i }))
     expect(await screen.findByText(/if the account exists/i)).toBeInTheDocument()
+  })
+
+  it('saves preferences through the API', async () => {
+    state.authenticated = true
+    const user = userEvent.setup()
+    renderApp('/app/settings')
+    const briefing = await screen.findByLabelText('Daily briefing')
+    expect(briefing).toBeChecked()
+    await user.click(briefing)
+    await user.click(screen.getByRole('button', { name: /save preferences/i }))
+    expect(await screen.findByText('Preferences saved')).toBeInTheDocument()
+    expect(state.prefs.daily_briefing_enabled).toBe(false)
+    const patches = fetch.mock.calls.filter(
+      ([url, options]) => url.endsWith('/auth/preferences/') && options?.method === 'PATCH',
+    )
+    expect(patches).toHaveLength(1)
+    expect(JSON.parse(patches[0][1].body).daily_briefing_enabled).toBe(false)
+  })
+
+  it('resets preferences to defaults through the API', async () => {
+    state.authenticated = true
+    state.prefs = { ...defaultPrefs, daily_briefing_enabled: false, week_starts_on: 5 }
+    const user = userEvent.setup()
+    renderApp('/app/settings')
+    await screen.findByRole('button', { name: /save preferences/i })
+    await user.click(screen.getByRole('button', { name: /reset to defaults/i }))
+    expect(await screen.findByText('Preferences reset to defaults')).toBeInTheDocument()
+    expect(state.prefs).toEqual(defaultPrefs)
+    expect(fetch.mock.calls.some(([url, options]) => url.endsWith('/auth/preferences/reset/') && options?.method === 'POST')).toBe(true)
+  })
+
+  it('toggles password visibility on the login form', async () => {
+    const user = userEvent.setup()
+    renderApp('/login')
+    const password = await screen.findByLabelText(/^password$/i)
+    expect(password).toHaveAttribute('type', 'password')
+    await user.click(screen.getByRole('button', { name: 'Show' }))
+    expect(screen.getByLabelText(/^password$/i)).toHaveAttribute('type', 'text')
+    await user.click(screen.getByRole('button', { name: 'Hide' }))
+    expect(screen.getByLabelText(/^password$/i)).toHaveAttribute('type', 'password')
+  })
+
+  it('starts with a folded menu that opens only when toggled', async () => {
+    state.authenticated = true
+    const user = userEvent.setup()
+    renderApp('/app')
+    const toggle = await screen.findByRole('button', { name: 'Open menu' })
+    expect(document.querySelector('.sidebar.closed')).toBeInTheDocument()
+    await user.click(toggle)
+    expect(await screen.findByRole('button', { name: 'Close menu' })).toBeInTheDocument()
+    expect(document.querySelector('.sidebar.open')).toBeInTheDocument()
   })
 
   it('renders all protected application pages for an authenticated user', async () => {
