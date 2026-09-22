@@ -1,0 +1,147 @@
+import uuid
+
+from django.conf import settings
+from django.db import models
+
+
+APP_USER_STATUSES = ('ACTIVE', 'SUSPENDED', 'DELETION_PENDING', 'DELETED')
+
+
+class AppUser(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = 'ACTIVE', 'Active'
+        SUSPENDED = 'SUSPENDED', 'Suspended'
+        DELETION_PENDING = 'DELETION_PENDING', 'Deletion pending'
+        DELETED = 'DELETED', 'Deleted'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(max_length=320)
+    display_name = models.CharField(max_length=120, blank=True)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.ACTIVE)
+    timezone = models.CharField(max_length=64, default='Asia/Dhaka')
+    locale = models.CharField(max_length=16, default='en-BD')
+    default_currency = models.CharField(max_length=3, default='BDT')
+    email_verified_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    deletion_requested_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'app_users'
+        constraints = [
+            models.UniqueConstraint(
+                fields=('email',),
+                condition=models.Q(status__in=['ACTIVE', 'SUSPENDED', 'DELETION_PENDING']),
+                name='app_user_live_email_unique',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(status__in=APP_USER_STATUSES),
+                name='app_user_valid_status',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(default_currency__regex=r'^[A-Z]{3}$'),
+                name='app_user_currency_code',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('status', 'created_at'), name='app_user_status_created_idx'),
+        ]
+
+    @property
+    def is_authenticated(self):
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
+
+    def __str__(self):
+        return self.email
+
+
+class UserAuthIdentity(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(AppUser, on_delete=models.CASCADE, related_name='auth_identities')
+    auth_system = models.CharField(max_length=32, default='SUPABASE')
+    issuer = models.CharField(max_length=255)
+    subject = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'user_auth_identities'
+        constraints = [
+            models.UniqueConstraint(fields=('issuer', 'subject'), name='auth_identity_issuer_subject_unique'),
+        ]
+        indexes = [models.Index(fields=('user',), name='auth_identity_user_idx')]
+
+
+class UserPreference(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name='preferences')
+    notification_enabled = models.BooleanField(default=False)
+    time_reminders_enabled = models.BooleanField(default=False)
+    location_reminders_enabled = models.BooleanField(default=False)
+    daily_briefing_enabled = models.BooleanField(default=True)
+    week_starts_on = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_preferences'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(week_starts_on__gte=0, week_starts_on__lte=6),
+                name='user_preference_week_start_range',
+            ),
+        ]
+
+
+class AdminProfile(models.Model):
+    class Role(models.TextChoices):
+        ADMIN = 'ADMIN', 'Admin'
+        SUPER_ADMIN = 'SUPER_ADMIN', 'Super admin'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    django_user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='admin_profile')
+    role = models.CharField(max_length=24, choices=Role.choices, default=Role.ADMIN)
+    is_active = models.BooleanField(default=True)
+    created_by_admin = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='created_admins',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'admin_profiles'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(role__in=('ADMIN', 'SUPER_ADMIN')),
+                name='admin_profile_valid_role',
+            ),
+        ]
+
+
+class AdminAuditEvent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    actor_admin = models.ForeignKey(AdminProfile, null=True, blank=True, on_delete=models.SET_NULL, related_name='audit_events')
+    action = models.CharField(max_length=64)
+    target_user = models.ForeignKey(AppUser, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    target_admin = models.ForeignKey(AdminProfile, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    target_ref_hash = models.CharField(max_length=128, null=True, blank=True)
+    reason = models.CharField(max_length=500, null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    ip_hash = models.CharField(max_length=128, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'admin_audit_events'
+        ordering = ('-created_at',)
+        indexes = [
+            models.Index(fields=('actor_admin', 'created_at'), name='audit_actor_created_idx'),
+            models.Index(fields=('target_user', 'created_at'), name='audit_user_created_idx'),
+            models.Index(fields=('action', 'created_at'), name='audit_action_created_idx'),
+        ]
