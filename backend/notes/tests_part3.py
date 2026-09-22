@@ -344,6 +344,14 @@ class IntelligenceApiTests(APITestCase):
         item.refresh_from_db()
         self.assertEqual(item.status, 'PENDING')
 
+    def test_note_detail_retrieve_returns_owned_note_and_hides_foreign(self):
+        response = self.client.get(self.base)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['raw_text'], self.text)
+        self.assertEqual(response.data['processing_status'], 'UNPROCESSED')
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.get(self.base).status_code, 404)
+
     def test_unauthenticated_requests_rejected(self):
         self.client.force_authenticate(None)
         for path in [self.base + 'review/', '/api/v1/items/']:
@@ -500,3 +508,124 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(response.data['code'], 'trial_unavailable')
         self.assertIn('Free trial is not available', response.data['detail'])
         self.provider.assert_not_called()
+
+
+@override_settings(GROQ_API_KEY='synthetic-test-key')
+class BulkProcessTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.owner = AppUser.objects.create(email='bulk@example.com')
+        self.other = AppUser.objects.create(email='bulk-other@example.com')
+        self.client.force_authenticate(self.owner)
+        UserAiEntitlement.objects.create(user=self.owner, trial_limit=100)
+        self.provider = patch(
+            'ai.services.groq_service.analyze_note', side_effect=self.fixture,
+        ).start()
+        self.addCleanup(patch.stopall)
+        self.texts = list(EXAMPLES)
+
+    def fixture(self, raw_text, now, api_key=None):
+        return json.dumps(example_output(raw_text))
+
+    def make(self, text, status='UNPROCESSED', owner=None, archived=False):
+        note = Note.objects.create(app_user=owner or self.owner, raw_text=text)
+        Note.objects.filter(pk=note.pk).update(processing_status=status, is_archived=archived)
+        note.refresh_from_db()
+        return note
+
+    def bulk(self, mode='analyze', **headers):
+        defaults = {'HTTP_X_GROQ_TRIAL': 'true'}
+        defaults.update(headers)
+        return self.client.post('/api/v1/notes/process-all/', {'mode': mode}, format='json', **defaults)
+
+    def test_analyze_mode_drafts_backlog_and_leaves_processed_alone(self):
+        first = self.make(self.texts[0])
+        second = self.make(self.texts[1], status='FAILED')
+        done = self.make(self.texts[2], status='PROCESSED')
+        hidden = self.make(self.texts[3], archived=True)
+        foreign = self.make(self.texts[4], owner=self.other)
+        response = self.bulk('analyze')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [(row['id'], row['status']) for row in response.data['results']],
+            [(first.pk, 'analyzed'), (second.pk, 'analyzed')],
+        )
+        for note in (first, second):
+            note.refresh_from_db()
+            self.assertEqual(note.processing_status, 'REVIEW_REQUIRED')
+            self.assertTrue(note.items.filter(is_confirmed=False).exists())
+            self.assertFalse(note.items.filter(is_confirmed=True).exists())
+        done.refresh_from_db()
+        self.assertEqual(done.items.count(), 0)
+        self.assertFalse(Note.objects.filter(pk=hidden.pk, processing_status='REVIEW_REQUIRED').exists())
+        self.assertEqual(Note.objects.get(pk=foreign.pk).items.count(), 0)
+        self.provider.assert_called()
+
+    def test_verify_mode_confirms_drafts_without_touching_text(self):
+        note = self.make(self.texts[2])
+        response = self.bulk('verify')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['results'], [{'id': note.pk, 'status': 'verified', 'code': 'ok'}])
+        note.refresh_from_db()
+        self.assertEqual(note.processing_status, 'PROCESSED')
+        self.assertEqual(note.raw_text, self.texts[2])
+        self.assertTrue(note.items.filter(is_confirmed=True).exists())
+        self.assertFalse(note.items.filter(is_confirmed=False).exists())
+        self.assertTrue(note.ai_logs.filter(operation='CONFIRM', status='SUCCESS').exists())
+
+    def test_empty_backlog_returns_empty_results(self):
+        self.assertEqual(self.bulk('analyze').data, {'mode': 'analyze', 'results': [], 'stopped': None})
+
+    def test_invalid_mode_and_missing_credential_rejected(self):
+        self.make(self.texts[0])
+        self.assertEqual(self.bulk('everything').status_code, 400)
+        response = self.client.post('/api/v1/notes/process-all/', {'mode': 'analyze'}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['code'], 'credential_required')
+        self.provider.assert_not_called()
+
+    @override_settings(GROQ_API_KEY='')
+    def test_trial_unavailable_without_server_key(self):
+        self.make(self.texts[0])
+        response = self.bulk('analyze')
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data['code'], 'trial_unavailable')
+        self.provider.assert_not_called()
+
+    def test_trial_exhaustion_stops_run_and_reports(self):
+        entitlement = UserAiEntitlement.objects.get(user=self.owner)
+        entitlement.trial_limit = 1
+        entitlement.save(update_fields=('trial_limit', 'updated_at'))
+        first = self.make(self.texts[0])
+        second = self.make(self.texts[1])
+        response = self.bulk('analyze')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['stopped'], 'trial_exhausted')
+        self.assertEqual(
+            [(row['id'], row['status']) for row in response.data['results']],
+            [(first.pk, 'analyzed'), (second.pk, 'failed')],
+        )
+        second.refresh_from_db()
+        self.assertEqual(second.processing_status, 'UNPROCESSED')
+
+    def test_personal_key_passthrough_never_persisted(self):
+        key = 'gsk_bulk_personal_xyz'
+        note = self.make(self.texts[0])
+        response = self.bulk('analyze', HTTP_X_GROQ_API_KEY=key)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(key, json.dumps(response.data))
+        for log in note.ai_logs.all():
+            self.assertNotIn(key, json.dumps({
+                'raw': log.raw_response, 'parsed': log.parsed_response,
+                'error_message': log.error_message,
+            }))
+        self.assertEqual(self.provider.call_args.kwargs.get('api_key'), key)
+
+    def test_running_note_is_left_out_of_backlog(self):
+        busy = self.make(self.texts[0], status='PROCESSING')
+        Note.objects.filter(pk=busy.pk).update(analysis_started_at=timezone.now())
+        response = self.bulk('analyze')
+        self.assertEqual(response.data['results'], [])
+        self.provider.assert_not_called()
+        busy.refresh_from_db()
+        self.assertEqual(busy.processing_status, 'PROCESSING')

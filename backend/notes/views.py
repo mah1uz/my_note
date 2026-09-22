@@ -17,6 +17,10 @@ class AnalyzeThrottle(UserRateThrottle):
     scope = 'analyze'
 
 
+class BulkThrottle(UserRateThrottle):
+    scope = 'bulk'
+
+
 def review_data(note):
     return {
         'note': NoteSerializer(note).data,
@@ -77,6 +81,31 @@ class NoteViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         services.confirm(note, **serializer.validated_data)
         return Response(review_data(note))
+
+    @action(detail=False, methods=['post'], url_path='process-all', throttle_classes=[BulkThrottle])
+    def process_all(self, request):
+        """Sequentially process the owned backlog (UNPROCESSED + FAILED).
+
+        Mode 'analyze' drafts every note for later review; mode 'verify'
+        additionally confirms each note's drafts unedited. Same credential
+        contract as single-note analysis: personal key or trial, never stored.
+        """
+        mode = str(request.data.get('mode') or 'analyze').strip().lower()
+        user_api_key = request.headers.get('X-Groq-Api-Key', '').strip() or None
+        if user_api_key and len(user_api_key) > 200:
+            return Response({
+                'detail': 'The Groq API key is invalid. Enter a valid key and try again.',
+                'code': 'invalid_key',
+            }, status=400)
+        trial = request.headers.get('X-Groq-Trial', '').strip().lower() in ('1', 'true', 'yes', 'on')
+        try:
+            return Response(services.process_backlog(request.user, mode, user_api_key=user_api_key, trial=trial))
+        except ProviderFailure as error:
+            detail = 'Bulk processing could not start. ' if mode in ('analyze', 'verify') else 'Bulk processing failed. '
+            return Response({
+                'detail': f'{detail}{error}',
+                'code': error.code,
+            }, status=error.status_code)
 
 
 class NoteItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):

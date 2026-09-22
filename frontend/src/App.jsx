@@ -9,12 +9,14 @@ import { LogoutIcon, MenuIcon, NavIcon, PlacesIcon, SparkleIcon } from './compon
 import AIReviewPanel from './features/notes/AIReviewPanel'
 import { EventsPage, ExpensesPage, ShoppingPage, TasksPage } from './features/items/ItemPages'
 import AiProviderCard from './features/notes/AiProviderCard'
-import { clearSessionGroqKey } from './context/AiKeyContext'
+import { clearSessionGroqKey, useAiKey } from './context/AiKeyContext'
 import { AdminDashboardPage, AdminLoginPage, AdminProtected } from './features/admin/AdminPages'
 import GoogleSignInButton from './components/GoogleSignInButton'
 import TransactionsPage from './features/transactions/TransactionsPage'
 import OnboardingPage from './features/onboarding/OnboardingPage'
 import SearchFeaturePage from './features/search/SearchPage'
+import ProcessButtons from './features/processing/ProcessButtons'
+import { backlogNotes } from './api/processApi'
 
 const navItems = [
   ['Dashboard', '/app'], ['Notes', '/app/notes'], ['Tasks', '/app/tasks'],
@@ -45,6 +47,20 @@ function MobileNav() {
   return <nav className="mobile-nav">{navItems.slice(0, 5).map(([label, path]) => <NavLink key={path} to={path} end={path === '/app'} className={({ isActive }) => isActive ? 'mobile-link active' : 'mobile-link'}><NavIcon label={label} size={21} /><small>{label}</small></NavLink>)}</nav>
 }
 
+function AiNotices() {
+  const { groqApiKey, trialActive } = useAiKey()
+  const { notes, refresh } = useNotes()
+  const [setupDismissed, setSetupDismissed] = useState(false)
+  const configured = Boolean(groqApiKey || trialActive)
+  if (!configured) {
+    if (setupDismissed) return null
+    return <div className="notice-banner notice-setup" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>AI organization is off.</strong><span> Add a Groq key or turn on the free trial in Settings to process notes.</span></div><Link className="button button-primary" to="/app/settings">Open Settings</Link><button className="text-button" onClick={() => setSetupDismissed(true)}>Dismiss</button></div>
+  }
+  const backlog = backlogNotes(notes)
+  if (!backlog.length) return null
+  return <div className="notice-banner" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>{backlog.length} note{backlog.length === 1 ? '' : 's'} need{backlog.length === 1 ? 's' : ''} processing.</strong><span> Draft them all at once, or verify them straight through.</span></div><ProcessButtons compact backlogCount={backlog.length} onDone={refresh} /></div>
+}
+
 function AppLayout({ children }) {
   const { logout } = useAuth()
   const navigate = useNavigate()
@@ -54,7 +70,7 @@ function AppLayout({ children }) {
   const handleLogout = async () => { try { await logout() } finally { clearSessionGroqKey(); navigate('/login') } }
   return <div className="app-shell">
     <Sidebar open={navOpen} onToggle={() => setNavOpen(!navOpen)} onLogout={handleLogout} />
-    <main className="main-content"><div className="topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link></div><div className="mobile-topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link><button className="menu-button" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Toggle menu"><MenuIcon /></button></div>{mobileOpen && <div className="mobile-menu">{navItems.map(([label, path]) => <NavLink key={path} to={path} onClick={() => setMobileOpen(false)} className="mobile-menu-link">{label}</NavLink>)}<button onClick={handleLogout}>Log out</button></div>}<div className="content-wrap" key={location.pathname}>{children}</div></main>
+    <main className="main-content"><div className="topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link></div><div className="mobile-topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link><button className="menu-button" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Toggle menu"><MenuIcon /></button></div>{mobileOpen && <div className="mobile-menu">{navItems.map(([label, path]) => <NavLink key={path} to={path} onClick={() => setMobileOpen(false)} className="mobile-menu-link">{label}</NavLink>)}<button onClick={handleLogout}>Log out</button></div>}<AiNotices /><div className="content-wrap" key={location.pathname}>{children}</div></main>
     <MobileNav />
   </div>
 }
@@ -94,7 +110,9 @@ function QuickCapture({ compact = false }) {
 function DashboardPage() {
   const { dashboardItems, tasks } = useAppState()
   const { currentUser } = useAuth()
-  return <><PageHeader eyebrow="Monday, September 21" title={`Good morning, ${currentUser?.name || 'there'}`} description="A calm place for everything you want to remember." /><QuickCapture /><section className="section-block"><div className="section-heading"><div><span className="eyebrow">Stay in the loop</span><h2>What matters now</h2></div><Link to="/app/tasks" className="text-link">See all tasks <span>→</span></Link></div><div className="matter-grid">{dashboardItems.map((item) => <article className="matter-card" key={item.id}><div className="matter-top"><Pill tone={item.priority}>{item.type}</Pill><span className={`priority priority-${item.priority.toLowerCase()}`} /> </div><h3>{item.title}</h3><p>{item.reason}</p><span className="card-domain">{item.domain}</span></article>)}</div></section><section className="dashboard-grid"><div className="summary-card"><div className="section-heading"><div><span className="eyebrow">At a glance</span><h2>Today&apos;s rhythm</h2></div><span className="date-chip">Sep 21</span></div><div className="summary-list"><div><span className="summary-number">{tasks.filter((task) => task.status !== 'DONE').length}</span><span>Tasks</span></div><div><span className="summary-number">1</span><span>Event</span></div><div><span className="summary-number">৳250</span><span>Expenses</span></div></div></div><div className="briefing-card"><span className="eyebrow">Daily briefing · prototype</span><h2>A little room to breathe</h2><p>You have a focused day ahead. Your EM quiz is coming up, and there are three small tasks waiting for you.</p><Link to="/app/search" className="button button-light">Ask your notes <span>→</span></Link></div></section></>
+  const { notes, refresh } = useNotes()
+  const backlog = backlogNotes(notes)
+  return <><PageHeader eyebrow="Monday, September 21" title={`Good morning, ${currentUser?.name || 'there'}`} description="A calm place for everything you want to remember." /><QuickCapture /><section className="section-block queue-panel" aria-label="Processing queue"><div className="section-heading"><div><span className="eyebrow">Capture to confirmed</span><h2>Processing queue</h2></div>{backlog.length > 0 && <span className="pill pill-medium">{backlog.length} waiting</span>}</div>{backlog.length ? <><ProcessButtons backlogCount={backlog.length} onDone={refresh} /><div className="queue-list">{backlog.map((note) => <article className="queue-row" key={note.id}><div><Link to={`/app/notes/${note.id}`} className="queue-title">{note.originalText.slice(0, 90) || 'Untitled note'}</Link><span className="queue-meta">{note.processingStatus === 'FAILED' ? 'Needs a retry' : 'Not processed yet'} · open to organize manually</span></div><Pill tone={note.processingStatus === 'FAILED' ? 'high' : 'medium'}>{note.processingStatus}</Pill></article>)}</div></> : <p className="queue-empty">All caught up — every note is processed.</p>}</section><section className="section-block"><div className="section-heading"><div><span className="eyebrow">Stay in the loop</span><h2>What matters now</h2></div><Link to="/app/tasks" className="text-link">See all tasks <span>→</span></Link></div><div className="matter-grid">{dashboardItems.map((item) => <article className="matter-card" key={item.id}><div className="matter-top"><Pill tone={item.priority}>{item.type}</Pill><span className={`priority priority-${item.priority.toLowerCase()}`} /> </div><h3>{item.title}</h3><p>{item.reason}</p><span className="card-domain">{item.domain}</span></article>)}</div></section><section className="dashboard-grid"><div className="summary-card"><div className="section-heading"><div><span className="eyebrow">At a glance</span><h2>Today&apos;s rhythm</h2></div><span className="date-chip">Sep 21</span></div><div className="summary-list"><div><span className="summary-number">{tasks.filter((task) => task.status !== 'DONE').length}</span><span>Tasks</span></div><div><span className="summary-number">1</span><span>Event</span></div><div><span className="summary-number">৳250</span><span>Expenses</span></div></div></div><div className="briefing-card"><span className="eyebrow">Daily briefing · prototype</span><h2>A little room to breathe</h2><p>You have a focused day ahead. Your EM quiz is coming up, and there are three small tasks waiting for you.</p><Link to="/app/search" className="button button-light">Ask your notes <span>→</span></Link></div></section></>
 }
 
 function NoteCard({ note, onDelete }) {
@@ -122,22 +140,31 @@ function NoteDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { notes, loading, loadNote, updateNote, deleteNote } = useNotes()
-  const note = notes.find((item) => item.id === id)
+  const note = notes.find((item) => String(item.id) === String(id))
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState('')
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
+  const [missing, setMissing] = useState(false)
   const [detailLoading, setDetailLoading] = useState(true)
+  const [reloadTick, setReloadTick] = useState(0)
   const [pendingAction, setPendingAction] = useState('')
   useEffect(() => { if (note) setText(note.originalText) }, [note])
   useEffect(() => {
     let active = true
     setDetailLoading(true)
-    loadNote(id).then(() => { if (active) setDetailError('') }).catch((requestError) => { if (active) setDetailError(requestError.message) }).finally(() => { if (active) setDetailLoading(false) })
+    setDetailError('')
+    setMissing(false)
+    loadNote(id).catch((requestError) => {
+      if (!active) return
+      if (requestError?.status === 404) setMissing(true)
+      else setDetailError(requestError.message || 'This note could not be loaded.')
+    }).finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
-  }, [id])
+  }, [id, reloadTick])
   if (loading || detailLoading) return <div className="loading-state">Loading note…</div>
-  if (detailError || !note) return <EmptyState title="Note not found" text={detailError || 'This note may have been deleted or is no longer available.'} />
+  if (missing || (!detailError && !note)) return <EmptyState title="Note not found" text="This note may have been deleted or is no longer available." />
+  if (detailError) return <div className="empty-state"><div className="empty-icon"><SparkleIcon /></div><h3>Couldn&apos;t load this note</h3><p>{detailError}</p><button className="button button-primary" onClick={() => setReloadTick((value) => value + 1)}>Retry</button></div>
   const save = async () => { if (!text.trim()) { setError('A note cannot be empty.'); return } if (pendingAction) return; setPendingAction('save'); try { await updateNote(note.id, text); setEditing(false); setError('') } catch (requestError) { setError(requestError.message) } finally { setPendingAction('') } }
   const remove = async () => { if (pendingAction) return; setPendingAction('delete'); try { await deleteNote(note.id); navigate('/app/notes') } catch (requestError) { setError(requestError.message); setPendingAction('') } }
   return <><Link to="/app/notes" className="back-link">← Back to notes</Link><div className="detail-header"><div><span className="eyebrow">Note detail</span><h1>Captured thought</h1><p>{new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="header-actions"><button className="button button-ghost" onClick={() => setEditing(!editing)} disabled={Boolean(pendingAction)}>{editing ? 'Cancel' : 'Edit'}</button><button className="button button-danger" onClick={remove} disabled={Boolean(pendingAction)}>{pendingAction === 'delete' ? 'Deleting…' : 'Delete'}</button></div></div>{error && <p className="form-error">{error}</p>}<div className="detail-card"><div className="original-note"><span className="eyebrow">Original note</span>{editing ? <textarea aria-label="Original note text" value={text} onChange={(event) => setText(event.target.value)} rows="5" /> : <p>{note.originalText}</p>}{editing && <><p className="field-help">Saving edits discards unconfirmed drafts. Previously confirmed facts stay unchanged.</p><button className="button button-primary" onClick={save} disabled={Boolean(pendingAction)}>{pendingAction === 'save' ? 'Saving…' : 'Save changes'}</button></>}</div><div className="detail-meta"><Pill tone="success">{note.processingStatus}</Pill><span>Owned by your account</span></div></div><AIReviewPanel note={note} disabled={editing || Boolean(pendingAction)} onNoteChanged={() => loadNote(note.id)} /></>

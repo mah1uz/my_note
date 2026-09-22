@@ -9,6 +9,7 @@ export function NotesProvider({ children }) {
   const [notes, setNotes] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [epoch, setEpoch] = useState(0)
   const accountIdRef = useRef(currentUser?.id)
   accountIdRef.current = currentUser?.id
 
@@ -30,7 +31,7 @@ export function NotesProvider({ children }) {
       if (active) setLoading(false)
     })
     return () => { active = false }
-  }, [currentUser?.id, isAuthenticated])
+  }, [currentUser?.id, isAuthenticated, epoch])
 
   const addNote = async (text) => {
     const accountId = accountIdRef.current
@@ -87,7 +88,10 @@ export function NotesProvider({ children }) {
     }
   }
 
-  const value = useMemo(() => ({ notes, loading, error, addNote, loadNote, updateNote, deleteNote }), [notes, loading, error])
+  const value = useMemo(() => ({
+    notes, loading, error, addNote, loadNote, updateNote, deleteNote,
+    refresh: () => setEpoch((value) => value + 1),
+  }), [notes, loading, error])
   return <NotesContext.Provider value={value}>{children}</NotesContext.Provider>
 }
 

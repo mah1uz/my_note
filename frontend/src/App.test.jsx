@@ -94,7 +94,13 @@ function installApiMock() {
       const id = Number(match[1])
       const index = state.notes.findIndex((note) => note.id === id)
       if (index < 0) return jsonResponse({ detail: 'Not found.' }, 404)
-      if (method === 'GET') return jsonResponse(notePayload(state.notes[index]))
+      if (method === 'GET') {
+        if (state.failNoteDetail > 0) {
+          state.failNoteDetail -= 1
+          return jsonResponse({ detail: 'Note is temporarily unavailable.' }, 503)
+        }
+        return jsonResponse(notePayload(state.notes[index]))
+      }
       if (method === 'PATCH') {
         state.notes[index] = { ...state.notes[index], raw_text: JSON.parse(options.body).raw_text }
         return jsonResponse(notePayload(state.notes[index]))
@@ -129,6 +135,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.nextId = 2
     state.failNotes = false
     state.delayNotes = false
+    state.failNoteDetail = 0
     state.failLogin = false
     setAccessToken(null)
     window.history.pushState({}, '', '/')
@@ -198,6 +205,17 @@ describe('Part 2 full-stack UI flows', () => {
     renderApp('/app/notes')
     expect(await screen.findByText(/loading your notes/i)).toBeInTheDocument()
     expect(await screen.findByText(/temporarily unavailable/i)).toBeInTheDocument()
+  })
+
+  it('shows a retry action when a note fails to load, then recovers', async () => {
+    state.authenticated = true
+    state.failNoteDetail = 1
+    const user = userEvent.setup()
+    renderApp('/app/notes/1')
+    expect(await screen.findByRole('heading', { name: /couldn't load this note/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+    expect(await screen.findByRole('heading', { name: /captured thought/i })).toBeInTheDocument()
+    expect(screen.getByText('Buy eggs.')).toBeInTheDocument()
   })
 
   it('keeps the grounded Ask page usable', async () => {

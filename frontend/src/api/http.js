@@ -15,6 +15,15 @@ export class ApiError extends Error {
   }
 }
 
+export class TimeoutError extends Error {
+  constructor(message = 'The request timed out. Check your connection and try again.') {
+    super(message)
+    this.name = 'TimeoutError'
+  }
+}
+
+const DEFAULT_TIMEOUT_MS = 30000
+
 export function setAccessToken(token) {
   accessToken = token
 }
@@ -40,21 +49,42 @@ async function parseResponse(response) {
 }
 
 export async function apiRequest(path, options = {}, retry = true) {
-  const headers = { ...options.headers }
-  if (options.body && !(options.body instanceof FormData)) headers['Content-Type'] = 'application/json'
+  const { timeout = DEFAULT_TIMEOUT_MS, signal: callerSignal, ...fetchOptions } = options
+  const headers = { ...fetchOptions.headers }
+  if (fetchOptions.body && !(fetchOptions.body instanceof FormData)) headers['Content-Type'] = 'application/json'
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers })
-  if (response.status === 401 && retry) {
-    try {
-      if (!supabase) throw new Error('Supabase Auth is not configured.')
-      const { data, error } = await supabase.auth.refreshSession()
-      if (error || !data.session) throw error || new Error('Supabase session refresh failed.')
-      setAccessToken(data.session.access_token)
-      return apiRequest(path, options, false)
-    } catch {
-      setAccessToken(null)
-      unauthorizedHandler()
-    }
+  // A hung connection must never leave the UI stuck on a spinner: every
+  // request races a timeout, and navigation/unmount can still abort early.
+  const controller = new AbortController()
+  const onCallerAbort = () => controller.abort(callerSignal?.reason)
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort(callerSignal.reason)
+    else callerSignal.addEventListener('abort', onCallerAbort, { once: true })
   }
-  return parseResponse(response)
+  const timer = setTimeout(() => controller.abort(new TimeoutError()), timeout)
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, { ...fetchOptions, headers, signal: controller.signal })
+    if (response.status === 401 && retry) {
+      try {
+        if (!supabase) throw new Error('Supabase Auth is not configured.')
+        const { data, error } = await supabase.auth.refreshSession()
+        if (error || !data.session) throw error || new Error('Supabase session refresh failed.')
+        setAccessToken(data.session.access_token)
+        return apiRequest(path, options, false)
+      } catch {
+        setAccessToken(null)
+        unauthorizedHandler()
+      }
+    }
+    return await parseResponse(response)
+  } catch (error) {
+    // Timeout and caller aborts both surface as a TimeoutError; API
+    // failures keep their ApiError. Callers ignore errors after unmount.
+    if (error instanceof ApiError) throw error
+    if (controller.signal.aborted) throw new TimeoutError()
+    throw error
+  } finally {
+    clearTimeout(timer)
+    callerSignal?.removeEventListener?.('abort', onCallerAbort)
+  }
 }

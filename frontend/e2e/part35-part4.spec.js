@@ -43,3 +43,39 @@ test('onboarding, responsive ledger CRUD, search, and grounded Ask stay connecte
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   expect(pageErrors).toEqual([])
 })
+
+test('bulk processing clears the unprocessed backlog from the dashboard', async ({ page }) => {
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await register(page)
+
+  // No AI configured yet: the setup prompt appears, and no backlog banner.
+  await expect(page.getByText(/ai organization is off/i)).toBeVisible()
+
+  // Capture two notes, then enable the trial from Settings.
+  await page.goto('/app/notes/new')
+  await page.getByLabel('Your thought').fill('I need eggs from Agora.')
+  await page.getByRole('button', { name: /^save note/i }).click()
+  await expect(page.getByRole('heading', { name: 'Captured thought' })).toBeVisible()
+  await page.goto('/app/notes/new')
+  await page.getByLabel('Your thought').fill('E2E zero items')
+  await page.getByRole('button', { name: /^save note/i }).click()
+  await expect(page.getByRole('heading', { name: 'Captured thought' })).toBeVisible()
+
+  await page.goto('/app/settings')
+  await page.getByRole('button', { name: /free trial/i }).click()
+  await expect(page.getByText(/free trial active/i)).toBeVisible()
+
+  // Dashboard shows the backlog banner and the processing queue.
+  await page.goto('/app')
+  await expect(page.getByText(/2 notes need processing/i)).toBeVisible()
+  await expect(page.getByRole('heading', { name: /processing queue/i })).toBeVisible()
+
+  // Manual queue lists backlog notes for hand organization.
+  await expect(page.getByRole('link', { name: /e2e zero items/i })).toBeVisible()
+
+  // Analyze All drafts both notes; the queue reports the summary.
+  await page.getByRole('button', { name: /^analyze all/i }).first().click()
+  await expect(page.getByText(/analyzed 2/i)).toBeVisible()
+  expect(pageErrors).toEqual([])
+})

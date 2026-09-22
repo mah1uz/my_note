@@ -5,5 +5,6 @@ export function searchNotes(query, signal) {
 }
 
 export function askNotes(query, signal) {
-  return apiRequest('/search/answer/', { method: 'POST', body: JSON.stringify({ query }), signal })
+  // Generated answers wait on the provider; allow a longer budget.
+  return apiRequest('/search/answer/', { method: 'POST', body: JSON.stringify({ query }), signal, timeout: 90000 })
 }

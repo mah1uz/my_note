@@ -126,7 +126,7 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
     ),
-    'DEFAULT_THROTTLE_RATES': {'anon': '60/min', 'user': '300/min', 'analyze': '6/min'},
+    'DEFAULT_THROTTLE_RATES': {'anon': '60/min', 'user': '300/min', 'analyze': '6/min', 'bulk': '30/hour'},
 }
 
 EMAIL_BACKEND = os.getenv(

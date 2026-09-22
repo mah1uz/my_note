@@ -207,3 +207,88 @@ def create_standalone_item(user, values):
         record_confirmation(note, operation='CONFIRM')
     item.refresh_from_db()
     return item
+
+
+BACKLOG_STATUSES = (
+    Note.ProcessingStatus.UNPROCESSED,
+    Note.ProcessingStatus.FAILED,
+)
+BULK_LIMIT = 25
+
+
+def confirm_all_drafts(note):
+    """Verify mode: confirm every current draft unedited.
+
+    Raw text is never touched; only draft flags change. Used by bulk
+    processing after a successful analysis of the same revision.
+    """
+    if analysis_is_running(note):
+        raise Conflict('Wait for analysis to finish before confirming.')
+    with transaction.atomic():
+        claim_revision(note, note.revision, analysis_started_at=None)
+        drafts = list(note.items.filter(is_confirmed=False))
+        source_log = note.ai_logs.filter(
+            operation='ANALYZE', status__in=['SUCCESS', 'EMPTY'], input_text=note.raw_text,
+        ).first()
+        for item in drafts:
+            item.is_confirmed = True
+            item.save(update_fields=['is_confirmed', 'updated_at'])
+        has_confirmed = note.items.filter(is_confirmed=True).exists()
+        note.processing_status = 'PROCESSED' if (drafts or has_confirmed) else 'REVIEW_REQUIRED'
+        note.save(update_fields=['processing_status', 'updated_at'])
+        record_confirmation(note, source_log)
+
+
+def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT):
+    """Sequentially analyze every backlog note (UNPROCESSED + FAILED).
+
+    Verify mode additionally confirms each note's drafts unedited.
+    Trial quota is consumed per analyzed note; exhaustion stops the run
+    and remaining notes are reported as skipped, never half-processed.
+    """
+    if mode not in ('analyze', 'verify'):
+        raise ValidationError({'mode': 'Use analyze or verify.'})
+    if not user_api_key and not trial:
+        raise ValidationError({
+            'detail': 'Start the free trial or enter a personal API key to use AI organization.',
+            'code': 'credential_required',
+        })
+    if trial and not user_api_key and (not get_server_ai_enabled() or not settings.GROQ_API_KEY):
+        raise groq_service.ProviderFailure(
+            'trial_unavailable',
+            'Free trial is not available right now. Enter a personal API key instead.',
+            503,
+        )
+    candidates = list(Note.objects.filter(
+        app_user=user, is_archived=False, processing_status__in=BACKLOG_STATUSES,
+    ).order_by('created_at', 'id')[:limit])
+    results = []
+    stopped = None
+    for note in candidates:
+        if analysis_is_running(note):
+            results.append({'id': note.pk, 'status': 'skipped', 'code': 'running'})
+            continue
+        try:
+            analyze(note, note.revision, user_api_key=user_api_key, trial=trial)
+        except groq_service.ProviderFailure as error:
+            results.append({'id': note.pk, 'status': 'failed', 'code': error.code})
+            if error.code == 'trial_exhausted' or getattr(error, 'status_code', 0) == 429:
+                stopped = 'trial_exhausted'
+                break
+            continue
+        except Conflict:
+            results.append({'id': note.pk, 'status': 'skipped', 'code': 'changed'})
+            continue
+        except ValidationError:
+            results.append({'id': note.pk, 'status': 'failed', 'code': 'invalid'})
+            continue
+        if mode == 'verify':
+            try:
+                confirm_all_drafts(note)
+            except (Conflict, ValidationError):
+                results.append({'id': note.pk, 'status': 'failed', 'code': 'verify_failed'})
+                continue
+            results.append({'id': note.pk, 'status': 'verified', 'code': 'ok'})
+        else:
+            results.append({'id': note.pk, 'status': 'analyzed', 'code': 'ok'})
+    return {'mode': mode, 'results': results, 'stopped': stopped}
