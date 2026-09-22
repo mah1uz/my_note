@@ -1,6 +1,6 @@
 # Rememberly
 
-Rememberly is a React and Django note-taking prototype. Part 2 provides real authentication and user-owned Notes CRUD backed by SQLite. Tasks, Events, Shopping, Expenses, Places, Search, Daily Briefing, and What Matters Now still use frontend mock data.
+Rememberly is a React and Django note-taking application. Part 3 provides real Notes CRUD, validated Groq-backed organization with user review, and confirmed NoteItems. The project is transitioning to Supabase PostgreSQL and Supabase Auth for email/password and Google sign-in before Part 4. Places, Search, Daily Briefing, and What Matters Now remain deferred/mock features.
 
 ## Local setup
 
@@ -24,7 +24,16 @@ npm run dev
 
 Open `http://localhost:5173`. Django Admin is available at `http://localhost:8000/admin/` after creating a superuser with `backend/.venv/bin/python backend/manage.py createsuperuser` from the repository root.
 
-The checked-in `.env.example` files document optional configuration. Development defaults use SQLite, `http://localhost:5173`, and `http://localhost:8000/api/v1`.
+The checked-in `.env.example` files document configuration. Local fallback defaults use SQLite, `http://localhost:5173`, and `http://localhost:8000/api/v1`; the target deployment uses Supabase PostgreSQL and Supabase Auth. See `docs/database-migration.md` and `docs/authentication.md`.
+
+For AI organization, the server-owned `GROQ_API_KEY` is optional. If configured,
+copy the backend environment example to ignored `backend/.env`; keep the key
+backend-only and never put it in frontend environment variables. Authenticated
+users may instead enter their own Groq key in the Dashboard. That personal key
+is held only in browser memory for the current session, sent only to Django for
+AI analysis, and is never saved by this application. A hard refresh requires
+entering it again. The selected model and timeout are configurable with
+`GROQ_MODEL` and `GROQ_TIMEOUT_SECONDS`.
 
 ## Verification
 

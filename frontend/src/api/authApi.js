@@ -1,41 +1,75 @@
-import { apiRequest, refreshAccessToken, setAccessToken, withAuthTransition } from './http'
+import { apiRequest, setAccessToken } from './http'
+import { supabase } from './supabaseClient'
+
+function requireSupabase() {
+  if (!supabase) throw new Error('Supabase Auth is not configured.')
+}
+
+async function supabaseProfile(session) {
+  setAccessToken(session?.access_token || null)
+  return apiRequest('/auth/me/', {}, false)
+}
 
 export async function registerAccount(payload) {
-  return withAuthTransition(async () => {
-    const data = await apiRequest('/auth/register/', { method: 'POST', body: JSON.stringify(payload) }, false)
-    setAccessToken(data.access)
-    return data.user
+  requireSupabase()
+  const { data, error } = await supabase.auth.signUp({
+    email: payload.email.trim().toLowerCase(),
+    password: payload.password,
+    options: { data: { full_name: payload.name.trim() } },
   })
+  if (error) throw error
+  if (!data.session) return null
+  return supabaseProfile(data.session)
 }
 
 export async function loginAccount(identity, password) {
-  return withAuthTransition(async () => {
-    const data = await apiRequest('/auth/login/', { method: 'POST', body: JSON.stringify({ identity, password }) }, false)
-    setAccessToken(data.access)
-    return data.user
+  requireSupabase()
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: identity.trim().toLowerCase(), password,
   })
+  if (error) throw error
+  return supabaseProfile(data.session)
 }
 
 export async function restoreSession() {
-  try {
-    await refreshAccessToken()
-    return await apiRequest('/auth/me/', {}, false)
-  } catch (error) {
+  requireSupabase()
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+  if (!data.session) {
     setAccessToken(null)
-    throw error
+    throw new Error('No active session.')
   }
+  return supabaseProfile(data.session)
 }
 
 export async function logoutAccount() {
-  return withAuthTransition(async () => {
-    try {
-      await apiRequest('/auth/logout/', { method: 'POST', body: '{}' }, false)
-    } finally {
-      setAccessToken(null)
-    }
-  })
+  requireSupabase()
+  const { error } = await supabase.auth.signOut()
+  setAccessToken(null)
+  if (error) throw error
 }
 
-export const requestPasswordReset = (email) => apiRequest('/auth/password-reset/', { method: 'POST', body: JSON.stringify({ email }) }, false)
+export async function requestPasswordReset(email) {
+  requireSupabase()
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    redirectTo: `${window.location.origin}/reset-password`,
+  })
+  if (error) throw error
+  return { detail: 'If the account exists, a reset link has been sent.' }
+}
 
-export const confirmPasswordReset = (payload) => apiRequest('/auth/password-reset/confirm/', { method: 'POST', body: JSON.stringify(payload) }, false)
+export async function confirmPasswordReset(payload) {
+  requireSupabase()
+  const { error } = await supabase.auth.updateUser({ password: payload.password })
+  if (error) throw error
+  return { detail: 'Password reset successfully.' }
+}
+
+export async function signInWithGoogle() {
+  requireSupabase()
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: `${window.location.origin}/auth/callback` },
+  })
+  if (error) throw error
+}

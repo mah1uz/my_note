@@ -7,6 +7,7 @@ const normalizeNote = (note) => ({
   isArchived: note.is_archived,
   createdAt: note.created_at,
   updatedAt: note.updated_at,
+  revision: note.revision,
   domains: [],
   itemIds: []
 })

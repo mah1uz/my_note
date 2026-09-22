@@ -7,9 +7,10 @@ const backendRunner = process.platform === 'win32' ? '..\\backend\\run_e2e.py' :
 
 export default defineConfig({
   testDir: './e2e',
+  workers: 1,
   webServer: [
     {
-      command: `${backendPython} ${backendRunner}`,
+      command: `"${backendPython}" "${backendRunner}"`,
       url: 'http://127.0.0.1:8000/admin/login/',
       reuseExistingServer: false
     },

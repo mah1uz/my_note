@@ -3,17 +3,21 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { setAccessToken } from './api/http'
+import { installSupabaseMock } from './test/supabaseMock'
 import { AppStateProvider } from './context/AppStateContext'
 import { AuthProvider } from './context/AuthContext'
 import { NotesProvider } from './context/NotesContext'
 
-const mayaProfile = { id: 1, username: 'maya', email: 'maya@example.com', name: 'Maya Rahman' }
-let profile
-let authenticated
-let notes
-let nextId
-let failNotes
-let delayNotes
+const mayaProfile = { id: '11111111-1111-4111-8111-111111111111', username: 'maya@example.com', email: 'maya@example.com', name: 'Maya Rahman' }
+const state = {
+  authenticated: false,
+  profile: mayaProfile,
+  notes: [],
+  nextId: 2,
+  failNotes: false,
+  delayNotes: false,
+  failLogin: false,
+}
 
 function jsonResponse(data, status = 200) {
   return Promise.resolve(new Response(status === 204 ? null : JSON.stringify(data), {
@@ -39,52 +43,37 @@ function installApiMock() {
     const path = url.pathname
     const method = options.method || 'GET'
 
-    if (path.endsWith('/auth/refresh/')) return authenticated ? jsonResponse({ access: 'restored-access' }) : jsonResponse({ detail: 'No active session.' }, 401)
-    if (path.endsWith('/auth/me/')) return authenticated ? jsonResponse(profile) : jsonResponse({ detail: 'Authentication required.' }, 401)
-    if (path.endsWith('/auth/login/')) {
-      const body = JSON.parse(options.body)
-      if (body.password === 'wrong-password') return jsonResponse({ detail: 'Invalid credentials.' }, 401)
-      if (body.identity === 'bob@example.com') {
-        profile = { id: 2, username: 'bob', email: 'bob@example.com', name: 'Bob User' }
-        notes = [{ id: 9, raw_text: 'Bob private note', created_at: '2026-09-21T10:00:00Z' }]
-      }
-      authenticated = true
-      return jsonResponse({ access: 'login-access', user: profile })
+    if (path.endsWith('/auth/me/')) return state.authenticated ? jsonResponse(state.profile) : jsonResponse({ detail: 'Authentication required.' }, 401)
+    if (path.endsWith('/items/')) return jsonResponse([])
+    if (path.endsWith('/review/')) {
+      const note = state.notes.find((item) => item.id === Number(path.split('/').at(-3)))
+      return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: [], domains: [], analysis_running: false })
     }
-    if (path.endsWith('/auth/register/')) {
-      authenticated = true
-      return jsonResponse({ access: 'register-access', user: profile }, 201)
-    }
-    if (path.endsWith('/auth/logout/')) {
-      authenticated = false
-      return jsonResponse(null, 204)
-    }
-    if (path.endsWith('/auth/password-reset/')) return jsonResponse({ detail: 'If an account exists, a reset link has been prepared.' })
 
     if (path.endsWith('/notes/') && method === 'GET') {
-      if (delayNotes) await new Promise((resolve) => setTimeout(resolve, 50))
-      if (failNotes) return jsonResponse({ detail: 'Notes are temporarily unavailable.' }, 503)
-      return jsonResponse(notes.map(notePayload))
+      if (state.delayNotes) await new Promise((resolve) => setTimeout(resolve, 50))
+      if (state.failNotes) return jsonResponse({ detail: 'Notes are temporarily unavailable.' }, 503)
+      return jsonResponse(state.notes.map(notePayload))
     }
     if (path.endsWith('/notes/') && method === 'POST') {
       const body = JSON.parse(options.body)
-      const note = { id: nextId++, raw_text: body.raw_text, created_at: '2026-09-21T09:00:00Z' }
-      notes.unshift(note)
+      const note = { id: state.nextId++, raw_text: body.raw_text, created_at: '2026-09-21T09:00:00Z' }
+      state.notes.unshift(note)
       return jsonResponse(notePayload(note), 201)
     }
 
     const match = path.match(/\/notes\/(\d+)\/$/)
     if (match) {
       const id = Number(match[1])
-      const index = notes.findIndex((note) => note.id === id)
+      const index = state.notes.findIndex((note) => note.id === id)
       if (index < 0) return jsonResponse({ detail: 'Not found.' }, 404)
-      if (method === 'GET') return jsonResponse(notePayload(notes[index]))
+      if (method === 'GET') return jsonResponse(notePayload(state.notes[index]))
       if (method === 'PATCH') {
-        notes[index] = { ...notes[index], raw_text: JSON.parse(options.body).raw_text }
-        return jsonResponse(notePayload(notes[index]))
+        state.notes[index] = { ...state.notes[index], raw_text: JSON.parse(options.body).raw_text }
+        return jsonResponse(notePayload(state.notes[index]))
       }
       if (method === 'DELETE') {
-        notes.splice(index, 1)
+        state.notes.splice(index, 1)
         return jsonResponse(null, 204)
       }
     }
@@ -106,14 +95,16 @@ function renderApp(path = '/') {
 
 describe('Part 2 full-stack UI flows', () => {
   beforeEach(() => {
-    authenticated = false
-    profile = mayaProfile
-    notes = [{ id: 1, raw_text: 'Buy eggs.', created_at: '2026-09-21T08:00:00Z' }]
-    nextId = 2
-    failNotes = false
-    delayNotes = false
+    state.authenticated = false
+    state.profile = mayaProfile
+    state.notes = [{ id: 1, raw_text: 'Buy eggs.', created_at: '2026-09-21T08:00:00Z' }]
+    state.nextId = 2
+    state.failNotes = false
+    state.delayNotes = false
+    state.failLogin = false
     setAccessToken(null)
     window.history.pushState({}, '', '/')
+    installSupabaseMock(state)
     installApiMock()
   })
 
@@ -152,7 +143,7 @@ describe('Part 2 full-stack UI flows', () => {
   })
 
   it('restores a session and creates, edits, and deletes a persisted note', async () => {
-    authenticated = true
+    state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app/notes')
     expect(await screen.findByText('Buy eggs.')).toBeInTheDocument()
@@ -173,25 +164,24 @@ describe('Part 2 full-stack UI flows', () => {
   })
 
   it('shows Notes API loading and error states', async () => {
-    authenticated = true
-    failNotes = true
-    delayNotes = true
+    state.authenticated = true
+    state.failNotes = true
+    state.delayNotes = true
     renderApp('/app/notes')
     expect(await screen.findByText(/loading your notes/i)).toBeInTheDocument()
     expect(await screen.findByText(/temporarily unavailable/i)).toBeInTheDocument()
   })
 
   it('keeps later feature pages mocked and usable', async () => {
-    authenticated = true
+    state.authenticated = true
     const user = userEvent.setup()
-    renderApp('/app/tasks')
-    const toggle = await screen.findByRole('button', { name: /mark buy eggs complete/i })
-    await user.click(toggle)
-    expect(screen.getByRole('button', { name: /mark buy eggs incomplete/i })).toBeInTheDocument()
+    renderApp('/app/search')
+    await user.click(await screen.findByRole('button', { name: /ask my notes/i }))
+    expect(screen.getByText(/mock answer · prototype/i)).toBeInTheDocument()
   })
 
   it('clears and reloads Notes when the authenticated account changes', async () => {
-    authenticated = true
+    state.authenticated = true
     const user = userEvent.setup()
     renderApp('/login')
     await user.type(screen.getByLabelText(/email or username/i), 'bob@example.com')
@@ -208,11 +198,11 @@ describe('Part 2 full-stack UI flows', () => {
     renderApp('/forgot-password')
     await user.type(screen.getByLabelText('Email'), 'unknown@example.com')
     await user.click(screen.getByRole('button', { name: /send reset link/i }))
-    expect(await screen.findByText(/if an account exists/i)).toBeInTheDocument()
+    expect(await screen.findByText(/if the account exists/i)).toBeInTheDocument()
   })
 
   it('renders all protected application pages for an authenticated user', async () => {
-    authenticated = true
+    state.authenticated = true
     const routes = [
       ['/app', /good morning/i], ['/app/notes', /^notes$/i], ['/app/notes/new', /^new note$/i],
       ['/app/tasks', /^tasks$/i], ['/app/events', /^events$/i], ['/app/shopping', /^shopping$/i],
