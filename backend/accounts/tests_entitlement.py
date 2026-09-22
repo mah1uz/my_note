@@ -10,7 +10,7 @@ from rest_framework.test import APITestCase
 from notes.models import Note
 from notes.test_fixtures import example_output
 
-from .models import AppUser, UserAiEntitlement
+from .models import AppUser, UserAiEntitlement, UserPreference
 
 
 @override_settings(GROQ_API_KEY='synthetic-test-key')
@@ -95,3 +95,25 @@ class AiEntitlementApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         entitlement = self.entitlement()
         self.assertEqual(entitlement.trial_used, 0)
+
+
+class OnboardingApiTests(APITestCase):
+    def setUp(self):
+        self.user = AppUser.objects.create(email='onboarding@example.com')
+        self.client.force_authenticate(self.user)
+
+    def test_completion_persists_supported_choices_and_timestamp(self):
+        response = self.client.post('/api/v1/auth/onboarding/complete/', {
+            'profession': 'EMPLOYED', 'priority_profile': 'STUDY_FIRST', 'onboarding_tour_version': 1,
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        preference = UserPreference.objects.get(user=self.user)
+        self.assertEqual(preference.profession, 'EMPLOYED')
+        self.assertEqual(preference.priority_profile, 'STUDY_FIRST')
+        self.assertIsNotNone(preference.onboarding_completed_at)
+
+    def test_completion_rejects_unknown_priority(self):
+        response = self.client.post('/api/v1/auth/onboarding/complete/', {
+            'priority_profile': 'GUESS',
+        }, format='json')
+        self.assertEqual(response.status_code, 400)

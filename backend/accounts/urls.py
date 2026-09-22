@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import AiEntitlementView, MeView, PreferenceResetView, PreferenceView, SettingsView
+from .views import AiEntitlementView, MeView, OnboardingCompleteView, PreferenceResetView, PreferenceView, SettingsView
 
 urlpatterns = [
     path('me/', MeView.as_view(), name='me'),
@@ -8,4 +8,5 @@ urlpatterns = [
     path('preferences/reset/', PreferenceResetView.as_view(), name='preferences-reset'),
     path('settings/', SettingsView.as_view(), name='settings'),
     path('ai/entitlement/', AiEntitlementView.as_view(), name='ai-entitlement'),
+    path('onboarding/complete/', OnboardingCompleteView.as_view(), name='onboarding-complete'),
 ]

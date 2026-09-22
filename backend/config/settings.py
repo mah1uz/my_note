@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'accounts',
     'notes',
     'finance',
+    'search',
 ]
 
 MIDDLEWARE = [
@@ -113,7 +114,7 @@ CORS_ALLOWED_ORIGINS = env_list(
     'http://localhost:5173,http://127.0.0.1:5173',
 )
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_HEADERS = (*default_headers, 'x-groq-api-key')
+CORS_ALLOW_HEADERS = (*default_headers, 'x-groq-api-key', 'x-groq-trial')
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 REST_FRAMEWORK = {

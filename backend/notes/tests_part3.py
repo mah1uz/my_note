@@ -203,6 +203,16 @@ class IntelligenceApiTests(APITestCase):
         self.assertNotIn('raw_response', str(response.data))
         self.assertEqual(self.note.ai_logs.get().parsed_response, example_output(self.text))
 
+    def test_deterministic_evidence_is_review_signal_and_survives_confirmation(self):
+        self.assertEqual(self.analyze().status_code, 200)
+        draft = self.note.items.get()
+        self.assertIn('deterministic_evidence', draft.metadata)
+        response = self.confirm([{'id': draft.pk, 'item_type': draft.item_type, 'title': draft.title}])
+        self.assertEqual(response.status_code, 200)
+        draft.refresh_from_db()
+        self.assertTrue(draft.is_confirmed)
+        self.assertIn('deterministic_evidence', draft.metadata)
+
     def test_multi_item_confirmation_correction_removal_and_manual_addition(self):
         self.provider.return_value = json.dumps(example_output(list(EXAMPLES)[3]))
         self.assertEqual(self.analyze().status_code, 200)

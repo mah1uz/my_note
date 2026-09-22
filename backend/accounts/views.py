@@ -1,6 +1,7 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils import timezone
 
 from .models import AppUser, UserAiEntitlement, UserPreference
 from .serializers import AiEntitlementSerializer, AppUserSerializer, PreferenceSerializer
@@ -124,3 +125,21 @@ class AiEntitlementView(APIView):
             return denied
         entitlement, _ = UserAiEntitlement.objects.get_or_create(user=request.user)
         return Response(AiEntitlementSerializer(entitlement).data)
+
+
+class OnboardingCompleteView(APIView):
+    """Persist onboarding choices; completion stays server-authoritative."""
+
+    def post(self, request):
+        denied = _require_app_user(request)
+        if denied:
+            return denied
+        preference, _ = UserPreference.objects.get_or_create(user=request.user)
+        serializer = PreferenceSerializer(preference, data={
+            'profession': request.data.get('profession', preference.profession),
+            'priority_profile': request.data.get('priority_profile', preference.priority_profile),
+            'onboarding_tour_version': request.data.get('onboarding_tour_version', preference.onboarding_tour_version),
+        }, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(onboarding_completed_at=timezone.now())
+        return Response(settings_payload(request.user))

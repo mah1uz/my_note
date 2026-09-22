@@ -200,12 +200,12 @@ describe('Part 2 full-stack UI flows', () => {
     expect(await screen.findByText(/temporarily unavailable/i)).toBeInTheDocument()
   })
 
-  it('keeps later feature pages mocked and usable', async () => {
+  it('keeps the grounded Ask page usable', async () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app/search')
     await user.click(await screen.findByRole('button', { name: /ask my notes/i }))
-    expect(screen.getByText(/mock answer · prototype/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /ask a grounded question/i })).toBeInTheDocument()
   })
 
   it('clears and reloads Notes when the authenticated account changes', async () => {

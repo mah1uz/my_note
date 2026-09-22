@@ -14,6 +14,7 @@ from accounts.services.ai_config import get_server_ai_enabled
 from accounts.services.entitlement import TrialUnavailable, consume_trial
 from .item_serializers import ItemInputSerializer, NoteItemSerializer
 from .models import AIProcessingLog, Note, NoteItem
+from .preparser import parse_note_evidence
 
 
 class Conflict(APIException):
@@ -99,6 +100,7 @@ def analyze(note, revision, user_api_key=None, trial=False):
     raw = ''
     payload = None
     failure = None
+    deterministic_evidence = parse_note_evidence(note.raw_text)
     try:
         if user_api_key:
             provider_response = groq_service.analyze_note(note.raw_text, timezone.localtime(), api_key=user_api_key)
@@ -107,9 +109,11 @@ def analyze(note, revision, user_api_key=None, trial=False):
         raw = groq_service.redact(provider_response, extra_key=user_api_key)
         payload = parse_analysis(raw)
         validated = []
-        for predicted in payload['items']:
+        for index, predicted in enumerate(payload['items']):
             data = {key: value for key, value in predicted.items() if key not in ('type', 'confidence')}
             data['item_type'] = predicted['type']
+            # Keep explicit parser evidence visible for review; never replace provider values.
+            data['metadata'] = {'deterministic_evidence': deterministic_evidence} if index == 0 else {}
             serializer = ItemInputSerializer(data=data)
             serializer.is_valid(raise_exception=True)
             validated.append((serializer.validated_data, predicted['confidence']))
@@ -161,6 +165,9 @@ def confirm(note, revision, items):
         for values in items:
             values = dict(values)
             item = drafts.get(values.pop('id', None))
+            # Deterministic evidence is a server-attached review signal;
+            # client confirmations must not wipe it with serializer defaults.
+            values.pop('metadata', None)
             save_item(note, values, item=item, confirmed=True)
         # Confirmed items are never implicitly overwritten or deleted by a new review.
         note.items.filter(is_confirmed=False).delete()
@@ -175,6 +182,9 @@ def edit_confirmed(item, revision, changes):
         raise Conflict('Wait for analysis to finish before editing structured items.')
     with transaction.atomic():
         claim_revision(note, revision)
+        changes = dict(changes)
+        # Preserve server-attached evidence on edits as well.
+        changes.pop('metadata', None)
         save_item(note, changes, item=item, confirmed=True)
         record_confirmation(note, item.analysis_log, operation='EDIT')
     return item
