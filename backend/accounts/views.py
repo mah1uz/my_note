@@ -2,8 +2,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AppUser, UserPreference
-from .serializers import AppUserSerializer, PreferenceSerializer
+from .models import AppUser, UserAiEntitlement, UserPreference
+from .serializers import AiEntitlementSerializer, AppUserSerializer, PreferenceSerializer
 
 
 def _require_app_user(request):
@@ -72,6 +72,10 @@ PREFERENCE_DEFAULTS = {
     'location_reminders_enabled': False,
     'daily_briefing_enabled': True,
     'week_starts_on': 0,
+    'profession': '',
+    'priority_profile': 'BALANCED',
+    'onboarding_completed_at': None,
+    'onboarding_tour_version': 0,
 }
 
 
@@ -109,3 +113,14 @@ class PreferenceResetView(APIView):
         )
         user.refresh_from_db()
         return Response(settings_payload(user))
+
+
+class AiEntitlementView(APIView):
+    """Return the authenticated user's backend-authoritative trial usage."""
+
+    def get(self, request):
+        denied = _require_app_user(request)
+        if denied:
+            return denied
+        entitlement, _ = UserAiEntitlement.objects.get_or_create(user=request.user)
+        return Response(AiEntitlementSerializer(entitlement).data)

@@ -17,7 +17,7 @@ from rest_framework.test import APITestCase
 
 from ai.schema import InvalidAnalysis, parse_analysis
 from ai.services import groq_service
-from accounts.models import AppUser, SystemSetting
+from accounts.models import AppUser, SystemSetting, UserAiEntitlement
 from .constants import DOMAINS
 from .models import AIProcessingLog, Domain, Note, NoteItem
 from .test_fixtures import EXAMPLES, example_output, prediction
@@ -175,6 +175,9 @@ class IntelligenceApiTests(APITestCase):
         self.text = 'I need eggs from Agora.'
         self.note = Note.objects.create(app_user=self.owner, raw_text=self.text)
         self.base = f'/api/v1/notes/{self.note.pk}/'
+        # Trial quota is backend-enforced; existing intelligence tests exercise
+        # throttling/retry paths, not quota, so lift the limit for this suite.
+        UserAiEntitlement.objects.create(user=self.owner, trial_limit=100)
         self.provider = patch('ai.services.groq_service.analyze_note', return_value=json.dumps(example_output(self.text))).start()
         self.addCleanup(patch.stopall)
 

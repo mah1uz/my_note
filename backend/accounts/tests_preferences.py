@@ -28,6 +28,10 @@ class PreferenceApiTests(APITestCase):
             'location_reminders_enabled': False,
             'daily_briefing_enabled': True,
             'week_starts_on': 0,
+            'profession': '',
+            'priority_profile': 'BALANCED',
+            'onboarding_completed_at': None,
+            'onboarding_tour_version': 0,
         })
         me = self.client.get('/api/v1/auth/me/')
         self.assertEqual(me.data['email'], 'prefs@example.com')
@@ -105,3 +109,36 @@ class PreferenceApiTests(APITestCase):
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.user.refresh_from_db()
         self.assertEqual(self.user.default_currency, 'BDT')
+
+    def test_patch_personalization_fields_round_trip(self):
+        response = self.client.patch(
+            '/api/v1/auth/preferences/',
+            {'profession': 'STUDENT', 'priority_profile': 'STUDY_FIRST', 'onboarding_tour_version': 2},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['profession'], 'STUDENT')
+        self.assertEqual(response.data['priority_profile'], 'STUDY_FIRST')
+        self.assertEqual(response.data['onboarding_tour_version'], 2)
+        preference = UserPreference.objects.get(user=self.user)
+        self.assertEqual(preference.profession, 'STUDENT')
+        self.assertEqual(preference.priority_profile, 'STUDY_FIRST')
+
+    def test_patch_rejects_invalid_personalization_values(self):
+        for payload in ({'profession': 'WIZARD'}, {'priority_profile': 'FUN_FIRST'}):
+            with self.subTest(payload=payload):
+                response = self.client.patch('/api/v1/auth/preferences/', payload, format='json')
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_reset_restores_personalization_defaults(self):
+        self.client.patch(
+            '/api/v1/auth/preferences/',
+            {'profession': 'EMPLOYED', 'priority_profile': 'WORK_FIRST', 'onboarding_tour_version': 3},
+            format='json',
+        )
+        response = self.client.post('/api/v1/auth/preferences/reset/', {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['preferences']['profession'], '')
+        self.assertEqual(response.data['preferences']['priority_profile'], 'BALANCED')
+        self.assertIsNone(response.data['preferences']['onboarding_completed_at'])
+        self.assertEqual(response.data['preferences']['onboarding_tour_version'], 0)

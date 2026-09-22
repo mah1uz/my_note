@@ -12,5 +12,6 @@ urlpatterns = [
     path('api/v1/auth/', include('accounts.urls')),
     path('api/v1/admin/', include('accounts.admin_urls')),
     path('api/v1/notes/', include('notes.urls')),
+    path('api/v1/transactions/', include('finance.urls')),
     path('api/v1/', include(items_router.urls)),
 ]

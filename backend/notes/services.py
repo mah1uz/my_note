@@ -11,6 +11,7 @@ from rest_framework.exceptions import APIException, ValidationError
 from ai.schema import InvalidAnalysis, parse_analysis
 from ai.services import groq_service
 from accounts.services.ai_config import get_server_ai_enabled
+from accounts.services.entitlement import TrialUnavailable, consume_trial
 from .item_serializers import ItemInputSerializer, NoteItemSerializer
 from .models import AIProcessingLog, Note, NoteItem
 
@@ -76,6 +77,14 @@ def analyze(note, revision, user_api_key=None, trial=False):
             'Free trial is not available right now. Enter a personal API key instead.',
             503,
         )
+    if trial and not user_api_key:
+        # Quota is checked before claiming a revision so a rejected trial
+        # burns neither revision nor note state. Consumed quota is not
+        # refunded on later provider failure (documented charge policy).
+        try:
+            consume_trial(note.app_user)
+        except TrialUnavailable as error:
+            raise groq_service.ProviderFailure('trial_exhausted', str(error), 429) from error
     if analysis_is_running(note):
         raise Conflict('Analysis is already running. Wait, then reload the review.')
     with transaction.atomic():

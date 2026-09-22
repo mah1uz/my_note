@@ -5,7 +5,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import AdminProfile, UserPreference
+from .models import AdminProfile, UserAiEntitlement, UserPreference
 
 
 class AppUserSerializer(serializers.Serializer):
@@ -132,12 +132,26 @@ class AISettingsSerializer(serializers.Serializer):
 
 class PreferenceSerializer(serializers.ModelSerializer):
     week_starts_on = serializers.IntegerField(min_value=0, max_value=6, required=False)
+    onboarding_completed_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = UserPreference
         fields = (
             'notification_enabled', 'time_reminders_enabled',
             'location_reminders_enabled', 'daily_briefing_enabled',
-            'week_starts_on',
+            'week_starts_on', 'profession', 'priority_profile',
+            'onboarding_completed_at', 'onboarding_tour_version',
         )
         extra_kwargs = {field: {'required': False} for field in fields}
+
+
+class AiEntitlementSerializer(serializers.ModelSerializer):
+    remaining = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UserAiEntitlement
+        fields = ('trial_limit', 'trial_used', 'remaining', 'trial_started_at', 'trial_expires_at')
+        read_only_fields = fields
+
+    def get_remaining(self, entitlement):
+        return max(entitlement.trial_limit - entitlement.trial_used, 0)
