@@ -27,6 +27,9 @@ class Note(models.Model):
 
     class Meta:
         ordering = ('-created_at',)
+        # Measured: notes-list filters by app_user and orders by created_at;
+        # EXPLAIN showed TEMP B-TREE FOR ORDER BY without this composite index.
+        indexes = [models.Index(fields=('app_user', '-created_at'), name='note_owner_created_idx')]
 
     def __str__(self):
         return self.raw_text[:60]
