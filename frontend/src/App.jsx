@@ -5,7 +5,7 @@ import { useAuth } from './context/AuthContext'
 import { useNotes } from './context/NotesContext'
 import { confirmPasswordReset, requestPasswordReset } from './api/authApi'
 import { apiRequest } from './api/http'
-import { mockAskResponse, mockSearchResults } from './data/mockData'
+import { LogoutIcon, MenuIcon, NavIcon, PlacesIcon, SparkleIcon } from './components/icons'
 import AIReviewPanel from './features/notes/AIReviewPanel'
 import { EventsPage, ExpensesPage, ShoppingPage, TasksPage } from './features/items/ItemPages'
 import AiProviderCard from './features/notes/AiProviderCard'
@@ -17,15 +17,15 @@ import OnboardingPage from './features/onboarding/OnboardingPage'
 import SearchFeaturePage from './features/search/SearchPage'
 
 const navItems = [
-  ['Dashboard', '/app', '⌂'], ['Notes', '/app/notes', '▤'], ['Tasks', '/app/tasks', '✓'],
-  ['Events', '/app/events', '◷'], ['Shopping', '/app/shopping', '▢'], ['Transactions', '/app/transactions', '৳'],
-  ['Places', '/app/places', '⌖'], ['Search', '/app/search', '⌕'], ['Settings', '/app/settings', '⚙']
+  ['Dashboard', '/app'], ['Notes', '/app/notes'], ['Tasks', '/app/tasks'],
+  ['Events', '/app/events'], ['Shopping', '/app/shopping'], ['Transactions', '/app/transactions'],
+  ['Places', '/app/places'], ['Search', '/app/search'], ['Settings', '/app/settings']
 ]
 
 function Pill({ children, tone = 'neutral' }) { return <span className={`pill pill-${tone.toLowerCase()}`}>{children}</span> }
 
 function EmptyState({ title, text }) {
-  return <div className="empty-state"><div className="empty-icon">○</div><h3>{title}</h3><p>{text}</p></div>
+  return <div className="empty-state"><div className="empty-icon"><SparkleIcon /></div><h3>{title}</h3><p>{text}</p></div>
 }
 
 function PageHeader({ eyebrow, title, description, action }) {
@@ -34,15 +34,15 @@ function PageHeader({ eyebrow, title, description, action }) {
 
 function Sidebar({ onLogout, open, onToggle }) {
   return <aside className={`sidebar${open ? ' open' : ' closed'}`}>
-    <div className="sidebar-top"><button className="menu-button" onClick={onToggle} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}>☰</button></div>
+    <div className="sidebar-top"><button className="menu-button" onClick={onToggle} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}><MenuIcon /></button></div>
     <div className="sidebar-label">Your space</div>
-    <nav className="sidebar-nav" aria-label="Your space">{navItems.map(([label, path, icon]) => <NavLink key={path} to={path} end={path === '/app'} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><span className="nav-icon" aria-hidden="true">{icon}</span><span className="nav-label">{label}</span></NavLink>)}</nav>
-    <div className="sidebar-bottom"><div className="prototype-note"><span className="status-dot" aria-hidden="true" /> <span className="fold-text">Prototype data</span></div><button className="logout-button" onClick={onLogout}><span className="logout-text">Log out</span> <span aria-hidden="true">↗</span></button></div>
+    <nav className="sidebar-nav" aria-label="Your space">{navItems.map(([label, path]) => <NavLink key={path} to={path} end={path === '/app'} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><span className="nav-icon" aria-hidden="true"><NavIcon label={label} /></span><span className="nav-label">{label}</span></NavLink>)}</nav>
+    <div className="sidebar-bottom"><div className="prototype-note"><span className="status-dot" aria-hidden="true" /> <span className="fold-text">Prototype data</span></div><button className="logout-button" onClick={onLogout}><span className="logout-text">Log out</span> <LogoutIcon /></button></div>
   </aside>
 }
 
 function MobileNav() {
-  return <nav className="mobile-nav">{navItems.slice(0, 5).map(([label, path, icon]) => <NavLink key={path} to={path} end={path === '/app'} className={({ isActive }) => isActive ? 'mobile-link active' : 'mobile-link'}><span>{icon}</span><small>{label}</small></NavLink>)}</nav>
+  return <nav className="mobile-nav">{navItems.slice(0, 5).map(([label, path]) => <NavLink key={path} to={path} end={path === '/app'} className={({ isActive }) => isActive ? 'mobile-link active' : 'mobile-link'}><NavIcon label={label} size={21} /><small>{label}</small></NavLink>)}</nav>
 }
 
 function AppLayout({ children }) {
@@ -54,7 +54,7 @@ function AppLayout({ children }) {
   const handleLogout = async () => { try { await logout() } finally { clearSessionGroqKey(); navigate('/login') } }
   return <div className="app-shell">
     <Sidebar open={navOpen} onToggle={() => setNavOpen(!navOpen)} onLogout={handleLogout} />
-    <main className="main-content"><div className="topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link></div><div className="mobile-topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link><button className="menu-button" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Toggle menu">☰</button></div>{mobileOpen && <div className="mobile-menu">{navItems.map(([label, path]) => <NavLink key={path} to={path} onClick={() => setMobileOpen(false)} className="mobile-menu-link">{label}</NavLink>)}<button onClick={handleLogout}>Log out</button></div>}<div className="content-wrap" key={location.pathname}>{children}</div></main>
+    <main className="main-content"><div className="topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link></div><div className="mobile-topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link><button className="menu-button" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Toggle menu"><MenuIcon /></button></div>{mobileOpen && <div className="mobile-menu">{navItems.map(([label, path]) => <NavLink key={path} to={path} onClick={() => setMobileOpen(false)} className="mobile-menu-link">{label}</NavLink>)}<button onClick={handleLogout}>Log out</button></div>}<div className="content-wrap" key={location.pathname}>{children}</div></main>
     <MobileNav />
   </div>
 }
@@ -85,7 +85,7 @@ function QuickCapture({ compact = false }) {
     }
   }
   return <form className={`capture-card ${compact ? 'capture-compact' : ''}`} onSubmit={save}>
-    <div className="capture-heading"><span className="capture-icon">✦</span><div><h2>Quick capture</h2><p>Get it out of your head. We&apos;ll help organize it.</p></div></div>
+    <div className="capture-heading"><span className="capture-icon"><SparkleIcon /></span><div><h2>Quick capture</h2><p>Get it out of your head. We&apos;ll help organize it.</p></div></div>
     <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="What do you want to remember?" rows={compact ? 3 : 4} aria-label="What do you want to remember?" />
     {error && <p className="form-error">{error}</p>}<div className="capture-footer"><span className={saved ? 'save-message visible' : 'save-message'}>{saved ? 'Saved as an unprocessed note' : 'Try: “I need eggs from Agora.”'}</span><div className="capture-actions">{savedNoteId && <Link className="button button-ghost" to={`/app/notes/${savedNoteId}`}>Review saved note</Link>}<button className="button button-ghost" type="button" onClick={() => navigate('/app/notes/new')}>Open full editor</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save note'} <span>↗</span></button></div></div>
   </form>
@@ -115,7 +115,7 @@ function NewNotePage() {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const save = async (event) => { event.preventDefault(); if (!text.trim()) { setError('A note cannot be empty.'); return } if (saving) return; setSaving(true); try { const note = await addNote(text); navigate(`/app/notes/${note.id}`) } catch (requestError) { setError(requestError.message); setSaving(false) } }
-  return <><PageHeader eyebrow="Capture first" title="New note" description="Write naturally. No categories or forms to fill out first." /><div className="editor-layout"><form className="editor-card" onSubmit={save}><label htmlFor="note-editor">Your thought</label><textarea id="note-editor" value={text} onChange={(event) => setText(event.target.value)} placeholder="I have an EM quiz on September 23..." rows="12" autoFocus />{error && <p className="form-error">{error}</p>}<div className="editor-footer"><span>{text.length} characters</span><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save note'} <span>↗</span></button></div></form><div className="editor-tip"><span className="tip-icon">✦</span><h3>Captured now, organized later</h3><p>Save first, then analyze with AI or organize manually. Review and correct suggested items before confirming them.</p><div className="example-note">“Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.”</div></div></div></>
+  return <><PageHeader eyebrow="Capture first" title="New note" description="Write naturally. No categories or forms to fill out first." /><div className="editor-layout"><form className="editor-card" onSubmit={save}><label htmlFor="note-editor">Your thought</label><textarea id="note-editor" value={text} onChange={(event) => setText(event.target.value)} placeholder="I have an EM quiz on September 23..." rows="12" autoFocus />{error && <p className="form-error">{error}</p>}<div className="editor-footer"><span>{text.length} characters</span><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save note'} <span>↗</span></button></div></form><div className="editor-tip"><span className="tip-icon"><SparkleIcon /></span><h3>Captured now, organized later</h3><p>Save first, then analyze with AI or organize manually. Review and correct suggested items before confirming them.</p><div className="example-note">“Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.”</div></div></div></>
 }
 
 function NoteDetailPage() {
@@ -152,17 +152,9 @@ function PlacesPage() {
   const startEdit = (place) => { setEditingId(place.id); setName(place.name); setAddress(place.address); setFormOpen(true) }
   const closeForm = () => { setEditingId(null); setName(''); setAddress(''); setFormOpen(false) }
   const save = (event) => { event.preventDefault(); if (!name.trim()) return; const changes = { name: name.trim(), address: address.trim() || 'Address to be added' }; if (editingId) updatePlace(editingId, changes); else addPlace({ ...changes, radius: 200 }); closeForm() }
-  return <><PageHeader eyebrow="Context, later" title="Places" description="Saved places for a future, smarter reminder experience." action={<button className="button button-primary" onClick={() => { if (formOpen) closeForm(); else { setEditingId(null); setFormOpen(true) } }}>{formOpen ? 'Cancel' : '+ Add place'}</button>} />{formOpen && <form className="inline-form" onSubmit={save}><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Place name" aria-label="Place name" required /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Mock address" aria-label="Mock address" /><button className="button button-primary">{editingId ? 'Save changes' : 'Save place'}</button></form>}{places.length ? <div className="places-grid">{places.map((place) => <article className="place-card" key={place.id}><div className="place-card-top"><span className="place-icon">⌖</span><button className="icon-button" aria-label={`Delete ${place.name}`} onClick={() => deletePlace(place.id)}>×</button></div><h2>{place.name}</h2><p>{place.address}</p><div className="place-footer"><span>Default radius</span><strong>{place.radius}m</strong></div><div className="place-actions"><button className="text-button" onClick={() => startEdit(place)}>Edit</button><button className="text-button danger-text" onClick={() => deletePlace(place.id)}>Delete</button></div></article>)}</div> : <EmptyState title="No places saved" text="Add a place to keep your errands organized." />}<p className="prototype-disclaimer">Prototype only. No maps, GPS, or browser location APIs are active.</p></>
+  return <><PageHeader eyebrow="Context, later" title="Places" description="Saved places for a future, smarter reminder experience." action={<button className="button button-primary" onClick={() => { if (formOpen) closeForm(); else { setEditingId(null); setFormOpen(true) } }}>{formOpen ? 'Cancel' : '+ Add place'}</button>} />{formOpen && <form className="inline-form" onSubmit={save}><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Place name" aria-label="Place name" required /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Mock address" aria-label="Mock address" /><button className="button button-primary">{editingId ? 'Save changes' : 'Save place'}</button></form>}{places.length ? <div className="places-grid">{places.map((place) => <article className="place-card" key={place.id}><div className="place-card-top"><span className="place-icon"><PlacesIcon /></span><button className="icon-button" aria-label={`Delete ${place.name}`} onClick={() => deletePlace(place.id)}>×</button></div><h2>{place.name}</h2><p>{place.address}</p><div className="place-footer"><span>Default radius</span><strong>{place.radius}m</strong></div><div className="place-actions"><button className="text-button" onClick={() => startEdit(place)}>Edit</button><button className="text-button danger-text" onClick={() => deletePlace(place.id)}>Delete</button></div></article>)}</div> : <EmptyState title="No places saved" text="Add a place to keep your errands organized." />}<p className="prototype-disclaimer">Prototype only. No maps, GPS, or browser location APIs are active.</p></>
 }
 
-function SearchPage() {
-  const [tab, setTab] = useState('search')
-  const [query, setQuery] = useState('university work')
-  const [question, setQuestion] = useState('What academic deadlines do I have?')
-  const searchTerms = query.toLowerCase().trim().split(/\s+/).filter(Boolean)
-  const results = mockSearchResults.filter((result) => searchTerms.length === 0 || searchTerms.some((term) => [result.title, result.excerpt, result.domain, ...(result.keywords || [])].join(' ').toLowerCase().includes(term)))
-  return <><PageHeader eyebrow="Find the thread" title="Search" description="Explore your notes by meaning, not just by keywords." /><div className="tabs"><button className={tab === 'search' ? 'tab active' : 'tab'} onClick={() => setTab('search')}>Search notes</button><button className={tab === 'ask' ? 'tab active' : 'tab'} onClick={() => setTab('ask')}>Ask my notes</button></div>{tab === 'search' ? <div className="search-panel"><form className="search-bar" onSubmit={(event) => event.preventDefault()}><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your notes..." aria-label="Search your notes" /><button className="button button-primary">Search</button></form>{results.length ? <div className="search-results"><span className="eyebrow">Mock semantic results</span>{results.map((result) => <article className="search-result" key={result.id}><div><Pill>{result.domain}</Pill><h3>{result.title}</h3><p>{result.excerpt}</p></div><span>Prototype</span></article>)}</div> : <EmptyState title="No search results" text="Try another phrase, such as “university work”." />}</div> : <div className="ask-panel"><form onSubmit={(event) => event.preventDefault()}><label htmlFor="ask-question">Ask a question about your notes</label><div className="ask-input"><textarea id="ask-question" value={question} onChange={(event) => setQuestion(event.target.value)} rows="3" /><button className="button button-primary">Ask <span>↗</span></button></div></form><div className="answer-card"><div className="answer-label"><span className="sparkle">✦</span><span>Mock answer · prototype</span></div><p>{mockAskResponse.answer}</p><div className="source-list"><span className="eyebrow">Source notes</span>{mockAskResponse.sources.map((source) => <span className="source" key={source}>↗ {source}</span>)}</div></div></div>}</>
-}
 
 const weekStartOptions = [
   ['0', 'Sunday'], ['1', 'Monday'], ['2', 'Tuesday'], ['3', 'Wednesday'],
@@ -288,7 +280,7 @@ function ProtectedPage({ children }) {
 }
 
 function AuthLayout({ title, description, children }) {
-  return <div className="auth-shell"><div className="auth-aside"><Link className="brand" to="/login"><span className="brand-mark">R</span><span>rememberly</span></Link><div className="auth-quote"><span>“</span><p>A place for the thoughts that make up your life.</p><small>Capture first. Organize automatically.</small></div><div className="auth-art"><span>✦</span><span>○</span><span>◷</span></div></div><main className="auth-main"><div className="auth-box"><span className="eyebrow">Your personal context layer</span><h1>{title}</h1><p className="auth-description">{description}</p>{children}</div></main></div>
+  return <div className="auth-shell"><div className="auth-aside"><Link className="brand" to="/login"><span className="brand-mark">R</span><span>rememberly</span></Link><div className="auth-quote"><span>“</span><p>A place for the thoughts that make up your life.</p><small>Capture first. Organize automatically.</small></div><div className="auth-art" aria-hidden="true"><span /><span /><span /></div></div><main className="auth-main"><div className="auth-box"><span className="eyebrow">Your personal context layer</span><h1>{title}</h1><p className="auth-description">{description}</p>{children}</div></main></div>
 }
 
  function App() {
