@@ -17,7 +17,7 @@ from rest_framework.test import APITestCase
 
 from ai.schema import InvalidAnalysis, parse_analysis
 from ai.services import groq_service
-from accounts.models import AppUser
+from accounts.models import AppUser, SystemSetting
 from .constants import DOMAINS
 from .models import AIProcessingLog, Domain, Note, NoteItem
 from .test_fixtures import EXAMPLES, example_output, prediction
@@ -416,6 +416,19 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(response.data['code'], 'credential_required')
         self.assertIn('free trial', response.data['detail'].lower())
         self.provider.assert_not_called()
+
+    @override_settings(GROQ_API_KEY='synthetic-test-key')
+    def test_admin_switch_off_disables_trial_but_not_personal_key(self):
+        SystemSetting.objects.create(key='server_ai_enabled', value=False)
+        trial_response = self.analyze()
+        self.assertEqual(trial_response.status_code, 503)
+        self.assertEqual(trial_response.data['code'], 'trial_unavailable')
+        self.provider.assert_not_called()
+        personal = self.client.post(
+            self.base + 'analyze/', {'revision': self.note.revision},
+            format='json', HTTP_X_GROQ_API_KEY='personal-session-key',
+        )
+        self.assertEqual(personal.status_code, 200)
 
     @override_settings(GROQ_API_KEY='')
     def test_trial_without_server_key_returns_clear_provider_error(self):

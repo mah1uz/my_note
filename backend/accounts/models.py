@@ -125,6 +125,20 @@ class AdminProfile(models.Model):
         ]
 
 
+class SystemSetting(models.Model):
+    """Global switches managed from the admin dashboard. Absent rows mean defaults."""
+
+    key = models.CharField(max_length=64, primary_key=True)
+    value = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'system_settings'
+
+    def __str__(self):
+        return self.key
+
+
 class AdminAuditEvent(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     actor_admin = models.ForeignKey(AdminProfile, null=True, blank=True, on_delete=models.SET_NULL, related_name='audit_events')

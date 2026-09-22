@@ -35,9 +35,22 @@ h1, h2, h3 { letter-spacing: -.035em; }
 .sidebar.closed .nav-link { justify-content: center; padding: 11px 0; }
 .sidebar.closed .sidebar-bottom { padding: 16px 0 0; text-align: center; }
 .sidebar.closed .logout-button { width: 100%; text-align: center; }
-.sidebar.closed .nav-label, .sidebar.closed .brand-text, .sidebar.closed .sidebar-label, .sidebar.closed .fold-text, .sidebar.closed .logout-text { display: inline-block; max-width: 0; overflow: hidden; white-space: nowrap; font-size: 0; }
+.sidebar.closed .nav-label, .sidebar.closed .sidebar-label, .sidebar.closed .fold-text, .sidebar.closed .logout-text { display: inline-block; max-width: 0; overflow: hidden; white-space: nowrap; font-size: 0; }
+.admin-topbar .logout-button { padding: 0; }
 .password-row { display: flex; gap: 8px; align-items: center; }
 .password-row input { flex: 1; min-width: 0; }
+.admin-shell { min-height: 100vh; background: var(--cream, #fffdfb); }
+.admin-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 26px; border-bottom: 1px solid var(--line); background: #edf2eb; }
+.admin-identity { display: flex; align-items: center; gap: 14px; color: #64716a; font-size: 13px; }
+.admin-main { width: min(1120px, calc(100% - 100px)); margin: 0 auto; padding: 40px 0 100px; }
+.admin-tabs { display: flex; gap: 4px; margin-bottom: 28px; }
+.admin-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+.admin-table th, .admin-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.admin-table th { color: #8b978f; font: 500 10px 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .13em; }
+.admin-actions { white-space: nowrap; }
+.admin-actions .text-button { margin-right: 10px; }
+.admin-pager { display: flex; align-items: center; gap: 12px; margin-top: 16px; color: #64716a; font-size: 13px; }
+.admin-shell h2 { font-size: 20px; margin: 24px 0 4px; }
 .content-wrap { width: min(1120px, calc(100% - 100px)); margin: 0 auto; padding: 69px 0 100px; }
 .mobile-topbar, .mobile-nav, .mobile-menu { display: none; }
 .page-header, .detail-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; margin-bottom: 38px; }

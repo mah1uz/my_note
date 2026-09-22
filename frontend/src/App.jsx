@@ -10,6 +10,7 @@ import AIReviewPanel from './features/notes/AIReviewPanel'
 import { EventsPage, ExpensesPage, ShoppingPage, TasksPage } from './features/items/ItemPages'
 import AiProviderCard from './features/notes/AiProviderCard'
 import { clearSessionGroqKey } from './context/AiKeyContext'
+import { AdminDashboardPage, AdminLoginPage, AdminProtected } from './features/admin/AdminPages'
 import GoogleSignInButton from './components/GoogleSignInButton'
 
 const navItems = [
@@ -30,7 +31,7 @@ function PageHeader({ eyebrow, title, description, action }) {
 
 function Sidebar({ onLogout, open, onToggle }) {
   return <aside className={`sidebar${open ? ' open' : ' closed'}`}>
-    <div className="sidebar-top"><button className="menu-button" onClick={onToggle} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}>☰</button><Link className="brand" to="/app"><span className="brand-mark">R</span><span className="brand-text">rememberly</span></Link></div>
+    <div className="sidebar-top"><button className="menu-button" onClick={onToggle} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}>☰</button></div>
     <div className="sidebar-label">Your space</div>
     <nav className="sidebar-nav" aria-label="Your space">{navItems.map(([label, path, icon]) => <NavLink key={path} to={path} end={path === '/app'} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><span className="nav-icon" aria-hidden="true">{icon}</span><span className="nav-label">{label}</span></NavLink>)}</nav>
     <div className="sidebar-bottom"><div className="prototype-note"><span className="status-dot" aria-hidden="true" /> <span className="fold-text">Prototype data</span></div><button className="logout-button" onClick={onLogout}><span className="logout-text">Log out</span> <span aria-hidden="true">↗</span></button></div>
@@ -288,7 +289,7 @@ function AuthLayout({ title, description, children }) {
 }
 
 function App() {
-  return <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path="/" element={<LoginPage />} /><Route path="/login" element={<LoginPage />} /><Route path="/register" element={<RegisterPage />} /><Route path="/auth/callback" element={<AuthCallbackPage />} /><Route path="/forgot-password" element={<ForgotPasswordPage />} /><Route path="/reset-password" element={<ResetPasswordPage />} /><Route path="/app" element={<ProtectedPage><DashboardPage /></ProtectedPage>} /><Route path="/app/notes" element={<ProtectedPage><NotesPage /></ProtectedPage>} /><Route path="/app/notes/new" element={<ProtectedPage><NewNotePage /></ProtectedPage>} /><Route path="/app/notes/:id" element={<ProtectedPage><NoteDetailPage /></ProtectedPage>} /><Route path="/app/tasks" element={<ProtectedPage><TasksPage /></ProtectedPage>} /><Route path="/app/events" element={<ProtectedPage><EventsPage /></ProtectedPage>} /><Route path="/app/shopping" element={<ProtectedPage><ShoppingPage /></ProtectedPage>} /><Route path="/app/expenses" element={<ProtectedPage><ExpensesPage /></ProtectedPage>} /><Route path="/app/places" element={<ProtectedPage><PlacesPage /></ProtectedPage>} /><Route path="/app/search" element={<ProtectedPage><SearchPage /></ProtectedPage>} /><Route path="/app/settings" element={<ProtectedPage><SettingsPage /></ProtectedPage>} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes></BrowserRouter>
+  return <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path="/" element={<LoginPage />} /><Route path="/login" element={<LoginPage />} /><Route path="/register" element={<RegisterPage />} /><Route path="/auth/callback" element={<AuthCallbackPage />} /><Route path="/forgot-password" element={<ForgotPasswordPage />} /><Route path="/reset-password" element={<ResetPasswordPage />} /><Route path="/admin/login" element={<AdminLoginPage />} /><Route path="/admin/*" element={<AdminProtected><AdminDashboardPage /></AdminProtected>} /><Route path="/app" element={<ProtectedPage><DashboardPage /></ProtectedPage>} /><Route path="/app/notes" element={<ProtectedPage><NotesPage /></ProtectedPage>} /><Route path="/app/notes/new" element={<ProtectedPage><NewNotePage /></ProtectedPage>} /><Route path="/app/notes/:id" element={<ProtectedPage><NoteDetailPage /></ProtectedPage>} /><Route path="/app/tasks" element={<ProtectedPage><TasksPage /></ProtectedPage>} /><Route path="/app/events" element={<ProtectedPage><EventsPage /></ProtectedPage>} /><Route path="/app/shopping" element={<ProtectedPage><ShoppingPage /></ProtectedPage>} /><Route path="/app/expenses" element={<ProtectedPage><ExpensesPage /></ProtectedPage>} /><Route path="/app/places" element={<ProtectedPage><PlacesPage /></ProtectedPage>} /><Route path="/app/search" element={<ProtectedPage><SearchPage /></ProtectedPage>} /><Route path="/app/settings" element={<ProtectedPage><SettingsPage /></ProtectedPage>} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes></BrowserRouter>
 }
 
 export default App

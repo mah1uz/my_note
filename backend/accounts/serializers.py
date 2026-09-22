@@ -1,8 +1,11 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import UserPreference
+from .models import AdminProfile, UserPreference
 
 
 class AppUserSerializer(serializers.Serializer):
@@ -44,6 +47,87 @@ class AppUserSerializer(serializers.Serializer):
             'locale': user.locale,
             'default_currency': user.default_currency,
         }
+
+
+class AdminLoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        user = authenticate(username=attrs['username'].strip(), password=attrs['password'])
+        if user is None or not user.is_active:
+            raise serializers.ValidationError('Invalid credentials.')
+        profile = getattr(user, 'admin_profile', None)
+        if profile is None or not profile.is_active:
+            raise serializers.ValidationError('This account is not an active admin.')
+        attrs['user'] = user
+        attrs['profile'] = profile
+        return attrs
+
+
+class AdminProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='django_user.username', read_only=True)
+    email = serializers.EmailField(source='django_user.email', read_only=True)
+
+    class Meta:
+        model = AdminProfile
+        fields = ('id', 'username', 'email', 'role', 'is_active', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'created_at', 'updated_at')
+
+
+class AdminCreateSerializer(serializers.Serializer):
+    username = serializers.RegexField(regex=r'^[\w.@+-]+$', max_length=150)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, trim_whitespace=False, min_length=8)
+    role = serializers.ChoiceField(choices=('ADMIN', 'SUPER_ADMIN'), default='ADMIN')
+
+    def validate_username(self, value):
+        if get_user_model().objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError('An account with this username already exists.')
+        return value
+
+    def validate_password(self, value):
+        try:
+            validate_password(value)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages)
+        return value
+
+
+class AdminUserSerializer(serializers.Serializer):
+    """Safe admin projection of an AppUser. Never includes note or item content."""
+
+    id = serializers.CharField(read_only=True)
+    email = serializers.EmailField(read_only=True)
+    display_name = serializers.CharField(max_length=120, allow_blank=True, required=False)
+    status = serializers.ChoiceField(choices=('ACTIVE', 'SUSPENDED'), required=False)
+    timezone = serializers.CharField(max_length=64, required=False)
+    locale = serializers.CharField(max_length=16, required=False)
+    default_currency = serializers.RegexField(
+        regex=r'^[A-Z]{3}$', max_length=3, required=False,
+        error_messages={'invalid': 'Use a 3-letter uppercase currency code.'},
+    )
+    notes_count = serializers.IntegerField(read_only=True)
+    confirmed_items_count = serializers.IntegerField(read_only=True)
+    last_seen_at = serializers.DateTimeField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+    def validate_display_name(self, value):
+        return value.strip()[:120]
+
+    def validate_timezone(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Timezone must not be blank.')
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise serializers.ValidationError('Unknown timezone.')
+        return value
+
+
+class AISettingsSerializer(serializers.Serializer):
+    server_ai_enabled = serializers.BooleanField()
 
 
 class PreferenceSerializer(serializers.ModelSerializer):

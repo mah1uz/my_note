@@ -25,6 +25,26 @@ Django password-reset endpoints.
 Password recovery uses Supabase `resetPasswordForEmail` and `updateUser`
 directly from the frontend.
 
+## Admin dashboard (`/api/v1/admin`)
+
+Separate token auth for Django-user admins (`Authorization: Token <key>`,
+session `POST /admin/login/`). Admin endpoints manage accounts and global
+switches only — note/item content is never serialized. Mutations are recorded
+in `admin_audit_events`.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/admin/login/` | Username/password login, returns token (super-admin flag included) |
+| POST | `/admin/logout/` | Revoke the token |
+| GET | `/admin/me/` | Current admin profile |
+| GET | `/admin/users/?search=&status=&page=` | Paginated users with note/item counts, no content |
+| GET | `/admin/users/:id/` | Safe user detail with counts |
+| PATCH | `/admin/users/:id/` | Update `display_name`, `status` (`ACTIVE`/`SUSPENDED`), `timezone`, `locale`, `default_currency` |
+| DELETE | `/admin/users/:id/?confirm=true` | Permanently delete user and all content (confirmation required) |
+| GET/POST | `/admin/admins/` | List / add admins (super-admin only) |
+| PATCH | `/admin/admins/:id/` | Change role or active flag, never your own record (super-admin only) |
+| GET/PATCH | `/admin/ai-settings/` | Shared Groq key switch `server_ai_enabled` (default on; personal keys unaffected) |
+
 ## Notes
 
 | Method | Endpoint | Purpose |
