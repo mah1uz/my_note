@@ -58,7 +58,8 @@ class SearchApiTests(APITestCase):
         self.assertNotIn('Private university task', {result['title'] for result in response.data['results']})
 
     def test_deterministic_finance_answer_does_not_call_provider(self):
-        with patch('search.services.generate_grounded_answer') as provider:
+        # Views bind the service reference directly, so patch the name the view uses.
+        with patch('search.views.generate_grounded_answer') as provider:
             response = self.client.post('/api/v1/search/answer/', {'query': 'how much did I spend this month?'}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['mode'], 'deterministic')
@@ -66,7 +67,7 @@ class SearchApiTests(APITestCase):
         provider.assert_not_called()
 
     def test_generated_answer_rejects_or_abstains_without_cross_user_sources(self):
-        with patch('search.services.generate_grounded_answer', side_effect=RuntimeError('provider')):
+        with patch('search.views.generate_grounded_answer', side_effect=RuntimeError('provider')):
             response = self.client.post('/api/v1/search/answer/', {'query': 'university'}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['mode'], 'abstained')

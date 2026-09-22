@@ -134,6 +134,37 @@ class ProviderAdapterTests(SimpleTestCase):
         self.assertNotIn('personal-session-key', str(raised.exception))
 
     @patch('ai.services.groq_service.Groq')
+    def test_sdk_uses_configured_model(self, sdk):
+        from django.conf import settings
+        client = sdk.return_value.__enter__.return_value
+        client.chat.completions.create.return_value = SimpleNamespace(choices=[SimpleNamespace(
+            finish_reason='stop', message=SimpleNamespace(content='{"summary":"", "items":[]}'))])
+        groq_service.analyze_note('Buy eggs', timezone.now())
+        self.assertEqual(client.chat.completions.create.call_args.kwargs['model'], settings.GROQ_MODEL)
+
+    @patch('ai.services.groq_service.Groq')
+    def test_retired_model_error_is_diagnosable_and_sanitized(self, sdk):
+        request = httpx.Request('POST', 'https://example.invalid')
+        response = httpx.Response(400, request=request)
+        sdk.return_value.__enter__.return_value.chat.completions.create.side_effect = APIStatusError(
+            'The model llama-3.3-70b-versatile has been decommissioned', response=response, body=None)
+        with self.assertRaises(groq_service.ProviderFailure) as raised:
+            groq_service.analyze_note('Buy eggs', timezone.now(), api_key='gsk_personal_secret_xyz')
+        self.assertEqual(raised.exception.code, 'provider')
+        self.assertIn('400', str(raised.exception))
+        self.assertNotIn('gsk_personal_secret_xyz', str(raised.exception))
+
+    def test_provider_echo_of_personal_key_is_redacted(self):
+        # analyze_note returns provider content verbatim; redaction is applied
+        # by the service layer before anything is persisted or logged.
+        raw = groq_service.redact(
+            '{"summary":"saw gsk_personal_secret_xyz", "items":[]}',
+            extra_key='gsk_personal_secret_xyz',
+        )
+        self.assertNotIn('gsk_personal_secret_xyz', raw)
+        self.assertIn('[REDACTED]', raw)
+
+    @patch('ai.services.groq_service.Groq')
     def test_incomplete_response_is_failure(self, sdk):
         sdk.return_value.__enter__.return_value.chat.completions.create.return_value = SimpleNamespace(
             choices=[SimpleNamespace(finish_reason='length')])
@@ -212,6 +243,25 @@ class IntelligenceApiTests(APITestCase):
         draft.refresh_from_db()
         self.assertTrue(draft.is_confirmed)
         self.assertIn('deterministic_evidence', draft.metadata)
+
+    def test_personal_key_is_never_persisted_returned_or_logged(self):
+        # The BYOK contract: the key travels in one request header to Groq and
+        # must never land in the database, API responses, or admin-visible logs.
+        key = 'gsk_test_personal_key_xyz'
+        response = self.client.post(
+            self.base + 'analyze/', {'revision': self.note.revision},
+            format='json', HTTP_X_GROQ_API_KEY=key,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(key, json.dumps(response.data))
+        for log in self.note.ai_logs.all():
+            blob = json.dumps({
+                'raw': log.raw_response, 'parsed': log.parsed_response,
+                'error_code': log.error_code, 'error_message': log.error_message,
+            })
+            self.assertNotIn(key, blob)
+        self.provider.assert_called_once()
+        self.assertNotIn(key, json.dumps(self.client.get(self.base + 'review/').data))
 
     def test_multi_item_confirmation_correction_removal_and_manual_addition(self):
         self.provider.return_value = json.dumps(example_output(list(EXAMPLES)[3]))

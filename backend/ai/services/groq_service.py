@@ -74,7 +74,13 @@ def analyze_note(raw_text, now, api_key=None):
     except APIStatusError as error:
         if getattr(error, 'status_code', None) == 401:
             raise ProviderFailure('invalid_key', 'The Groq API key was rejected. Enter a valid key and try again.', 502) from error
-        raise ProviderFailure('provider', 'The AI provider could not complete the request.') from error
+        # Surface the provider status (e.g. a retired model returns 400) so
+        # failures are diagnosable from the message alone; redact any secrets.
+        detail = redact(str(error))[:200]
+        raise ProviderFailure(
+            'provider',
+            f'The AI provider could not complete the request (status {getattr(error, "status_code", "?")}). {detail}',
+        ) from error
     if not response.choices or response.choices[0].finish_reason != 'stop':
         raise ProviderFailure('incomplete', 'The AI response was incomplete. Try a shorter note.')
     return response.choices[0].message.content

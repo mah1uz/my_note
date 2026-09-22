@@ -137,7 +137,9 @@ DEFAULT_FROM_EMAIL = 'Rememberly <no-reply@rememberly.local>'
 
 # AI is optional: ordinary Notes CRUD and manual organization need no key.
 GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
-GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
+# Groq retired llama-3.3-70b-versatile on 2026-08-16; gpt-oss-120b is their
+# recommended replacement. Override per environment with GROQ_MODEL.
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
 GROQ_TIMEOUT_SECONDS = float(os.getenv('GROQ_TIMEOUT_SECONDS', '20'))
 AI_MAX_NOTE_CHARACTERS = 12000
 AI_ANALYSIS_LEASE_SECONDS = 120
