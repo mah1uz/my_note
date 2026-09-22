@@ -1,77 +1,55 @@
-# PART 5 OF 6 — NEXT.JS REMINDERS, PLACES & LOCATION-AWARE SHOPPING
+# PART 5 OF 6 — NEXT.JS PLACES, REMINDERS & LOCATION-AWARE SHOPPING
 
 ## Project
-AI Context-Aware Note-Taking Web Application
+AI Context-Aware Note-Taking Web Application — My Notes
 
 ## Starting point
 
 Part 4 should now provide:
 - Next.js App Router + TypeScript frontend
-- premium collapsible sidebar
+- Django/DRF/Supabase PostgreSQL backend
+- UUID AppUser ownership
+- Supabase Auth
+- final Dashboard information architecture
+- Tasks / Events / Shopping / Transactions / Study
+- authoritative Transaction ledger
 - Universal Search
-- Your Space
-- PostgreSQL
-- pgvector embeddings
-- regex/query parser
-- structured SQL analytics
+- deterministic modular query parser
 - PostgreSQL FTS
-- hybrid retrieval
+- pgvector semantic retrieval
+- hybrid ranking
 - strict grounded Ask My Notes
 - current-user search/source isolation
 
-Part 5 adds saved Places, time reminders, browser notifications, active-session geolocation, location reminders, and location-aware shopping.
-
-The Part 4 app shell is permanent. Do not redesign navigation again.
-
----
-
-# Privacy boundary
-
-Live GPS must remain outside search intelligence.
-
-Do not put current latitude/longitude into:
-- embeddings
-- full-text search
-- persisted regex/query-parser state
-- RAG context
-- Groq requests
-- analytics logs
-- movement-history tables
-
-Saved Place names may be searchable where useful.
-
-Precise coordinates and addresses remain sensitive data.
-
----
-
-# Goal
-
-Implement:
-- Place CRUD
-- map-based Place creation/editing
-- current-location Place creation
+Part 5 adds:
+- saved Places
 - time reminders
-- contextual Notification permission
-- active Location Reminder Mode
-- browser geolocation watcher
-- Haversine distance
+- browser notifications
+- active-session geolocation
 - location reminders
 - Shopping ↔ saved Place assignment
-- grouped Shopping inside Your Space
-- one aggregated nearby-shopping alert
-- polished Next.js client interactions
-- privacy/error/security tests
+- nearby-shopping context
+
+The Part 4 app shell and navigation are permanent.
+
+Do not restore `Your Space`.
 
 ---
 
-# Sidebar integration
+# 1. Final navigation
 
 Keep:
 
 ```text
 Dashboard
+  Overview
+  Tasks
+  Events
+  Shopping
+  Transactions
+  Study
+
 Search
-Your Space
 Places
 Settings
 
@@ -79,159 +57,128 @@ Settings
 Logout
 ```
 
-Reminders do not become a new top-level sidebar destination.
+Reminders are contextual, not a new top-level destination.
 
-Reminder controls live contextually inside:
-- Task modal/detail
-- Event modal/detail
-- Shopping modal/detail
+Reminder controls live in:
+- Task detail/modal
+- Event detail/modal
+- Shopping detail/modal
 - Settings notification/location controls
 
 ---
 
-# Your Space integration
+# 2. Privacy boundary — non-negotiable
 
-Approved cards remain:
-- Tasks
-- Events
-- Shopping
-- Expenses
-- Study
+Live GPS stays outside persistent/search intelligence.
 
-Do not add another card without approval.
+Never put current latitude/longitude into:
+- database movement-history tables
+- embeddings
+- FTS documents
+- query-parser persistence
+- RAG context
+- Groq requests
+- analytics logs
+- URLs
+- admin views
 
-## Shopping preview card
+Saved Place records may persist:
+- name
+- coordinates
+- optional address
+- radius
 
-Example:
-
-```text
-Shopping                          7
-
-Agora
-  Eggs
-  Bread
-
-Rahman Grocery
-  Rice
-
-No location
-  Notebook
-```
-
-Clicking Shopping opens the existing animated Space Modal/Sheet.
-
-## Tasks and Events
-
-Expanded Task/Event rows may expose:
-- reminder enabled state
-- scheduled reminder
-- location reminder
-- edit/disable actions
-
-Keep preview cards compact.
+Precise saved coordinates remain sensitive user data.
 
 ---
 
-# Next.js client boundaries
+# 3. Data-model audit
 
-The following must be client-side:
-- browser geolocation
-- Notification API
-- interactive map
-- sidebar toggle
-- Your Space modal
-- reminder runtime
-- permission prompts
-- Location Mode
-
-Do not call browser APIs from Server Components.
-
-Map libraries that depend on `window` must be dynamically imported.
-
-Conceptually:
-
-```tsx
-dynamic(() => import("./PlaceMap"), { ssr: false })
-```
-
----
-
-# STEP A — Data-model audit
-
-Use the implemented future-proof schema.
+Use the reconciled database source of truth.
 
 ## Place
 
 Expected:
-- UUID id
-- AppUser owner
-- name
-- latitude
-- longitude
-- optional address
-- default radius
-- timestamps
+
+```text
+id UUID
+user_id -> AppUser
+name
+latitude
+longitude
+address NULL
+default_radius_m
+created_at
+updated_at
+```
 
 ## Reminder
 
 Expected:
-- UUID id
-- NoteItem FK
-- trigger type
-- scheduled_at nullable
-- Place FK nullable
-- radius nullable
-- enabled state
-- last_triggered_at
-- triggered_count
-- timestamps
+
+```text
+id UUID
+note_item_id -> NoteItem
+trigger_type TIME | LOCATION
+scheduled_at NULL
+place_id NULL
+radius_m NULL
+is_enabled
+last_triggered_at NULL
+triggered_count
+created_at
+updated_at
+```
 
 Validation:
 
 ```text
 TIME
   scheduled_at required
+  place_id/radius_m null in V1
 
 LOCATION
-  Place required
-  radius required
+  place_id required
+  radius_m required > 0
 ```
 
 Reminder NoteItem and Place must resolve to the same AppUser.
 
 ---
 
-# STEP B — Place source of truth
+# 4. Place ownership meanings
 
-Use:
+Two distinct relationships:
 
 ```text
 note_item.assigned_place_id
 ```
 
-for:
-> where the task/shopping item belongs
+means:
 
-Use:
+> where this Task/Shopping item belongs.
 
 ```text
 reminder.place_id
 ```
 
-for:
-> where the reminder should trigger
+means:
+
+> where this Reminder should trigger.
 
 They may differ.
 
-`place_hint` remains untrusted text.
+`place_hint` remains untrusted text from AI/user input.
 
-Never automatically convert an AI place hint into a saved Place relation without user confirmation or an explicitly safe deterministic match.
+Never convert a place hint into a saved Place relationship without:
+- explicit user confirmation, or
+- a clearly safe deterministic match plus visible confirmation.
 
 ---
 
-# STEP C — Place CRUD API
+# 5. Place CRUD API
 
-Approximately:
+Approximate:
 
 ```text
 GET    /api/v1/places/
@@ -241,46 +188,43 @@ PATCH  /api/v1/places/:id/
 DELETE /api/v1/places/:id/
 ```
 
-Every queryset must be current-user scoped.
+Every queryset is scoped to current AppUser.
 
-Delete behavior must follow the implemented DB policy.
-
-UI must warn the user when deleting a Place affects:
-- shopping assignments
-- location reminders
+Delete policy:
+- `note_item.assigned_place_id` -> SET NULL
+- LOCATION reminders for deleted Place -> CASCADE/delete according to DB policy
+- UI warns before destructive effects
 
 ---
 
-# STEP D — Places page / map UX
+# 6. Places page
 
-Use Leaflet + OpenStreetMap with correct attribution.
-
-Desktop concept:
+Desktop:
 
 ```text
-┌────────────────────────────┬──────────────────────────────┐
-│ Saved places               │ Map                          │
-│                            │                              │
-│ Agora                      │ ● selected place            │
-│ University                 │                              │
-│ Home                       │                              │
-│                            │                              │
-│ + Add place                │                              │
-└────────────────────────────┴──────────────────────────────┘
+┌──────────────────────────────┬────────────────────────────┐
+│ Saved places                 │ Map                        │
+│                              │                            │
+│ Agora                        │ selected marker            │
+│ University                   │                            │
+│ Home                         │                            │
+│                              │                            │
+│ + Add place                  │                            │
+└──────────────────────────────┴────────────────────────────┘
 ```
 
 Mobile:
-- cards/list first
-- map in sheet/modal or stacked section
-- no cramped two-column map layout
+- list/cards first
+- map in stacked section or sheet
+- no cramped split layout
 
-Place creation methods:
+Creation methods:
 1. Use my current location
-2. Click/select point on map
+2. Select a point on map
 
-User enters:
+User supplies:
 - name
-- optional address/description
+- optional address
 - radius
 
 Suggested radii:
@@ -290,23 +234,45 @@ Suggested radii:
 - 1000m
 - custom
 
-Do not add constant geocoding calls.
+---
+
+# 7. Map implementation
+
+Use Leaflet + OpenStreetMap or an equivalent approved low-complexity map setup.
+
+Requirements:
+- correct attribution
+- client-only dynamic import
+- no SSR access to `window`
+- lazy load map bundle
+- graceful load failure
+- no constant geocoding calls
+
+Example:
+
+```tsx
+dynamic(() => import("./PlaceMap"), { ssr: false })
+```
+
+Address search/geocoding is optional, not required for V1.
+
+Coordinate selection is sufficient.
 
 ---
 
-# STEP E — Notification permission
+# 8. Notification permission
 
-Never request permission on initial page load.
+Never request Notification permission on first app load.
 
 Flow:
 
 ```text
-user enables/creates first reminder
-        ↓
+user creates/enables first reminder
+       ↓
 explain benefit
-        ↓
-user presses Enable notifications
-        ↓
+       ↓
+user clicks Enable notifications
+       ↓
 browser permission request
 ```
 
@@ -316,81 +282,114 @@ Handle:
 - denied
 - unsupported
 
-Denied notifications must not break reminders.
-
-Provide an in-app reminder state when browser notification is unavailable.
+Denied browser notifications must not break reminder data or in-app reminder UI.
 
 ---
 
-# STEP F — Time reminder runtime
+# 9. Reminder API
 
-Create one centralized runtime/provider.
+Approximate:
 
-Do not create one interval/timer per card.
+```text
+GET    /api/v1/reminders/
+POST   /api/v1/reminders/
+GET    /api/v1/reminders/:id/
+PATCH  /api/v1/reminders/:id/
+DELETE /api/v1/reminders/:id/
+```
+
+All querysets owner-scoped through NoteItem/AppUser.
+
+Cross-user Place references are rejected.
+
+---
+
+# 10. Central reminder runtime
+
+Use one centralized client runtime/provider.
+
+Do not create one timer per card.
 
 Concept:
 
 ```text
 AppReminderProvider
-    ↓
+  ↓
 load enabled upcoming TIME reminders
-    ↓
-schedule/check relevant reminder times
-    ↓
-when due
-    ↓
+  ↓
+schedule/check relevant times
+  ↓
+due
+  ↓
 browser notification if permitted
-+ in-app alert
-    ↓
-mark trigger state
++ in-app notification
+  ↓
+mark trigger metadata
 ```
 
-Avoid duplicate triggers after rerender/refresh.
-
-Document V1 limitation:
-
-> time reminders are active-session/browser reminders; full server push while the browser is closed is not required.
+Avoid duplicate triggers on:
+- rerender
+- route navigation
+- refresh
+- React Strict Mode behavior
 
 ---
 
-# STEP G — Active geolocation
+# 11. V1 reminder limitation
 
-Create a client-only hook/service such as:
+This is an active-session/browser implementation.
+
+Document honestly:
+
+> Browser reminders work while My Notes is open/active. Full server push or
+> operating-system scheduling while the browser is closed is outside V1.
+
+Do not market this as native/background reminders.
+
+Part 6 deployment docs must keep this limitation.
+
+---
+
+# 12. Active geolocation
+
+Create client-only hook/service:
 
 ```text
 useGeolocation()
 ```
 
-Location Mode default:
+Location Mode defaults:
 
 ```text
 OFF
 ```
 
-Only after explicit user action call:
+Only after explicit user action:
 
 ```text
 navigator.geolocation.watchPosition()
 ```
 
-Keep in memory:
-- current latitude
-- current longitude
+Keep in memory only:
+- latitude
+- longitude
 - accuracy
-- current error
+- error
 - watcher status
 
 When OFF:
 - clear watcher
-- clear unnecessary current-location memory
+- clear current live-location memory
 
-Do not store GPS samples.
+Do not persist GPS samples.
+
+Do not send every GPS update to Django.
 
 ---
 
-# STEP H — Haversine proximity
+# 13. Haversine proximity
 
-Create deterministic pure utility:
+Pure deterministic utility:
 
 ```text
 distanceMeters(current, savedPlace)
@@ -398,40 +397,55 @@ distanceMeters(current, savedPlace)
 
 Use Haversine or equivalent.
 
-Unit test:
+Test:
 - same coordinate
-- known coordinate distance
+- known distance
 - inside radius
 - outside radius
-- exactly on radius
+- boundary
 - invalid input
-- tolerance behavior
+- tolerance
+
+No Groq.
 
 ---
 
-# STEP I — Entry / cooldown / re-entry
+# 14. Entry / hysteresis / cooldown
 
-Avoid notification spam.
+Prevent GPS jitter spam.
 
-Recommended policy:
-1. outside -> eligible
-2. enter radius -> trigger once
-3. remain inside -> no repeat
-4. leave past radius + hysteresis -> eligible again
-5. short cooldown prevents GPS jitter
+Recommended state machine:
 
-Keep inside/outside state in client memory.
+```text
+OUTSIDE
+  ↓ enter radius
+INSIDE -> trigger once
+  ↓ remain inside
+no repeat
+  ↓ leave beyond radius + hysteresis
+OUTSIDE / eligible again
+```
 
-Use durable `last_triggered_at` / `triggered_count` only as reminder metadata, not tracking history.
+Use:
+- small hysteresis margin
+- short cooldown
+- in-memory inside/outside state
+
+`last_triggered_at` and `triggered_count` are reminder metadata, not movement history.
 
 ---
 
-# STEP J — Shopping assignment and grouping
+# 15. Shopping definition
 
-Shopping means confirmed:
-- `item_type = TASK`
-- Shopping domain
-- active/pending status
+Shopping means confirmed active Task with Shopping Domain.
+
+Conceptually:
+
+```text
+item_type = TASK
+primary/associated Domain = Shopping
+status = PENDING/active
+```
 
 Group by:
 
@@ -455,13 +469,53 @@ No location
   Notebook
 ```
 
-Completed items disappear from active shopping groups.
+Completed items disappear from active Shopping groups.
 
 ---
 
-# STEP K — Aggregated nearby notification
+# 16. Dashboard Shopping integration
 
-When entering a Place radius:
+The Dashboard -> Shopping destination/card uses saved Place grouping.
+
+Do not create a new `Your Space` surface.
+
+Compact preview may show:
+
+```text
+Shopping 7
+
+Agora
+  Eggs
+  Bread
+
+No location
+  Notebook
+```
+
+View all opens the existing category page/modal/sheet pattern.
+
+---
+
+# 17. Assigning Shopping to Places
+
+User can:
+- assign saved Place
+- change assignment
+- clear assignment
+
+Never trust client owner IDs.
+
+Backend validates:
+- item belongs to current AppUser
+- Place belongs to current AppUser
+
+AI `place_hint` may be shown as a suggestion only.
+
+---
+
+# 18. Nearby Shopping alert
+
+When entering a saved Place radius:
 
 Do not emit one notification per Shopping item.
 
@@ -471,16 +525,16 @@ Example:
 3 things to get at Agora: Eggs, Bread, Shampoo
 ```
 
-If many:
+For many items:
 
 ```text
 You have 7 shopping items at Agora.
 ```
 
-A notification may deep-link to:
+Deep link may use:
 
 ```text
-/app/space?open=shopping&place=<uuid>
+/app/shopping?place=<uuid>
 ```
 
 or equivalent UI state.
@@ -489,11 +543,38 @@ Never put coordinates in the URL.
 
 ---
 
-# Search integration
+# 19. Nearby state and Part 6 priority contract
 
-Universal Search remains globally available.
+Live coordinates remain browser-only.
 
-Queries may use saved Place names:
+Part 5 may expose to the frontend:
+
+```text
+nearbyPlaceId
+```
+
+derived locally from current GPS + saved Places.
+
+For Part 6 What Matters Now:
+
+```text
+Django -> base deterministic priority
+Frontend -> optional small local boost for Shopping assigned to nearbyPlaceId
+```
+
+The boost must:
+- be deterministic
+- be modest
+- expose reason `Nearby saved place`
+- disappear when Location Mode turns OFF
+
+No live GPS needs to reach the priority backend.
+
+---
+
+# 20. Search integration
+
+Part 4 Universal Search may use saved Place metadata:
 
 ```text
 things to buy at Agora
@@ -503,214 +584,341 @@ tasks connected to University
 
 Search may use:
 - saved Place name
-- assigned Place metadata
-- place_hint as lower-trust text
+- assigned Place ID/name
+- lower-trust `place_hint`
 
-Search must **not** use:
+Search must not use:
 - current GPS
 - movement history
 - precise coordinates
 
-Ask My Notes must not answer:
+Ask My Notes cannot answer:
 > where am I right now?
 
-from persisted data, because current location is not persisted.
+from persisted data.
 
 ---
 
-# Motion / interaction
+# 21. RAG privacy regression
 
-Follow the shared `fluid-interactive-website-prompt.md`.
-
-Part 5-specific interactions:
-- Place list stagger on first load
-- selected Place uses shared layout highlight
-- Add/Edit Place opens springy dialog/sheet
-- map container fades in after lazy load
-- Location Mode toggle is tactile
-- location acquisition may use one subtle pulse
-- Shopping groups use layout animation
-- completed Shopping item exits gracefully
-- nearby alert slides/fades into view
-
-Do not create decorative radar loops or perpetual GPS animation.
-
-Respect reduced motion.
+Verify:
+- live GPS absent from context
+- Place coordinates absent from RAG
+- precise addresses excluded unless a future explicit product requirement changes policy
+- saved Place names may be used only when relevant
+- prompt injection in Place names/Notes remains untrusted text
 
 ---
 
-# Error handling
+# 22. Next.js client boundaries
+
+Client-side:
+- map
+- geolocation
+- Notification API
+- reminder runtime
+- Location Mode
+- permission prompts
+- category modal/sheet
+- sidebar interactions
+
+Server Components:
+- may render static wrappers/shell where useful
+
+Do not access browser APIs in Server Components.
+
+---
+
+# 23. Settings additions
+
+Settings may include:
+
+```text
+Notifications
+  browser permission status
+
+Location
+  Location Mode OFF/ON
+  explanation of privacy behavior
+
+Saved Places
+  shortcut/manage
+
+Reminder limitations
+  active-session explanation
+```
+
+Do not imply background GPS.
+
+---
+
+# 24. Motion
+
+Use the reconciled motion guide.
+
+Part 5-specific motion:
+- Place list small stagger
+- selected Place highlight
+- Add/Edit Place dialog
+- map fade after load
+- Location Mode tactile toggle
+- one subtle acquisition pulse
+- Shopping group layout animation
+- nearby alert slide/fade
+- reminder status transition
+
+Avoid:
+- perpetual radar
+- animated GPS background
+- giant map zoom choreography
+- constant pulsing
+
+Reduced motion uses immediate state changes.
+
+---
+
+# 25. Error handling
 
 Handle:
 - geolocation unsupported
 - permission denied
 - permission revoked
 - timeout
-- inaccurate location
+- low accuracy
 - no saved Places
 - deleted Place
 - Notification denied
 - Notification unsupported
 - reminder API error
-- cross-user Place reference
-- offline/network failure
-- map lazy-load failure
+- cross-user Place
+- offline/network error
+- map load failure
 - stale NoteItem
 
-Location problems must not break:
+Location failures must not break:
 - Notes
+- Transactions
 - Search
-- Your Space
 - Tasks
 - Shopping
+- Dashboard
 
 ---
 
-# Testing
-
-## Backend ownership
+# 26. Backend tests — ownership
 
 User B cannot:
-- list User A Places
-- retrieve User A Place
-- modify/delete User A Place
-- attach User A Place to their item
-- create Reminder using User A Place
-- read/update/delete User A Reminder
+- list A's Places
+- retrieve A's Place
+- edit/delete A's Place
+- assign A's Place to B's item
+- create Reminder with A's Place
+- read/edit/delete A's Reminder
 
-## Place lifecycle
-Test:
+---
+
+# 27. Backend tests — lifecycle
+
+Place:
 - create
 - edit
 - delete
-- assignment clearing
-- dependent reminder policy
+- item assignment cleared
+- dependent location reminder deleted
+- account cascade
 
-## Reminder validation
-Test:
+Reminder:
 - valid TIME
 - TIME missing scheduled_at
 - valid LOCATION
 - LOCATION missing Place
 - invalid radius
 - mixed-owner Place/NoteItem
+- duplicate/trigger metadata behavior as implemented
 
-## Browser APIs
+---
+
+# 28. Browser tests
+
 Mock:
+- `navigator.geolocation`
 - Notification API
-- geolocation
 - timers
-- map lazy loading
+- map lazy load
 
 Required:
-- ON creates watcher
+- Location Mode ON creates one watcher
+- rerender does not duplicate watcher
 - OFF clears watcher
-- denied permission
-- revoked permission
-- timeout
-- unsupported browser
-- no duplicate watcher on rerender
+- permission denied handled
+- timeout handled
+- unsupported handled
+- state cleared appropriately
 
-## Haversine
-Known distances and radius boundary.
+---
 
-## Spam prevention
-Repeated updates inside radius => one alert.
+# 29. Proximity tests
 
-Leave/re-enter => new alert according to policy.
+Haversine:
+- known distances
+- boundary
 
-## Shopping aggregation
-Test:
-- multiple items same Place
-- one nearby alert
-- completed item omitted
+Spam:
+- repeated updates inside -> one alert
+- jitter at boundary -> no spam
+- leave + re-enter -> next eligible alert
+
+Shopping:
+- multiple items same Place -> one aggregated alert
+- completed excluded
 - no-location group
-- deleting Place moves assignment to no-location as expected
+- deleted Place -> item becomes no-location
 
-## Next.js UI
+---
+
+# 30. Next.js UI tests
+
 Test:
 - Places route
-- client-only map
-- no hydration error
-- sidebar remains functional
-- Shopping Space Modal
+- no hydration errors
+- dynamic map
+- mobile layout
+- Shopping destination
+- place grouping
 - reminder dialogs
-- mobile sheets
-- reduced-motion branch
+- Settings permission state
+- Location Mode
+- reduced motion
+- search remains functional
+- Transactions unaffected
 
-## Search privacy regression
-Verify precise/current location never appears in:
+---
+
+# 31. Search/privacy regression tests
+
+Verify current/live location never appears in:
 - embeddings
-- query parser debug persistence
+- FTS source
+- persisted parser debug data
 - RAG context
 - source cards
-- admin content views
+- admin content
+- Groq payloads
+- logs
 
-## Playwright
+Saved Place name search remains allowed.
 
-Flow:
+---
+
+# 32. Playwright flow
+
 1. login
-2. add Place
-3. assign Shopping item
-4. enable mocked Location Mode
-5. simulate outside
-6. simulate entry
-7. verify one aggregated alert
-8. open Shopping in Your Space
-9. complete item
-10. verify group updates
-11. disable Location Mode
-12. verify watcher cleared
+2. add saved Place
+3. create/assign Shopping item
+4. create time reminder
+5. enable mocked notification permission
+6. enable mocked Location Mode
+7. simulate outside
+8. simulate entering Place
+9. verify one aggregated alert
+10. open Dashboard -> Shopping
+11. complete item
+12. verify group updates
+13. disable Location Mode
+14. verify watcher cleared
+15. verify Search still works
+16. logout
 
 No physical movement required.
 
 ---
 
-# Acceptance criteria
+# 33. Development/demo location simulation
+
+Provide a clearly marked dev/test-only mechanism.
+
+Requirements:
+- disabled in production
+- obvious `DEV ONLY` label
+- selects saved Place or mock coordinate
+- feeds same proximity logic
+- cannot bypass production authorization
+- no hidden production query parameter/backdoor
+
+This keeps the capstone demo repeatable.
+
+---
+
+# 34. Explicitly forbidden in Part 5
+
+Do not add:
+- server push infrastructure
+- continuous background GPS
+- movement-history database
+- geofencing vendor SDK
+- native mobile background services
+- RAG over coordinates
+- Groq location reasoning
+- banking/financial features
+- final What Matters Now implementation
+- final Daily Briefing
+
+---
+
+# 35. Acceptance criteria
 
 Part 5 is complete only when:
+
 1. Place CRUD is real and user-scoped.
 2. map selection works.
 3. current-location Place creation works.
 4. time reminders persist.
 5. notification permission is contextual.
-6. centralized active-session reminder runtime works.
-7. Location Mode defaults OFF.
-8. ON starts watcher.
-9. OFF clears watcher.
-10. Haversine is deterministic/tested.
-11. cooldown prevents spam.
-12. Shopping items can be assigned to Places.
-13. Shopping Your Space card groups pending items by Place.
-14. nearby Shopping generates one aggregated alert.
-15. no movement history is stored.
-16. live GPS never enters embeddings/search/RAG/Groq.
-17. cross-user Place/Reminder access is blocked.
-18. Next.js client/browser API boundaries are correct.
-19. mobile/map/reminder UX is polished.
-20. all automated + E2E tests pass.
+6. active-session runtime works centrally.
+7. product states the browser-open limitation honestly.
+8. Location Mode defaults OFF.
+9. ON starts one watcher.
+10. OFF clears watcher/live state.
+11. Haversine is deterministic/tested.
+12. hysteresis/cooldown prevents spam.
+13. Shopping can be assigned to Places.
+14. Dashboard Shopping groups by Place.
+15. nearby shopping creates one aggregated alert.
+16. no top-level Your Space is reintroduced.
+17. Transactions/finance behavior remains unchanged.
+18. no movement history is stored.
+19. live GPS never enters search/RAG/Groq.
+20. Part 6 receives only the client-side nearby-context contract.
+21. cross-user access is blocked.
+22. mobile/accessibility/reduced motion work.
+23. automated + E2E tests pass.
 
 ---
 
-# Deliverable before implementation
+# 36. Deliverable before implementation
 
 Provide:
+
 1. current Part 4 architecture summary
-2. Place/Reminder DB audit
-3. source-of-truth confirmation
-4. endpoint table
-5. client/server component boundaries
-6. map loading strategy
-7. notification permission flow
-8. reminder runtime
-9. geolocation hook design
-10. Haversine design
-11. cooldown/re-entry policy
-12. Shopping grouping
-13. search/privacy integration
-14. motion/UX plan
-15. files to create/modify
-16. complete test matrix
+2. final navigation confirmation
+3. Place/Reminder DB audit
+4. delete/cascade policy
+5. endpoint table
+6. client/server boundaries
+7. map loading strategy
+8. permission flow
+9. centralized reminder runtime
+10. geolocation hook
+11. Haversine utility
+12. hysteresis/cooldown policy
+13. Shopping assignment/grouping
+14. nearby alert design
+15. Part 6 nearby-priority contract
+16. search/privacy regression plan
+17. motion/UX plan
+18. files to create/modify
+19. complete test matrix
+20. known V1 browser limitations
 
 Then wait for:
 

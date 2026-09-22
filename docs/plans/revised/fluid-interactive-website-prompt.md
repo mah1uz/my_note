@@ -1,222 +1,89 @@
-# FLUID, INTERACTIVE NEXT.JS PRODUCT EXPERIENCE PROMPT
+# FLUID, INTERACTIVE NEXT.JS PRODUCT EXPERIENCE — RECONCILED MOTION GUIDE
 
 ## Project
-
-AI Context-Aware Note-Taking Web Application
+AI Context-Aware Note-Taking Web Application — My Notes
 
 ## Purpose
 
-Transform the frontend into a **high-end, animation-forward, tactile productivity experience** using Next.js while preserving the app's real functionality and information hierarchy.
+Make the application feel fluid, tactile, polished and responsive without turning
+it into an animation demo.
 
-The target feeling is:
+The reference inspiration is useful for:
+- smoothness
+- easing
+- scroll feel
+- element choreography
+- hover responsiveness
+- modal/sheet transitions
+- tactile controls
 
-> visually impressive and memorable on first use, but still fast, clear, and practical enough for everyday productivity.
+Do not copy heavy visual effects.
 
-The app should feel more animated and polished than a generic CRUD dashboard.
+The rule is:
 
-It should **not** feel like a portfolio animation demo pasted on top of a note-taking product.
-
----
-
-# 1. Frontend platform
-
-Use:
-
-- Next.js App Router
-- TypeScript
-- React
-- Tailwind CSS or an equivalent token-driven styling system
-- Motion / Framer Motion for coordinated animation
-- TanStack Query for Django API server-state
-- Zustand only for small transient UI state when local state is not enough
-- accessible Dialog / Popover / Tooltip primitives such as Radix UI
-- one consistent icon library such as Lucide
-- Lenis only when it improves long-page scrolling without harming accessibility or responsiveness
-
-Backend remains:
-
-```text
-Next.js frontend
-      ↓
-Django REST API
-      ↓
-PostgreSQL
-```
-
-Do not duplicate Django business logic in Next.js route handlers without a concrete reason.
+> **Elements can feel dynamic. Backgrounds should stay calm.**
 
 ---
 
-# 2. Frontend organization
+# 1. Product feeling
 
-Use a feature-oriented Next.js structure.
+Target:
 
-```text
-frontend/
-  src/
-    app/
-      (auth)/
-        login/
-          page.tsx
-        register/
-          page.tsx
-
-      app/
-        layout.tsx
-        page.tsx
-
-        search/
-          page.tsx
-
-        space/
-          page.tsx
-
-        notes/
-          [id]/
-            page.tsx
-
-        places/
-          page.tsx
-
-        settings/
-          page.tsx
-
-      layout.tsx
-      providers.tsx
-      globals.css
-
-    components/
-      layout/
-        AppShell.tsx
-        Sidebar.tsx
-        SidebarItem.tsx
-        MobileNavDrawer.tsx
-        TopBar.tsx
-
-      search/
-        UniversalSearchBar.tsx
-        SearchOverlay.tsx
-        SplitSearchResults.tsx
-        SearchResultCard.tsx
-        GroundedAnswerPanel.tsx
-        SearchEmptyState.tsx
-
-      space/
-        YourSpaceGrid.tsx
-        SpacePreviewCard.tsx
-        SpaceModal.tsx
-        SpaceItemRow.tsx
-
-      ui/
-        Button.tsx
-        Card.tsx
-        Dialog.tsx
-        Tooltip.tsx
-        Badge.tsx
-        Skeleton.tsx
-        Toast.tsx
-        EmptyState.tsx
-
-      motion/
-        MotionProvider.tsx
-        RouteTransition.tsx
-        Reveal.tsx
-        AnimatedNumber.tsx
-
-    features/
-      auth/
-      dashboard/
-      notes/
-      search/
-      space/
-      places/
-      reminders/
-      settings/
-
-    hooks/
-      useSidebar.ts
-      useUniversalSearch.ts
-      useReducedMotionSafe.ts
-      useMediaQuery.ts
-
-    lib/
-      api/
-      search/
-      motion/
-      utils/
-
-    stores/
-      ui-store.ts
-
-    types/
-```
-
-Use TanStack Query for remote server-state.
-
-Do not put API payloads into Zustand.
-
-Use local state or Zustand only for things such as:
-- sidebar collapsed state
-- universal search open state
-- active Space modal
-- harmless UI preferences
-
-Do not add Redux unless a demonstrated need appears.
-
----
-
-# 3. Core visual direction
-
-The app should feel:
-
-- premium
-- futuristic but usable
-- crisp
-- responsive
+- fast
+- calm
+- modern
+- polished
 - tactile
-- animation-rich
-- slightly playful
-- visually memorable
+- responsive
+- slightly springy
 - productivity-first
 
-Use:
-- calm neutral base surfaces
-- one strong accent color
-- controlled accent gradients
-- subtle glass treatment on overlays/sidebar/popovers
-- layered depth
-- high-quality typography
-- excellent spacing
-- clear hierarchy
-- high-contrast active/focus states
-
-Avoid a boring enterprise-dashboard feel.
-
-Also avoid:
-- giant looping animated backgrounds
-- particle systems
+Avoid:
+- AI-looking neon effects
+- animated gradient blobs
+- particles
 - cursor trails
-- decorative WebGL
-- constant neon glow
-- noise everywhere
+- WebGL decoration
+- liquid reveals
+- giant moving backgrounds
+- constant parallax
+- endless glow
+- long cinematic loaders
 
-The **interface elements** should provide the spectacle.
+The user should notice that the app feels smooth, not that it contains many animations.
 
 ---
 
-# 4. Motion philosophy
+# 2. Final product structure
 
-Motion should be:
-- smooth
-- fast
-- slightly springy
-- responsive
-- intentional
-- physically connected to the user's action
+Motion must support the final architecture:
 
-Most interactions should finish quickly.
+```text
+Dashboard
+  Overview
+  Tasks
+  Events
+  Shopping
+  Transactions
+  Study
 
-Recommended tokens:
+Search
+Places
+Settings
+
+----------------
+Logout
+```
+
+Do not build interactions around the retired top-level `Your Space`.
+
+`Expenses` is a Transactions filter/tab, not the permanent finance destination.
+
+---
+
+# 3. Motion tokens
+
+Recommended:
 
 ```css
 --motion-instant: 120ms;
@@ -225,11 +92,11 @@ Recommended tokens:
 --motion-panel: 420ms;
 --motion-reveal: 650ms;
 
---ease-out: cubic-bezier(.22, 1, .36, 1);
---ease-soft: cubic-bezier(.16, 1, .3, 1);
+--ease-out: cubic-bezier(.22,1,.36,1);
+--ease-soft: cubic-bezier(.16,1,.3,1);
 ```
 
-Spring-like interactions may use roughly:
+Spring-like interactions may use approximately:
 
 ```text
 stiffness: 320–450
@@ -237,406 +104,251 @@ damping: 26–36
 mass: 0.7–1
 ```
 
-Never make bounce/overshoot so large that it slows work.
+Keep overshoot restrained.
 
 ---
 
-# 5. App shell
+# 4. Movement scale
 
-Authenticated layout:
+Use small distances.
 
 ```text
-┌──────────────┬─────────────────────────────────────────────┐
-│ Sidebar      │ top / universal search                     │
-│              ├─────────────────────────────────────────────┤
-│ Dashboard    │                                             │
-│ Search       │ page content                                │
-│ Your Space   │                                             │
-│ Places       │                                             │
-│ Settings     │                                             │
-│              │                                             │
-│ Logout       │                                             │
-└──────────────┴─────────────────────────────────────────────┘
+micro interaction:     2–4px
+card/button movement:  4–8px
+menu/modal entrance:  12–24px
+scroll reveal:         20–36px
 ```
 
-The shell should remain visually stable while inner routes/views animate.
+Scale:
+
+```text
+button hover: 1.015–1.025
+card hover:   1.005–1.01
+entrance:     .985–1
+press:        .97–.99
+```
+
+Avoid dramatic scale/rotation.
 
 ---
 
-# 6. ChatGPT/Claude-style collapsible sidebar
+# 5. Scrolling
+
+Use Lenis only where it improves long-page feel.
+
+Good candidates:
+- Dashboard overview
+- Settings page
+- long informational pages
+
+Do not apply floaty smoothing inside:
+- Search results
+- dialogs
+- sheets
+- dense list containers
+- map interaction areas
+
+Never scroll-jack.
+
+Touch and keyboard scrolling remain natural.
+
+Under reduced motion, use native scrolling.
+
+---
+
+# 6. App shell
+
+The shell should feel stable while content changes.
+
+Good:
+- sidebar settles smoothly
+- active indicator glides
+- labels fade/slide on collapse
+- page content fades/rises slightly
+- no abrupt layout jump
+
+Avoid:
+- moving the entire shell on every route
+- large page zooms
+- long route choreography
+
+---
+
+# 7. Sidebar
 
 Expanded:
 
 ```text
-[app mark + name]                      [collapse]
+Dashboard  ▾
+  Overview
+  Tasks
+  Events
+  Shopping
+  Transactions
+  Study
 
-Dashboard
 Search
-Your Space
 Places
 Settings
-
----------------------------------
-Logout
 ```
 
 Collapsed:
+- anchored icons
+- tooltip
+- Dashboard icon opens accessible child popover/flyout
+
+Interaction:
+- width transition short
+- labels opacity + small `translateX`
+- chevron rotates
+- child rows fade/slide
+- active state moves smoothly
+
+Example:
 
 ```text
-[mark]  [expand]
-
-[dashboard]
-[search]
-[space]
-[places]
-[settings]
-
-[logout]
-```
-
-Requirements:
-- smooth width transition
-- labels fade/slide instead of compressing
-- icons stay visually anchored
-- active indicator glides between destinations
-- hover moves icons only 1–2px
-- collapsed items use tooltips
-- collapse icon subtly morphs/rotates
-- content area smoothly reflows
-- no visible layout jump
-- desktop preference may persist
-- mobile uses an animated drawer
-
-Suggested label transition:
-
-```text
+label:
 opacity 1 -> 0
 translateX 0 -> -6px
 ```
 
-Collapsing should feel slightly quicker than expanding.
+Do not compress text into unreadable width.
 
 ---
 
-# 7. Dashboard entrance
+# 8. Dashboard entrance
 
-Suggested choreography:
+Suggested:
 
 ```text
-app shell settles
-    ↓
-Universal Search/top bar fades in
-    ↓
+shell visible immediately
+  ↓
+top search fades in
+  ↓
 Quick Capture rises
-    ↓
-What Matters cards stagger
-    ↓
-summary metrics animate
-    ↓
-Daily Briefing settles
+  ↓
+Categorized Summary cards settle
+  ↓
+finance snapshot / What Matters enters
 ```
 
-The user must be able to interact immediately.
+User can interact before the sequence ends.
 
-Do not make them wait for the sequence.
+Total perceived entrance around one second or less.
 
-Quick Capture should visually feel like the main action.
+---
+
+# 9. Categorized Summary cards
+
+Categories:
+
+```text
+Tasks
+Events
+Shopping
+Transactions
+Study
+```
+
+Hover on desktop:
+
+```text
+translateY 0 -> -4px
+scale 1 -> 1.008
+border/shadow slightly stronger
+arrow moves 2–3px
+```
+
+Click:
+- subtle press
+- open page/modal/sheet
+- backdrop appears smoothly
+- content enters with short stagger
+
+No card rotation.
+
+No bouncing.
+
+---
+
+# 10. Transaction interactions
+
+Transaction rows should stay calm.
+
+Good:
+- row hover background
+- amount text stable
+- edit/delete action fades in
+- new confirmed Transaction slides/fades into list
+- balance headline crossfades/counts once when intentionally changed
+
+Do not:
+- animate every amount constantly
+- flash money
+- use casino-like green/red effects
+- shake rows
+
+Income/Expense meaning must not depend on color alone.
+
+---
+
+# 11. Quick Capture
 
 On focus:
 - accent ring appears
-- surface gains slight elevation
-- Save/analyze action becomes more prominent
+- surface elevates slightly
+- action button becomes clearer
 
-No huge bloom/glow.
+On save:
+- button `Saving…`
+- then compact `Saved`
+- note appears with short fade/slide
 
----
+AI analysis result:
+- review panel appears below
+- suggestion cards stagger lightly
+- no giant AI glow
 
-# 8. Your Space
-
-Approved top-level cards:
-
-- Tasks
-- Events
-- Shopping
-- Expenses
-- Study
-
-Do not add another category without explicit approval.
-
-`Study` is a UI view over the Education domain.
-
-## Preview cards
-
-Each card includes:
-- icon
-- title
-- count
-- 3–5 compact rows
-- dates/status
-- category accent
-- View all action
-
-Desktop hover:
-
-```text
-translateY 0 -> -6px
-scale 1 -> 1.012
-shadow/depth increases
-accent shifts slightly
-arrow moves
-```
-
-Do not make cards rotate or bounce dramatically.
-
-## Click-to-expand
-
-When clicked:
-
-1. card compresses slightly;
-2. background dims/blurs;
-3. expanded panel grows from the card geometry where practical;
-4. full list fades/staggers in;
-5. X appears;
-6. rest of app stays visible behind blur.
-
-Desktop expanded modal:
-
-```text
-max-width: approximately 900–1100px
-max-height: approximately 80–88vh
-```
-
-Mobile:
-- near-full-screen sheet
-- comfortable touch spacing
-- no tiny desktop modal
-
-Close via:
-- X
-- Escape
-- safe backdrop click
-
-Restore focus to the trigger card.
+Raw Note should remain visually stable.
 
 ---
 
-# 9. Universal Search bar
-
-Search is available from:
-- Sidebar Search
-- app top bar
-- Cmd/Ctrl+K
-
-Idle placeholder examples may crossfade:
-
-```text
-Search Notes...
-Ask My Notes...
-Find an expense...
-Find what you wrote...
-```
-
-Use subtle opacity/blur transitions.
-
-Do not use a distracting endless typewriter animation.
-
-Stop placeholder motion on focus.
-
-On focus:
-- border/accent sharpens
-- elevation increases slightly
-- shortcut hint fades
-- input gets visually wider/prominent where layout allows
-
----
-
-# 10. Search overlay
-
-Opening:
-
-```text
-backdrop:
-opacity 0 -> 1
-blur 0 -> light blur
-
-panel:
-opacity 0 -> 1
-scale .97 -> 1
-translateY 18px -> 0
-```
-
-Desktop:
-
-```text
-┌────────────────────────────────────────────────────────────────┐
-│ Search your memory...                                   [ X ] │
-├───────────────────────────────┬────────────────────────────────┤
-│ Search Notes                  │ Ask My Notes                   │
-│                               │                                │
-│ ranked source cards           │ strict grounded answer         │
-│                               │                                │
-│ result                 94 Rel │ source chips                   │
-│ result                 86 Rel │                                │
-│ result                 72 Rel │ insufficient-context state     │
-└───────────────────────────────┴────────────────────────────────┘
-```
-
-Use a stable split such as 55/45 or 50/50.
-
-Mobile:
-- one panel
-- shared search input
-- animated tabs:
-  - Search Notes
-  - Ask My Notes
-
-Do not squeeze desktop columns onto mobile.
-
----
-
-# 11. Search Notes cards
-
-Each result card may show:
-- title
-- excerpt
-- type badge
-- domain badges
-- relevant date/time
-- amount for Expense
-- highlighted exact phrase/keyword match
-- Relevance score bottom-right
-
-Use `Relevance`, never `Confidence`.
-
-Entrance:
-- group fade/slide
-- 35–60ms stagger
-
-Hover:
-- lift 3–4px
-- border/contrast strengthens
-- source arrow slides
-- relevance pill becomes slightly more visible
-
-Do not stagger so slowly that results feel delayed.
-
-Click opens source Note with a fast route/modal transition.
-
----
-
-# 12. Ask My Notes panel
-
-Do not make this look like a chat transcript.
-
-No chat bubbles.
-
-Render:
-- concise answer
-- grounded/source state
-- source chips/cards
-- insufficient-context state
-- provider-error state
-
-Loading:
-
-```text
-answer skeleton
-    ↓
-answer fades in
-    ↓
-sources appear with short stagger
-```
-
-If the provider fails:
-- left Search Notes stays usable
-- right panel shows isolated error state
-- never collapse the whole overlay
-
----
-
-# 13. Route transitions
-
-Keep them short.
-
-Suggested:
-
-```text
-old:
-opacity 1 -> .4
-
-new:
-opacity 0 -> 1
-translateY 8px -> 0
-```
-
-Total:
-- about 180–300ms
-
-Never delay actual navigation waiting for animation.
-
----
-
-# 14. Page / section reveals
-
-Good targets:
-- Dashboard headings
-- Your Space grid
-- Places page panels
-- Settings groups
-
-Suggested:
-
-```text
-opacity 0 -> 1
-translateY 22px -> 0
-scale .985 -> 1
-```
-
-Stagger cards:
-- 40–80ms
-
-Play once.
-
-Do not animate every label.
-
----
-
-# 15. Buttons
+# 12. Buttons
 
 Hover:
 
 ```text
-scale 1 -> 1.025
+scale 1 -> 1.02
 ```
 
 Press:
 
 ```text
-scale -> .97
+scale -> .98
 ```
 
-Primary:
-- slightly stronger elevation/accent
-- subtle icon movement
-
-Destructive:
-- clear and restrained
-- no playful bounce
+Arrow:
+- right arrow +3px
+- up-right arrow +2px/-2px
 
 Loading:
-- preserve width
+- preserve button width
 - crossfade text/spinner
 - no layout jump
 
+Destructive actions:
+- clear
+- restrained
+- no playful bounce
+
 ---
 
-# 16. Inputs / forms
+# 13. Forms
 
-On focus:
+Focus:
 - border sharpens
 - focus ring fades in
-- background/surface becomes slightly clearer
-- label accent changes
+- background becomes slightly clearer
 
 Validation:
 
@@ -647,425 +359,329 @@ translateY -4px -> 0
 
 Avoid aggressive shake.
 
-Secret/API-key fields must never animate secret values into visibility.
+Secret/BYOK fields must never animate secret text into visibility.
 
 ---
 
-# 17. Modals / sheets / popovers
+# 14. Modals and sheets
 
-Shared opening language:
+Open:
 
 ```text
-backdrop fade
-panel opacity
-translateY 18–24px
-scale .975 -> 1
+backdrop opacity 0 -> 1
+panel opacity 0 -> 1
+translateY 18px -> 0
+scale .98 -> 1
 ```
 
 Close slightly faster.
 
-Popover:
-
-```text
-opacity
-translateY 4–6px
-scale .98
-```
-
-Support:
+Requirements:
 - Escape
 - focus trap
 - focus restore
-- keyboard navigation
+- safe backdrop click
 - reduced motion
+- mobile near-full-screen sheet where appropriate
 
 ---
 
-# 18. Task / state micro-interactions
+# 15. Universal Search
+
+Opening:
+
+```text
+backdrop fades
+panel rises 12–18px
+panel scale .98 -> 1
+```
+
+Results:
+- group fade/slide
+- 35–60ms stagger
+- do not delay the first useful result
+
+Left Search results must render independently from Ask My Notes.
+
+Right answer:
+- skeleton
+- answer fades in
+- sources appear shortly after
+
+If Groq fails, do not animate/collapse the left panel away.
+
+---
+
+# 16. Search result hover
+
+Desktop:
+
+```text
+translateY 0 -> -3px
+border contrast slightly stronger
+arrow -> +2px
+Relevance badge slightly clearer
+```
+
+Do not make ranked results bounce.
+
+Transaction search results follow the same language.
+
+---
+
+# 17. Route transitions
+
+Short only.
+
+Example:
+
+```text
+old content opacity 1 -> .5
+new content opacity 0 -> 1
+new content translateY 8px -> 0
+```
+
+Target total:
+- 180–280ms
+
+Navigation must not wait for animation completion.
+
+---
+
+# 18. Text reveals
+
+Use only for:
+- major Dashboard heading
+- onboarding welcome
+- important empty-state statement
+- section title in long page
+
+Do not animate every paragraph.
+
+Simple line/word reveal is enough.
+
+---
+
+# 19. Tasks and state changes
 
 Task completion:
+- checkbox draws
+- text opacity reduces
+- strike-through draws
+- row settles
 
-```text
-checkbox check draws
-text opacity reduces
-strike-through draws
-row gently settles
-```
+If item disappears/reorders:
+- show completion feedback first
+- then layout transition
 
-Do not instantly teleport the row away before feedback is visible.
-
-If product logic reorders/removes it, do so after the micro-interaction.
-
-Save states:
-
-```text
-Save -> Saving… -> Saved
-```
-
-Use crossfade, not width jump.
+Do not instantly teleport it.
 
 ---
 
-# 19. Expense / metric motion
+# 20. Shopping groups
 
-Intentional headline metrics may count up once:
+When grouping by Place:
+- group expand/collapse uses layout animation
+- completed item exits gracefully
+- nearby group may receive a subtle one-time emphasis
 
-```text
-0 -> monthly total
-```
+No radar animation.
 
-Do not animate every price in rows.
-
-Expense category bars/cards may animate once to their final calculated value.
-
----
-
-# 20. Places / reminders motion
-
-- Place selection uses shared active highlight
-- map container fades in after lazy load
-- Location Mode toggle is tactile
-- location acquisition may use one subtle pulse
-- nearby Shopping toast slides from edge
-- Shopping group expand/collapse uses layout animation
-
-Do not create perpetual radar animation.
+No endless location pulse.
 
 ---
 
-# 21. Loading
+# 21. Places / location
+
+Good:
+- map fades in after lazy load
+- selected Place gets shared highlight
+- Add/Edit dialog transitions normally
+- Location Mode toggle tactile
+- one subtle acquisition pulse
+
+Avoid:
+- animated map background
+- perpetual GPS waves
+- decorative scanning effects
+
+---
+
+# 22. Onboarding
+
+Use:
+- spotlight fade
+- tour card slide
+- target pulse once
+- progress transition
+
+Do not:
+- blink endlessly
+- block the user for a long sequence
+- use brittle animated arrows across the screen
+
+Skip is immediate.
+
+---
+
+# 23. Loading
 
 Prefer:
 - content-shaped skeletons
-- short shimmer
+- short shimmer if needed
 - skeleton fade-out
-- real data fade-in
+- real content fade-in
 
 Avoid:
 - full-page spinners
-- long cinematic loader
-- artificial delay
+- long loading logo sequences
+- artificial delays
 
-Universal Search should render left results as soon as available while the right RAG panel may continue loading independently.
-
----
-
-# 22. Scrolling
-
-Use Lenis only on long pages where it improves feel.
-
-Do not use floaty smoothing inside:
-- search result lists
-- modals
-- sheets
-- dense app scroll containers
-
-Never scroll-jack.
+Search left/right panels load independently.
 
 ---
 
-# 23. Hover capability
+# 24. Dropdowns / popovers
 
-Only enable hover-specific polish on capable devices:
+Open:
+
+```text
+opacity 0 -> 1
+translateY 4–6px -> 0
+scale .98 -> 1
+```
+
+Duration:
+- 150–220ms
+
+Keep menus responsive.
+
+---
+
+# 25. Hover capability
+
+Only use hover polish when supported:
 
 ```css
 @media (hover: hover) and (pointer: fine) {
-  /* hover polish */
+  /* hover */
 }
 ```
 
-Touch users get stable controls.
+Touch receives stable controls.
 
 ---
 
-# 24. Reduced motion
+# 26. Reduced motion
 
 Mandatory.
 
-When:
+Under:
 
 ```text
 prefers-reduced-motion: reduce
 ```
 
-reduce/disable:
-- stagger
-- shared-layout zooms
-- spring travel
+disable/reduce:
 - Lenis
-- large transforms
+- stagger
+- spring travel
+- shared-layout zoom
 - animated counters
+- large transforms
 
 Keep:
-- focus cues
-- essential state changes
-- immediate content visibility
+- focus states
+- visibility changes
+- essential status feedback
 
-No functionality may depend on animation.
+No content may remain hidden because an animation did not run.
 
 ---
 
-# 25. Performance
-
-Animation-heavy must still be fast.
+# 27. Performance
 
 Prefer:
-- transform
-- opacity
-- compositor-friendly animation
+
+```text
+transform
+opacity
+```
 
 Avoid continuous animation of:
 - width
 - height
 - top
 - left
-- huge blur
-- large shadow
+- large blur
+- huge shadow
 - filter
 
-For sidebar width transitions:
-- keep DOM simple
-- keep duration short
-- use transform/clip techniques when appropriate
+Sidebar width may animate, but keep DOM simple and duration short.
 
-Avoid:
-- many requestAnimationFrame loops
-- mounting heavy modal contents before needed
-- loading map library globally
-- marking the whole app `use client`
+Avoid many rAF loops.
 
 Use dynamic imports for heavy client-only features.
 
 ---
 
-# 26. Next.js server/client boundaries
+# 28. Next.js boundaries
 
-Default to Server Components where practical.
+Default to Server Components when they genuinely help.
 
-Use Client Components where interaction requires them:
+Use Client Components for:
+- Supabase session-aware authenticated data
+- TanStack Query
 - sidebar
-- Universal Search
-- Your Space modal
+- Search overlay
 - forms
-- animation state
+- modals
+- onboarding
 - map
-- notifications
 - geolocation
-- browser permission UI
+- notifications
+- animation state
 
-Do not place `use client` at the root without necessity.
-
----
-
-# 27. Data fetching
-
-Use TanStack Query for authenticated Django API server-state where appropriate.
-
-Use:
-- query keys
-- request cancellation
-- cache invalidation
-- stale-response prevention
-- optimistic updates only where safe
-
-Universal Search must cancel/ignore older responses when a newer query is current.
-
-Do not store server payloads in Zustand.
+Do not mark root application `use client`.
 
 ---
 
-# 28. Responsive behavior
+# 29. Mobile
 
-Desktop:
-- full collapsible sidebar
-- split Search Overlay
-- multi-column Your Space
+Mobile should be slightly less animated.
 
-Tablet:
-- narrower sidebar
-- two-column Space grid
-- responsive split search
-
-Mobile:
-- drawer nav
-- single-column content
-- Space sheet
-- Search Notes / Ask My Notes tabs
-- no hover assumptions
-- smaller motion distances
-
----
-
-# 29. Accessibility
-
-Keyboard support:
-- sidebar
-- Cmd/Ctrl+K
-- search result navigation
+Keep:
+- menu/drawer
 - modal/sheet
-- source links
-- dialogs
-- forms
+- button feedback
+- section entrance
+- task completion
+- search transitions
 
-Use visible focus states.
-
-Use semantic buttons/links.
-
-Do not make arbitrary `div`s clickable.
-
-Search overlay:
-- dialog semantics
-- labelled search input
-- focus trap
-- Escape
-- focus restore
-- screen-reader labels for source/relevance metadata
+Reduce:
+- large stagger
+- hover assumptions
+- large movement
+- complex shared-layout effects
 
 ---
 
-# 30. Frontend testing
+# 30. Quality target
 
-## Sidebar
-Test:
-- collapse/expand
-- persisted harmless state
-- keyboard
-- mobile drawer
-- active item
+The app should feel:
 
-## Your Space
-Test:
-- cards
-- preview rows
-- modal open
-- X close
-- Escape
-- backdrop
-- focus return
-- mobile sheet
+> smooth enough that the user notices the quality, but calm enough that the
+> motion disappears into normal use.
 
-## Universal Search
-Test:
-- keyboard shortcut
-- input
-- stale request cancellation
-- left results
-- ranking
-- Relevance label
-- right answer
-- source chips
-- provider failure
-- insufficient context
-- mobile tabs
+The interface should feel good when the user:
+- collapses the sidebar
+- switches Dashboard categories
+- captures a Note
+- confirms a Transaction
+- opens Search
+- completes a Task
+- expands Shopping
+- edits Settings
+- enables Location Mode
 
-## Motion
-Test outcomes, not animation implementation internals.
-
-Verify:
-- reduced-motion path
-- hidden content becomes visible
-- no focus trap bug
-- modal/sheet closes cleanly
-
-## E2E
-Use Playwright on desktop and mobile representative viewports.
-
-Check browser console for:
-- hydration errors
-- uncaught exceptions
-- obvious accessibility-critical failures
-
----
-
-# 31. Initial authenticated page experience
-
-Suggested:
-
-```text
-sidebar settles
-    ↓
-top search bar fades in
-    ↓
-Quick Capture rises
-    ↓
-priority cards stagger
-    ↓
-Your Space preview settles
-```
-
-Total perceived entrance should be around one second or less.
-
-The user can interact immediately.
-
----
-
-# 32. Quality bar
-
-The interface should feel impressive because:
-- components respond instantly
-- state changes have physicality
-- overlays feel dimensional
-- layout transformations connect cause and effect
-- loading is elegant
-- hierarchy is strong
-- animations share one language
-- Universal Search feels like a centerpiece
-
-Not because:
-- the whole background moves
-- everything glows
-- every card rotates
-- particles are everywhere
-- interactions take too long
-
----
-
-# 33. Implementation process
-
-Before implementation:
-
-1. inspect the current Vite/React frontend;
-2. map routes/features;
-3. identify state ownership;
-4. identify reusable components;
-5. produce a Vite -> Next.js migration map;
-6. produce the final folder tree;
-7. define design tokens;
-8. define motion tokens;
-9. define reusable AppShell;
-10. define sidebar behavior;
-11. define Your Space behavior;
-12. define Universal Search behavior;
-13. identify heavy dynamic imports;
-14. define accessibility requirements;
-15. define regression + E2E matrix.
-
-Migrate incrementally.
-
-Do not rewrite working business behavior only for visual polish.
-
----
-
-# Final target
-
-The final product should feel:
-
-> **fast, fluid, tactile, visually rich, highly interactive, animation-forward, and memorable — a modern AI productivity product rather than a generic dashboard.**
-
-Users should enjoy:
-- collapsing the sidebar
-- opening Universal Search
-- expanding a Space card
-- completing a Task
-- opening Places
-- navigating between views
-
-because each interaction feels deliberate.
-
-Animation may be prominent, but never at the cost of:
-- speed
-- legibility
-- accessibility
-- privacy
-- correctness
-- productivity
+The background should rarely be the thing moving.

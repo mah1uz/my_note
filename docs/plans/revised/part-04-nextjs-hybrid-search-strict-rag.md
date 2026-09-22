@@ -1,181 +1,227 @@
-# PART 4 OF 6 — NEXT.JS, HYBRID SEARCH & STRICT GROUNDED RAG
+# PART 4 OF 6 — NEXT.JS MIGRATION, HYBRID SEARCH & STRICT GROUNDED RAG
 
 ## Project
-AI Context-Aware Note-Taking Web Application
+AI Context-Aware Note-Taking Web Application — My Notes
 
 ## Starting point
 
-Parts 1–3 and the future-proof database migration are already implemented.
+Parts 1–3.5 are complete.
 
-Treat the implemented UUID/PostgreSQL ownership model and:
-
-`docs/the_final_plan_before_build/future-proof-database-plan.md`
-
-as the database source of truth.
-
-Expected existing foundation:
+Expected foundation:
+- React/Vite frontend is still the active frontend
 - Django + DRF backend
-- PostgreSQL
-- UUID-based internal `app_users`
-- authentication / user-isolation foundation
-- real Notes CRUD
-- NoteItems + Domains
+- Supabase PostgreSQL
+- UUID `AppUser` ownership
+- Supabase Auth
+- Notes + NoteItems + Domains
 - Groq structured extraction/review
-- AI processing history
-- real Tasks / Events / Expenses / Shopping
 - session-only BYOK
-- privacy-safe admin design
+- limited AI trial entitlement
+- authoritative `finance_transactions`
+- UserPreference profession/priority/onboarding fields
+- Dashboard information architecture established
+- Transactions replace Expenses as the finance destination
 
-Do **not** recreate the old SQLite migration flow.
+Part 4 has two major goals:
 
-Part 4 now has two goals:
+1. migrate the existing working frontend from React/Vite to Next.js App Router + TypeScript;
+2. add deterministic + hybrid search and strict grounded RAG.
 
-1. migrate the current React/Vite frontend to a premium Next.js frontend;
-2. build one universal Search experience containing both **Search Notes** and **Ask My Notes**.
+Do not change domain rules simply because the frontend framework changes.
 
 ---
 
-# Core decision
-
-There is **no model-based intent classifier**.
-
-Do not use:
-- zero-shot intent models
-- a custom trained classifier
-- Groq simply to decide query intent
-- an agent framework for routing
-
-Instead use:
+# 1. Canonical product architecture
 
 ```text
-User query
-   ↓
-Deterministic query parser
-   ├── regex
-   ├── lexical cue rules
-   ├── explicit operators
-   ├── date/time cues
-   ├── money/quantity patterns
-   ├── type/domain/status hints
-   └── quoted phrases
-   ↓
-Best execution strategy
-   ├── structured PostgreSQL query / aggregation
-   └── hybrid retrieval
-       ├── PostgreSQL full-text search
-       ├── pgvector semantic similarity
-       └── metadata/query-hint boosts
-   ↓
-Verified evidence set
-   ├── LEFT: Search Notes
-   └── RIGHT: Ask My Notes
-              strict grounded RAG
+Browser / Next.js UI
+      ↓
+Supabase Auth session
+      ↓ access JWT
+Django REST API
+      ↓
+Supabase PostgreSQL
 ```
 
-Regex is not semantic search.
+Django remains the business-logic and authorization boundary.
 
-Use:
-- regex for explicit structure,
-- PostgreSQL for exact filtering/arithmetic,
-- embeddings for meaning,
-- Groq only for grounded natural-language synthesis.
+Do not duplicate:
+- ownership logic
+- finance logic
+- AI validation
+- search authorization
+- account state checks
 
-If a query is ambiguous, fall back to broad hybrid retrieval rather than applying risky hard filters.
-
----
-
-# Goal
-
-Implement:
-- Next.js App Router
-- TypeScript frontend
-- premium authenticated app shell
-- ChatGPT/Claude-style collapsible sidebar
-- `Your Space`
-- Universal Search
-- PostgreSQL full-text retrieval
-- pgvector semantic retrieval
-- deterministic regex/query hints
-- structured analytics
-- fused ranking
-- Search Notes relevance ranking
-- strict grounded Ask My Notes
-- source validation
-- explicit insufficient-context behavior
-- strict current-user isolation
-- comprehensive tests
+inside Next.js route handlers.
 
 ---
 
-# Explicitly forbidden in Part 4
+# 2. Final navigation — preserve Part 3.5
 
-Do not implement:
-- any intent classifier model
-- model training
-- autonomous agents
-- broad tool calling
-- maps
-- geolocation
-- reminder scheduling
-- background GPS
-- What Matters Now
-- final Daily Briefing
-- speculative V2 features
+Top-level:
 
----
+```text
+Dashboard
+  Overview
+  Tasks
+  Events
+  Shopping
+  Transactions
+  Study
 
-# STEP A — Repository / database prerequisite audit
+Search
+Places
+Settings
 
-Before code:
-1. inspect the implemented database architecture;
-2. confirm PostgreSQL is active;
-3. inspect whether `note_embeddings` already physically exists;
-4. inspect auth / AppUser ownership;
-5. inspect existing Vite frontend routes/components/state;
-6. inspect current Part 1–3 regression tests;
-7. identify migration risks for the frontend only.
+----------------
+Logout
+```
 
-Do not duplicate existing DB models.
+Rules:
+- no top-level `Your Space`;
+- no top-level `Expenses`;
+- `Expenses` is a filter/tab inside Transactions;
+- Part 4 may make Dashboard collapsible/premium;
+- Part 5/6 must not redesign this IA again.
 
 ---
 
-# STEP B — Migrate frontend to Next.js
+# 3. Part 4 implementation gates
 
-## Stack
+Do not treat this as one giant rewrite.
+
+## Part 4A — Vite → Next.js migration
+No search/vector work until all Parts 1–3.5 regressions pass.
+
+## Part 4B — Embeddings + deterministic query parsing + PostgreSQL FTS
+No RAG until retrieval is correct and user-scoped.
+
+## Part 4C — Hybrid retrieval + Universal Search
+No generated answer dependency for basic Search Notes.
+
+## Part 4D — Strict grounded Ask My Notes
+Generation only after verified retrieval/context.
+
+This staged order is mandatory.
+
+---
+
+# 4. Next.js stack
 
 Use:
 - Next.js App Router
 - TypeScript
 - React
-- Tailwind CSS or equivalent token-driven styling
-- Motion / Framer Motion
-- TanStack Query for Django API server-state
-- Zustand only for small transient UI state if necessary
-- accessible Dialog/Popover/Tooltip primitives
-- one consistent icon library such as Lucide
-- Lenis only where it improves scrolling without harming UX/accessibility
+- Tailwind CSS or equivalent token-driven CSS
+- Motion / Framer Motion for coordinated interaction
+- TanStack Query for authenticated Django server-state
+- Zustand only for small transient UI state if needed
+- Radix UI or equivalent accessible primitives
+- Lucide or one consistent icon library
+- Lenis only where useful for long-page scrolling
 
-Django remains the business/API backend.
+Do not add Redux unless a demonstrated need appears.
 
-Do not move core business logic into Next.js API routes merely because they exist.
+---
 
-## Route target
+# 5. Server/client boundary — explicit decision
+
+Authenticated application data is primarily fetched client-side.
+
+```text
+Supabase JS browser session
+      ↓
+current access token
+      ↓
+Client Component / TanStack Query
+      ↓
+Django REST API
+```
+
+Use Server Components where practical for:
+- static shell structure
+- metadata
+- non-authenticated/static content
+- components that do not require browser/session state
+
+Do not force private Django API fetching into Server Components if doing so
+requires awkward token forwarding or duplicates auth/session logic.
+
+Do not mark the entire app `use client`.
+
+---
+
+# 6. Supabase Auth in Next.js
+
+The existing auth semantics remain:
+
+```text
+Supabase Auth
+  ↓
+access JWT
+  ↓
+Django JWKS verification
+  ↓
+UserAuthIdentity(iss, sub)
+  ↓
+AppUser UUID
+```
+
+Frontend-safe environment variables:
+
+```text
+NEXT_PUBLIC_API_BASE_URL
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+```
+
+Never expose:
+
+```text
+DATABASE_URL
+DJANGO_SECRET_KEY
+GROQ_API_KEY
+SUPABASE_SECRET_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+Session management remains Supabase-managed.
+
+Django receives only the current access JWT as Bearer authentication.
+
+---
+
+# 7. Next.js route target
+
+Suggested:
 
 ```text
 /login
 /register
+/auth/callback
 
 /app
+/app/tasks
+/app/events
+/app/shopping
+/app/transactions
+/app/study
 /app/search
-/app/space
 /app/notes/[id]
 /app/places
 /app/settings
 ```
 
-The Search route may be deep-linkable, but normal search should open globally from anywhere in the authenticated app.
+`/app` = Dashboard Overview.
 
-## Suggested frontend structure
+The sidebar Dashboard group links to the child routes.
+
+Search remains globally openable from anywhere, even if `/app/search` exists for
+deep linking.
+
+---
+
+# 8. Suggested Next.js structure
 
 ```text
 frontend/
@@ -184,12 +230,17 @@ frontend/
       (auth)/
         login/page.tsx
         register/page.tsx
+        auth/callback/page.tsx
 
       app/
         layout.tsx
         page.tsx
+        tasks/page.tsx
+        events/page.tsx
+        shopping/page.tsx
+        transactions/page.tsx
+        study/page.tsx
         search/page.tsx
-        space/page.tsx
         notes/[id]/page.tsx
         places/page.tsx
         settings/page.tsx
@@ -202,38 +253,48 @@ frontend/
       layout/
         AppShell.tsx
         Sidebar.tsx
+        DashboardNavGroup.tsx
         SidebarItem.tsx
         MobileNavDrawer.tsx
         TopBar.tsx
+
+      dashboard/
+        CategorizedSummary.tsx
+        CategorySummaryCard.tsx
+
+      finance/
+        TransactionList.tsx
+        TransactionForm.tsx
+        BalanceSummary.tsx
+        FinanceFilters.tsx
 
       search/
         UniversalSearchBar.tsx
         SearchOverlay.tsx
         SplitSearchResults.tsx
         SearchResultCard.tsx
+        TransactionSearchResult.tsx
         GroundedAnswerPanel.tsx
-
-      space/
-        YourSpaceGrid.tsx
-        SpacePreviewCard.tsx
-        SpaceModal.tsx
-        SpaceItemRow.tsx
 
       ui/
       motion/
 
     features/
       auth/
-      dashboard/
       notes/
+      tasks/
+      events/
+      shopping/
+      transactions/
+      study/
       search/
-      space/
       places/
       settings/
 
     hooks/
     lib/
       api/
+      auth/
       search/
       motion/
       utils/
@@ -244,118 +305,104 @@ frontend/
     types/
 ```
 
-Do not add Redux without a demonstrated need.
+Remote server-state belongs in TanStack Query.
 
-TanStack Query owns remote server-state.
+Zustand/local state may hold:
+- sidebar collapsed
+- Dashboard group open/closed
+- search overlay open
+- active modal/sheet
+- harmless UI preference
 
-Local/Zustand UI state may handle:
-- sidebar collapsed state
-- search overlay open state
-- active Space modal
-- harmless UI preferences
-
-## Migration acceptance gate
-
-Before continuing, verify all existing Part 1–3 functionality still works:
-- login/register
-- protected routes
-- Notes CRUD
-- AI analyze/review/confirm
-- BYOK
-- Tasks
-- Events
-- Expenses
-- Shopping
-- logout
-
-No search work proceeds until regression tests pass.
+Do not store API result payloads in Zustand.
 
 ---
 
-# STEP C — Premium application shell
+# 9. Migration acceptance gate
 
-## Sidebar
+Before search/vector work:
+- login/register/session works
+- auth callback works
+- protected routes work
+- Notes CRUD works
+- AI analyze/review/confirm works
+- BYOK works
+- trial entitlement works
+- onboarding state works
+- Tasks work
+- Events work
+- Shopping works
+- Transactions work
+- balance/finance summary agrees with Django
+- manual add works
+- settings/preferences work
+- logout works
+- user isolation remains intact
 
-Top-level navigation:
+No search work proceeds until this gate passes.
+
+---
+
+# 10. Application shell
+
+Desktop:
 
 ```text
-Dashboard
-Search
-Your Space
-Places
-Settings
-
-----------------
-Logout
+┌────────────────┬─────────────────────────────────────┐
+│ Dashboard   ▾  │ Top bar / Universal Search         │
+│  Overview      ├─────────────────────────────────────┤
+│  Tasks         │                                     │
+│  Events        │ page content                        │
+│  Shopping      │                                     │
+│  Transactions  │                                     │
+│  Study         │                                     │
+│                │                                     │
+│ Search         │                                     │
+│ Places         │                                     │
+│ Settings       │                                     │
+│                │                                     │
+│ Logout         │                                     │
+└────────────────┴─────────────────────────────────────┘
 ```
 
-### Expanded
-- icon + label
-- active route indicator
-- collapse control
-
-### Collapsed
-- icons only
-- tooltips
-- expand control
-- no label jitter
-
-Requirements:
-- smooth width transition
-- icon anchors remain stable
-- labels fade/slide rather than compress
-- active indicator animates between items
-- desktop state may persist as a UI preference
-- mobile uses drawer navigation
-- Escape closes mobile drawer
-- keyboard accessible
-
-## Your Space
-
-Cards:
-- Tasks
-- Events
-- Shopping
-- Expenses
-- Study
-
-`Study` is a UI view over the Education domain, not a new NoteItem type.
-
-Do not add another top-level category without approval.
-
-Each compact card shows:
-- icon
-- title
-- count
-- 3–5 preview rows
-- lightweight date/status metadata
-- View all affordance
-
-Click:
-- originating card compresses subtly
-- backdrop dims/blurs
-- card expands into modal/sheet
-- full list appears
-- X closes
-- Escape closes
-- backdrop click closes when safe
-- focus is trapped and restored
-- mobile uses near-full-screen sheet
-
-Default list ordering inside expanded Space:
-- time-added order unless the category has a more useful explicit product order
+Collapsed:
+- top-level icons only;
+- Dashboard icon opens compact child popover or expandable flyout;
+- all icons have tooltips;
+- labels must not compress/jitter;
+- active indicator remains clear;
+- mobile uses drawer navigation.
 
 ---
 
-# STEP D — Embedding foundation
+# 11. Dashboard Categorized Summary
 
-Use the implemented DB plan.
+Preserve Part 3.5 categories:
 
-If `note_embeddings` already exists, use it.
+```text
+Tasks
+Events
+Shopping
+Transactions
+Study
+```
 
-If only designed but not created, implement it now without duplicating models.
+Compact cards may:
+- show count
+- show 3–5 rows
+- offer Add
+- offer View all
+- expand to modal/sheet if desired
 
-Initial model:
+Do not rename this system back to `Your Space`.
+
+---
+
+# 12. Embedding foundation
+
+Enable/use pgvector now.
+
+Model:
 
 ```text
 sentence-transformers/all-MiniLM-L6-v2
@@ -367,45 +414,88 @@ Dimension:
 384
 ```
 
-Prefer one current embedding per confirmed NoteItem.
+One current embedding per confirmed searchable NoteItem in V1.
 
 Lifecycle:
-- confirmed item -> embedding exists
-- meaningful searchable field change -> re-embed
-- domain/searchable metadata change -> re-embed if canonical text changes
-- deletion -> cascade/delete embedding
-- archived/cancelled/unconfirmed -> excluded by retrieval policy
-- idempotent rebuild command
-
-Use `content_hash` / source versioning from the DB design.
+- confirmed searchable item -> embedding exists
+- meaningful source change -> regenerate
+- source deletion -> cascade/delete
+- unconfirmed/cancelled/archived excluded
+- content hash/version prevents unnecessary recompute
+- rebuild command idempotent
 
 Do not embed:
 - passwords
 - JWTs
 - API keys
-- admin logs
+- admin audit content
 - provider logs
-- live GPS coordinates
-- precise private coordinates
+- live GPS
+- exact saved-place coordinates
 
 ---
 
-# STEP E — Deterministic query parser
+# 13. Search content model
 
-Create:
+Search may return more than one result kind.
+
+Canonical result types:
 
 ```text
-search/services/query_parser.py
+NOTE_ITEM
+TRANSACTION
 ```
 
-No model classifier.
+NoteItem search:
+- title
+- summary
+- normalized text
+- source Note excerpt where safe
+- Domains
+- dates/status/type
 
-Return a safe parsed structure such as:
+Transaction search:
+- label
+- direction
+- amount
+- currency
+- transaction_at
+- primary Domain
+- source NoteItem/Note when present
+
+Manual Transactions may have no source Note.
+
+Do not treat old `NoteItem.amount` as financial truth.
+
+---
+
+# 14. Deterministic query parser
+
+Create modular services.
+
+Suggested:
+
+```text
+search/services/parsing/
+  query_parser.py
+  money_parser.py
+  date_parser.py
+  type_parser.py
+  status_parser.py
+  domain_parser.py
+  aggregation_parser.py
+  phrase_parser.py
+```
+
+Return a typed structure.
+
+Concept:
 
 ```json
 {
-  "explicit_type": "EXPENSE",
-  "domains": ["shopping"],
+  "result_scope": ["TRANSACTION"],
+  "direction": "DEBIT",
+  "domains": [],
   "status": null,
   "date_range": null,
   "amount_filter": null,
@@ -418,436 +508,170 @@ Return a safe parsed structure such as:
 }
 ```
 
-## Heavy regex / lexical parsing
+No model-based intent classifier.
 
-### Money
-
-Recognize examples like:
-
-```text
-৳500
-500 taka
-500 tk
-USD 20
-$20
-20 dollars
-```
-
-Support:
-- exact amount
-- ranges
-- over/under
-- >= / <= concepts
-- currency
-
-### Comparison / ordering
-
-```text
-most
-highest
-largest
-biggest
-least
-lowest
-cheapest
-latest
-earliest
-newest
-oldest
-```
-
-Map only when the target field is clear.
-
-### Aggregation
-
-```text
-total
-sum
-how much
-average
-avg
-count
-how many
-most expensive
-largest expense
-```
-
-### Dates / time
-
-Detect cues:
-
-```text
-today
-tomorrow
-yesterday
-this week
-last week
-next week
-this month
-last month
-September 23
-2026-09-23
-Friday
-next Friday
-10:30 PM
-```
-
-Regex detects cues; deterministic date utilities resolve them in the user's timezone.
-
-### Type cues
-
-Examples:
-
-```text
-task
-todo
-deadline
-assignment
-event
-meeting
-class
-quiz
-exam
-expense
-spent
-bought
-cost
-shopping
-buy
-information
-note
-```
-
-### Status cues
-
-```text
-unfinished
-pending
-completed
-done
-cancelled
-overdue
-```
-
-### Domain cues
-
-Examples:
-
-```text
-study / university / academic -> Education
-shopping / grocery -> Shopping
-money / finance -> Finance
-work / office -> Work
-health -> Health
-travel -> Travel
-```
-
-Do not create new Domains from synonyms.
-
-### Quoted phrases
-
-```text
-"machine learning"
-"Agora"
-```
-
-Quoted phrases strongly boost lexical matching.
+Do not call Groq merely to decide how to route the query.
 
 ---
 
-# Hard filters vs soft hints
+# 15. Hard filters vs soft hints
 
-Use a hard filter only when explicitly safe.
+Use hard filters only when explicit.
 
-Example:
+Safe:
 
 ```text
 expenses over 1000 taka
 ```
 
-may safely apply:
+May become:
 
 ```text
-item_type = EXPENSE
+Transaction.direction = DEBIT
 amount > 1000
+currency = BDT
 ```
 
-But:
+Unsafe/ambiguous:
 
 ```text
-university things I need to worry about
+university things I should worry about
 ```
 
-should usually use Education / Task cues as boosts, not aggressive hard filters.
+Use broad retrieval + Education/Task boosts rather than hiding evidence.
 
-When uncertain:
+Rule:
 
-> retrieve broadly and rank rather than hide potentially relevant evidence.
+> when uncertain, rank broadly rather than over-filter.
 
 ---
 
-# STEP F — Structured queries + PostgreSQL full-text search
+# 16. Finance query semantics
 
-## Deterministic analytical queries
+After Part 3.5:
+
+```text
+expense/spent/bought -> DEBIT Transaction
+income/salary/received -> CREDIT Transaction
+```
 
 Examples:
 
 ```text
-where did I spend the most money?
-→ confirmed EXPENSE
-→ ORDER BY amount DESC
+where did I spend the most?
+  -> DEBIT
+  -> MAX(amount)
 
-how much did I spend last month?
-→ SUM(amount)
-→ last-month date range
+how much did I spend this month?
+  -> DEBIT
+  -> SUM(amount)
+  -> user-timezone month
 
-how many unfinished tasks?
-→ COUNT
-→ TASK + PENDING
+income last month
+  -> CREDIT
+  -> SUM/list
 
-events this week
-→ EVENT + date range
+expenses over 1000 taka
+  -> DEBIT
+  -> amount > 1000
+  -> BDT
 ```
 
-Groq must never perform arithmetic that PostgreSQL can perform exactly.
+All arithmetic is PostgreSQL/Django deterministic.
 
-## Full-text search
+Groq never calculates finance totals.
 
-Use PostgreSQL FTS over appropriate searchable content:
-- title
+---
+
+# 17. PostgreSQL full-text search
+
+Use PostgreSQL FTS over appropriate text:
+- NoteItem title
 - summary
 - normalized text
 - Domain names
-- safe source-note text/excerpt where appropriate
+- bounded source Note text
+- Transaction label
+- Transaction primary Domain text where useful
 
-User ownership must exist in the DB query itself.
+Owner scope must exist in SQL/ORM before exposure.
 
-Do not scan all note strings in Python.
+Do not load all user strings into Python for scanning.
 
 ---
 
-# STEP G — Hybrid retrieval + relevance
+# 18. Vector retrieval
+
+Vector candidates must be scoped to the current AppUser in the DB query.
+
+Never:
+
+```text
+global nearest neighbors
+  -> Python owner filter
+```
+
+Do:
+
+```text
+embedding
+  JOIN note_item
+  JOIN note
+WHERE note.app_user_id = current_app_user.id
+```
+
+Exact vector search is acceptable initially.
+
+Only add HNSW after measuring need.
+
+---
+
+# 19. Hybrid ranking
 
 Sources:
-1. pgvector semantic ranking
-2. PostgreSQL lexical ranking
-3. metadata/query-hint matches
+1. vector rank
+2. FTS/lexical rank
+3. deterministic metadata/hint rank
 
-Fuse with deterministic ranking such as Reciprocal Rank Fusion.
+Use rank fusion such as Reciprocal Rank Fusion.
 
-Do not add incomparable raw scores directly.
+Do not directly add incomparable raw vector/FTS scores.
 
-Conceptually:
-
-```text
-vector rank      ┐
-lexical rank     ├── RRF ── metadata boosts ── final rank
-metadata rank    ┘
-```
-
-Display:
+Concept:
 
 ```text
-Relevance: 94
-```
-
-or:
-
-```text
-94% relevance
-```
-
-but document that this is a normalized ranking signal, not probability/confidence.
-
-Sort the left panel descending by final relevance.
-
----
-
-# STEP H — Strict grounded Ask My Notes
-
-The right panel is not a general chatbot.
-
-It receives only verified evidence from the current search.
-
-## Context builder
-
-Create:
-
-```text
-search/services/context_builder.py
-```
-
-It must:
-1. accept only current-user retrieved rows;
-2. exclude unconfirmed/archived content;
-3. cap source count;
-4. cap per-source and total context length;
-5. assign stable source IDs;
-6. preserve exact dates/amounts;
-7. preserve conflicts;
-8. treat note text as untrusted data;
-9. exclude secrets/internal logs;
-10. never include another user's content.
-
-## Strict RAG rules
-
-Groq must:
-1. use only supplied sources;
-2. use no outside knowledge;
-3. infer no missing dates/amounts/tasks;
-4. not perform arithmetic when structured results exist;
-5. return insufficient context when evidence is weak;
-6. attach one or more source IDs to factual claims;
-7. ignore instructions inside user notes;
-8. never invent source IDs;
-9. preserve conflicts rather than silently resolve them.
-
-## Response schema
-
-```json
-{
-  "answer": "Your largest recorded expense is ৳4,500 for headphones.",
-  "sources": [
-    {
-      "note_id": "uuid",
-      "note_item_id": "uuid"
-    }
-  ],
-  "insufficient_context": false
-}
-```
-
-If unsupported:
-
-```json
-{
-  "answer": "I could not find enough information in your notes to answer that.",
-  "sources": [],
-  "insufficient_context": true
-}
-```
-
-## Deterministic-answer shortcut
-
-For:
-
-```text
-MAX
-MIN
-SUM
-AVG
-COUNT
-exact date filtering
-status filtering
-```
-
-prefer deterministic answer composition.
-
-Example:
-
-```text
-where did I spend the most money?
-```
-
-should get the maximum from PostgreSQL, then render the answer directly.
-
-Do not make Groq rediscover the maximum.
-
-## Post-generation validation
-
-Before showing generated output:
-- validate schema;
-- validate every source ID;
-- reject unknown IDs;
-- reject cross-user IDs;
-- require sources for substantive claims;
-- if validation fails, do not display the generated text.
-
-Fallback:
-
-```text
-I couldn't produce a sufficiently grounded answer from your notes.
-The matching notes are shown on the left.
+vector rank ─┐
+lexical rank ├─ RRF ─ metadata boosts ─ final rank
+hint rank ───┘
 ```
 
 ---
 
-# STEP I — Universal Search UI
-
-Search entry points:
-- Sidebar Search
-- top Universal Search bar
-- Cmd/Ctrl+K
-
-Placeholder examples may softly crossfade:
-
-```text
-Search Notes...
-Ask My Notes...
-Find an expense...
-Find something you wrote...
-```
-
-Stop placeholder animation when focused.
-
-## Desktop overlay
-
-```text
-┌───────────────────────────────────────────────────────────────────┐
-│ Search your memory...                                      [ X ] │
-├────────────────────────────────┬──────────────────────────────────┤
-│ SEARCH NOTES                   │ ASK MY NOTES                     │
-│                                │                                  │
-│ ranked note/source cards       │ grounded answer                  │
-│                                │                                  │
-│ Note A               94 Rel.   │ Sources: Note A, Note B          │
-│ Note B               86 Rel.   │                                  │
-│ Note C               71 Rel.   │                                  │
-└────────────────────────────────┴──────────────────────────────────┘
-```
-
-## Mobile
+# 20. Relevance presentation
 
 Use:
-- single overlay
-- shared search input
-- tabs:
-  - Search Notes
-  - Ask My Notes
 
-Do not squeeze desktop split view onto mobile.
+```text
+Relevance 94
+```
 
-## Search result card
+or qualitative labels if desired.
 
-Show:
-- title
-- excerpt
-- type
-- domains
-- useful date
-- amount if Expense
-- exact-match highlight where useful
-- relevance bottom-right
-- click to open source note
+Do not call it:
+- confidence
+- probability
+- 94% correct
 
-## Right panel
+Unless a calibration model is explicitly implemented and evaluated, `%` should
+not imply probability.
 
-Not a chat transcript.
-
-Render:
-- concise answer
-- grounded/source state
-- source chips/cards
-- insufficient-context state
-- provider-error state
-
-If Groq fails, left Search Notes remains fully usable.
+Document how the UI normalization works.
 
 ---
 
-# Unified API
+# 21. Search API split — mandatory
 
-Prefer:
+## Retrieval endpoint
 
 ```text
 POST /api/v1/search/
@@ -861,227 +685,456 @@ Input:
 }
 ```
 
-Response concept:
+Responsibilities:
+- current AppUser resolution
+- input validation
+- deterministic parser
+- structured query or hybrid retrieval
+- ranked results
+- deterministic answer if applicable
+- no Groq required for left-panel usefulness
+
+Example:
 
 ```json
 {
   "query": "...",
   "mode": "structured_analytics",
-  "parsed_hints": {
-    "type": "EXPENSE",
-    "aggregation": "MAX"
-  },
-  "results": [
-    {
-      "note_id": "uuid",
-      "note_item_id": "uuid",
-      "title": "Headphones",
-      "excerpt": "Bought headphones...",
-      "item_type": "EXPENSE",
-      "domains": ["Shopping", "Finance"],
-      "amount": "4500.0000",
-      "currency": "BDT",
-      "relevance": 100
-    }
-  ],
+  "results": [],
   "answer": {
-    "text": "Your largest recorded expense is ৳4,500 for headphones.",
-    "sources": ["note-item-uuid"],
-    "insufficient_context": false,
-    "generated": false
+    "text": "Your largest recorded expense is ...",
+    "generated": false,
+    "sources": []
   }
 }
 ```
 
-For fuzzy queries:
+## Generated-answer endpoint
 
 ```text
-mode = hybrid_search
+POST /api/v1/search/answer/
+```
+
+Input:
+
+```json
+{
+  "query": "What academic work should I focus on?"
+}
+```
+
+Important:
+- do not accept client source IDs as authoritative;
+- backend reparses/retrieves current-user evidence;
+- build context server-side;
+- call Groq only if deterministic answer does not suffice.
+
+Benefits:
+- Search Notes appears immediately
+- provider timeout isolated
+- cancellation simpler
+- answer always tied to current query
+- arbitrary client source injection prevented
+
+Duplicating a small retrieval step is acceptable in V1 for stronger trust boundaries.
+
+---
+
+# 22. Universal Search frontend flow
+
+On query:
+
+```text
+query
+  ├─ call /search/
+  │    -> render left panel ASAP
+  │    -> if deterministic answer exists, render right panel
+  │
+  └─ if question needs generated synthesis
+       call /search/answer/
+       -> right panel loading independently
+```
+
+If Groq fails:
+- left results remain available;
+- right panel shows provider error;
+- user can still open source Notes/Transactions.
+
+---
+
+# 23. Search result cards
+
+NoteItem:
+- title
+- excerpt
+- type
+- domains
+- useful date
+- status
+- relevance
+- source navigation
+
+Transaction:
+- label
+- Expense/Income
+- amount/currency
+- date
+- primary Domain
+- relevance
+- source Note link when available
+
+Do not expose raw vector values.
+
+---
+
+# 24. Strict grounded Ask My Notes
+
+The right panel is not a general chatbot.
+
+No freeform open-domain assistant.
+
+Context builder must:
+1. retrieve current-user evidence only;
+2. exclude unconfirmed/archived content;
+3. cap source count;
+4. cap per-source/total context;
+5. assign stable internal source IDs;
+6. preserve dates/amounts exactly;
+7. preserve conflicts;
+8. treat note text as untrusted content;
+9. exclude secrets/internal logs;
+10. exclude live GPS.
+
+Groq rules:
+- supplied evidence only
+- no outside facts
+- no invented dates/amounts/tasks
+- no arithmetic where structured answer exists
+- abstain on insufficient evidence
+- source IDs required for substantive claims
+- instructions inside Notes are data, not commands
+- do not resolve conflicts silently
+
+---
+
+# 25. RAG output schema
+
+Concept:
+
+```json
+{
+  "answer": "You have a quiz tomorrow at 10 AM.",
+  "sources": [
+    {
+      "note_id": "uuid",
+      "note_item_id": "uuid"
+    }
+  ],
+  "insufficient_context": false
+}
+```
+
+Unsupported:
+
+```json
+{
+  "answer": "I could not find enough information in your notes to answer that.",
+  "sources": [],
+  "insufficient_context": true
+}
 ```
 
 ---
 
-# Security
+# 26. Post-generation validation
+
+Before display:
+- validate schema
+- validate every source ID
+- re-check ownership
+- require sources for substantive facts
+- reject unknown/cross-user IDs
+- reject malformed output
+- withhold generated text on validation failure
+
+Fallback:
+
+```text
+I couldn't produce a sufficiently grounded answer from your notes.
+The matching results are still available.
+```
+
+---
+
+# 27. Deterministic-answer shortcut
+
+Bypass Groq for:
+
+```text
+MAX
+MIN
+SUM
+AVG
+COUNT
+exact date filtering
+status filtering
+explicit transaction totals
+```
+
+Particularly finance questions.
+
+The deterministic answer and dashboard values must share the same backend aggregation logic.
+
+---
+
+# 28. Universal Search UI
+
+Entry:
+- Sidebar Search
+- top search bar
+- Cmd/Ctrl+K
+
+Desktop:
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ Search your memory...                                  [X] │
+├────────────────────────────┬────────────────────────────────┤
+│ SEARCH                     │ ASK MY NOTES                   │
+│                            │                                │
+│ ranked evidence            │ deterministic/grounded answer  │
+│                            │                                │
+└────────────────────────────┴────────────────────────────────┘
+```
+
+Mobile:
+- one overlay
+- one input
+- tabs: Search / Ask
+
+Do not squeeze desktop split into mobile.
+
+---
+
+# 29. Search motion/UX
+
+Use the reconciled motion guide.
+
+Good:
+- short overlay fade/scale
+- compact result stagger
+- tactile cards
+- independent skeletons
+- left results render before RAG completes
+
+Avoid:
+- animated backgrounds
+- long typewriter placeholders
+- delayed result reveal
+- scroll-jacking
+
+---
+
+# 30. Search security
 
 Mandatory:
-- resolve current AppUser before retrieval;
-- scope every candidate DB query to that user;
-- never globally retrieve then filter in Python;
-- revalidate returned sources;
-- no raw embedding arrays;
-- no API keys in context;
-- no admin artifacts in search;
-- no cross-user search cache;
-- input length limits;
-- regex complexity safety;
-- no persistent raw search telemetry unless explicitly designed later.
+- current AppUser resolved first
+- owner-scoped DB retrieval
+- no global vector candidate pool
+- no cross-user cache
+- query length limit
+- regex complexity safety
+- no secrets in context
+- no raw vectors in API
+- no admin artifacts
+- no live GPS
+- no persistent raw query telemetry unless later explicitly approved
 
 ---
 
-# Testing
+# 31. Search cancellation/concurrency
 
-## Next.js regression
-Verify all Parts 1–3 functionality.
+Frontend:
+- cancel/ignore stale `/search/` responses
+- cancel/ignore stale `/search/answer/` responses
+- right-panel answer must belong to current query
+- closing overlay aborts active requests where possible
 
-## Regex/query parser
-Test:
-- BDT/Tk/৳
-- USD/$
-- amount comparisons
-- MAX/MIN/SUM/AVG/COUNT
-- date ranges
-- relative dates
-- explicit types
-- domains
-- statuses
-- quoted phrases
-- ambiguity
-- malformed input
-- Unicode
-- very long input
-- regex DoS resistance
+Backend:
+- provider timeout
+- bounded top-K/context
+- no duplicate provider calls from rerender
 
-## Structured query correctness
-Examples:
+---
 
-```text
-where did I spend most?
-how much did I spend this month?
-expenses over 1000 taka
-unfinished tasks
-events next week
-```
-
-Expected structured answers must match deterministic fixture values exactly.
-
-## Retrieval evaluation
+# 32. Retrieval evaluation
 
 Compare:
-- vector-only
-- lexical-only
-- hybrid
+
+```text
+vector-only
+lexical-only
+hybrid
+```
 
 Metrics:
 - Recall@K
 - MRR
 - Precision@K
-- nDCG@K if graded labels exist
+- nDCG@K where graded labels exist
+- latency
+- no-result rate
 
-## Strict RAG
+Do not claim hybrid wins without measurement.
+
+---
+
+# 33. Parser tests
+
+Cover:
+- BDT/Tk/৳
+- USD/$
+- comparisons
+- MAX/MIN/SUM/AVG/COUNT
+- transaction direction
+- dates
+- relative dates
+- statuses
+- Domains
+- quoted phrases
+- ambiguity
+- Unicode
+- malformed/long input
+- regex DoS resistance
+
+Timezone-sensitive finance/date queries use AppUser timezone.
+
+---
+
+# 34. RAG tests
+
 Required:
-- uses only retrieved context
-- all factual answers have valid sources
-- missing evidence abstains
+- current-user sources only
+- source IDs valid
+- unsupported evidence abstains
 - note prompt injection fails
-- invalid source IDs rejected
-- cross-user source IDs rejected
-- conflicts represented
-- deterministic numeric queries bypass Groq
-- malformed provider output falls back safely
-- provider outage leaves Search Notes working
+- conflicts preserved
+- malformed provider output withheld
+- deterministic queries bypass Groq
+- provider outage leaves search results usable
+- transaction values preserved exactly
+- no cross-user source leakage
 
-## Search UI
+---
+
+# 35. Next.js UI tests
+
 Test:
-- Sidebar opens search
-- top bar opens search
-- Cmd/Ctrl+K
-- Escape closes
-- focus trap / restore
-- desktop split view
-- mobile tabs
-- loading
-- empty
-- error
-- relevance order
-- source-note click
-- right answer source validation
-- insufficient-context state
-- stale request cancellation
+- sidebar collapse/expand
+- Dashboard group
+- mobile drawer
+- transactions route
+- onboarding migrated correctly
+- Search shortcut
+- Search overlay
+- result ranking
+- answer loading/error/abstention
+- modal focus
+- reduced motion
+- no hydration errors
 
-## Your Space
-Test:
-- approved cards
-- previews
-- expansion
-- X
-- Escape
-- backdrop close
-- focus restore
-- mobile sheet
-- reduced-motion branch
+---
 
-## Playwright
+# 36. Playwright gate
+
 At least:
 1. login
-2. universal search
-3. fuzzy semantic query
-4. verify ordered left results
-5. verify grounded right answer
-6. analytical expense query
-7. verify deterministic answer/order
-8. open Your Space
-9. expand Tasks
-10. close modal
-11. collapse/expand sidebar
-12. logout
-
-No browser console/hydration errors.
+2. Notes CRUD
+3. Transaction list/summary
+4. manual Transaction
+5. universal search
+6. fuzzy query
+7. ordered results
+8. grounded answer
+9. deterministic finance query
+10. verify same finance value as Transactions summary
+11. Dashboard group navigation
+12. sidebar collapse/expand
+13. logout
 
 ---
 
-# Acceptance criteria
+# 37. Explicitly forbidden in Part 4
+
+Do not implement:
+- model-based intent classifier
+- agents/tool orchestration
+- maps/geolocation
+- reminder scheduling
+- background GPS
+- final What Matters Now
+- Daily Briefing
+- Part 5 nearby alerts
+- bank integrations
+- unrelated V2 features
+
+---
+
+# 38. Acceptance criteria
 
 Part 4 is complete only when:
-1. Next.js App Router is the active frontend.
-2. TypeScript build passes.
-3. Parts 1–3 regressions pass.
-4. Sidebar collapse/expand works.
-5. mobile navigation works.
-6. Your Space shell works.
-7. Universal Search opens globally.
-8. no model intent classifier exists.
-9. regex/query parser is deterministic and tested.
-10. pgvector search works.
-11. PostgreSQL FTS works.
-12. structured SQL analytics work.
-13. hybrid ranking is evaluated.
-14. left panel is relevance-ranked.
-15. relevance is not described as confidence.
-16. deterministic answer composition is used when possible.
-17. RAG uses only verified retrieved context.
-18. every generated factual answer has validated sources.
-19. insufficient evidence produces abstention.
-20. prompt injection from notes cannot control RAG.
-21. search/RAG are strictly user-scoped.
-22. provider failure does not break Search Notes.
-23. unit/integration/E2E tests pass.
-24. no Part 5/6 feature was implemented early.
+
+1. Next.js is the active frontend.
+2. TypeScript/build passes.
+3. Parts 1–3.5 behavior survives migration.
+4. final Dashboard/Transactions navigation is preserved.
+5. no top-level Your Space exists.
+6. authenticated Django data uses a clear client-session boundary.
+7. pgvector works.
+8. PostgreSQL FTS works.
+9. parser is deterministic/modular.
+10. finance queries use Transactions.
+11. structured analytics are exact.
+12. hybrid ranking is measured.
+13. relevance is not presented as confidence.
+14. `/search/` works without Groq.
+15. `/search/answer/` is independently failure-isolated.
+16. deterministic answers bypass Groq.
+17. strict RAG uses verified current-user evidence only.
+18. generated source IDs are validated.
+19. unsupported answers abstain.
+20. provider outage leaves retrieval usable.
+21. stale requests cannot overwrite current query UI.
+22. frontend/backend/E2E tests pass.
+23. no Part 5/6 behavior was implemented early.
 
 ---
 
-# Deliverable before implementation
+# 39. Deliverable before implementation
 
-Provide:
-1. DB/search prerequisite audit
+Before modifying code, provide:
+
+1. Part 3.5 regression inventory
 2. Vite -> Next.js migration map
-3. final Next.js folder tree
-4. server/client component boundary plan
-5. sidebar design
-6. Your Space design
-7. Universal Search design
-8. regex/query parser rule table
-9. structured-query strategy
-10. embedding lifecycle
+3. final route tree
+4. server/client boundary plan
+5. Supabase session migration plan
+6. final navigation design
+7. TanStack Query state plan
+8. embedding lifecycle
+9. parser module design
+10. Transaction-search strategy
 11. PostgreSQL FTS strategy
-12. rank-fusion strategy
-13. relevance presentation rule
-14. strict context-builder design
-15. RAG schema
-16. source validation
-17. API contract
-18. full testing matrix
-19. files to create/modify
-20. risks
+12. vector isolation strategy
+13. rank-fusion strategy
+14. relevance presentation rule
+15. `/search/` contract
+16. `/search/answer/` contract
+17. context builder
+18. RAG validation
+19. test/evaluation matrix
+20. files to create/modify
+21. migration/security risks
 
 Then wait for:
 

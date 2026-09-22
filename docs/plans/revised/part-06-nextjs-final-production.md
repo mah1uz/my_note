@@ -1,62 +1,74 @@
-# PART 6 OF 6 — SMART DASHBOARD, SEARCH/RAG EVALUATION, FRONTEND POLISH & DEPLOYMENT
+# PART 6 OF 6 — SMART DASHBOARD, EVALUATION, HARDENING & DEPLOYMENT
 
 ## Project
-AI Context-Aware Note-Taking Web Application
+AI Context-Aware Note-Taking Web Application — My Notes
 
 ## Starting point
 
-Parts 1–5 should now provide:
+Parts 1–5 should provide:
 - Next.js App Router + TypeScript frontend
-- Django/DRF/PostgreSQL backend
+- Django/DRF backend
+- Supabase PostgreSQL
+- Supabase Auth
 - UUID AppUser ownership
-- authentication + user isolation
-- real Notes CRUD
+- raw Notes CRUD
 - Groq structured extraction/review
-- real Tasks / Events / Shopping / Expenses / Study views
-- collapsible premium sidebar
-- Your Space cards/modals
+- session-only BYOK + limited trial entitlement
+- Tasks / Events / Shopping / Transactions / Study
+- authoritative `finance_transactions`
+- profession / priority preferences
+- onboarding
+- final Dashboard navigation
 - Universal Search
-- deterministic regex/query parser
-- structured SQL analytics
-- PostgreSQL full-text search
+- deterministic query parser
+- PostgreSQL FTS
 - pgvector semantic retrieval
 - hybrid ranking
 - strict grounded Ask My Notes
 - Places
 - time/location reminders
-- active browser location mode
+- active-session location mode
 - nearby Shopping aggregation
 
-Part 6 finishes the product for capstone demonstration and production readiness.
+Part 6 finishes the capstone.
+
+Do not add unrelated product scope.
 
 ---
 
-# Goal
+# 1. Final navigation — frozen
 
-Finish:
-- real What Matters Now
-- real Daily AI Briefing
-- useful Expense Dashboard
-- rigorous query-parser/retrieval/RAG evaluation
-- final Next.js motion/UX pass
-- accessibility
-- automated release testing
-- security/privacy review
-- performance/reliability
-- deployment
-- documentation
-- repeatable demo
+Keep:
 
-Do not add unrelated features.
+```text
+Dashboard
+  Overview
+  Tasks
+  Events
+  Shopping
+  Transactions
+  Study
+
+Search
+Places
+Settings
+
+----------------
+Logout
+```
+
+Do not reintroduce:
+- Your Space
+- Expenses as a top-level destination
 
 ---
 
-# Implementation order
+# 2. Implementation order
 
 ### Step A — Full audit / remove mocks
 ### Step B — What Matters Now
-### Step C — Daily AI Briefing
-### Step D — Expense Dashboard
+### Step C — Daily Briefing
+### Step D — Transactions / Finance Dashboard
 ### Step E — Query parser / retrieval / RAG evaluation
 ### Step F — Next.js interaction + accessibility hardening
 ### Step G — Automated release testing
@@ -67,80 +79,169 @@ Do not add unrelated features.
 
 ---
 
-# STEP A — Full audit
+# 3. Step A — full audit
 
 Inspect:
-- leftover Vite artifacts
-- dead routes/components
-- duplicated API clients
+- leftover Vite code/artifacts
+- obsolete `Your Space` routes/components
+- stale `Expenses` routes used as finance source
+- duplicate API clients
 - mock production data
 - hardcoded URLs
 - stale auth code
 - ownership gaps
 - unsafe regex
 - unbounded search input
-- any model-based intent-classifier code — there should be none
+- any model intent classifier
 - RAG paths without source validation
-- location data leaking into search/RAG
+- finance totals still using NoteItem amount
+- location leaking into search/RAG
 - browser console errors
-- Next.js hydration warnings
+- hydration warnings
 - animation jank
 - accessibility gaps
 - committed secrets
 - stale docs
+- old Neon/Vite deployment instructions
+- combined search/RAG endpoints that violate the Part 4 split
 
-Do not broad-refactor merely for aesthetics.
+Do not broad-refactor for aesthetics.
+
+Fix correctness, consistency, security and maintainability first.
 
 ---
 
-# STEP B — What Matters Now
-
-Use deterministic scoring.
+# 4. What Matters Now — deterministic
 
 Candidates:
 - overdue Tasks
 - due-soon Tasks
 - upcoming Events
-- high-importance items
-- nearby Shopping when Location Mode is active
+- explicit high-importance items
+- optionally pending Shopping
 
 Exclude:
 - completed
 - cancelled
 - archived
 
-Example exclusive temporal buckets:
+Base scoring example:
 
 ```text
-overdue              +100
-due <= 1 hour         +80
-due today             +60
-due <= 3 days         +30
-due <= 7 days         +10
-pending                +5
-high importance       +40
+overdue               +100
+due <= 1 hour          +80
+due today              +60
+due <= 3 days          +30
+due <= 7 days          +10
+pending                 +5
+high importance        +40
 ```
 
-Avoid temporal double counting.
+Temporal buckets are exclusive.
 
-Return:
-- item id
-- title
-- type
-- domains
-- score
-- reasons
-- due/start info
-
-Frontend:
-- explainable animated priority cards
-- smooth layout reorder
-- reduced-motion users get stable immediate changes
-- never label the score as mysterious AI confidence
+Do not add all overlapping deadline scores.
 
 ---
 
-# STEP C — Daily AI Briefing
+# 5. Preference boosts
+
+Consume Part 3.5 preferences:
+
+```text
+BALANCED
+STUDY_FIRST
+WORK_FIRST
+```
+
+Example modest boosts:
+
+```text
+Study first:
+Education Task/Event +10
+
+Work first:
+Work Task/Event +10
+```
+
+Exact values should be tested, but profile boosts must not outrank:
+- overdue
+- due within 1 hour
+- explicit HIGH importance
+
+Expose reasons:
+
+```text
+Overdue
+Due today
+High importance
+Study priority preference
+```
+
+No opaque AI score.
+
+---
+
+# 6. Nearby-shopping context
+
+Part 5 keeps live GPS in browser memory.
+
+Canonical split:
+
+```text
+Django
+  -> base What Matters ranking
+
+Browser
+  -> knows nearbyPlaceId when Location Mode ON
+  -> applies small deterministic boost to pending Shopping
+     assigned to that saved Place
+```
+
+Example:
+
+```text
+Nearby saved place +8
+```
+
+Requirements:
+- frontend reason shown
+- no raw coordinates sent
+- boost removed immediately when Location Mode OFF
+- nearby boost never overpowers urgent deadlines
+- reduced-motion users get immediate stable reorder
+
+No location data is needed in the backend priority endpoint.
+
+---
+
+# 7. What Matters endpoint
+
+Approximately:
+
+```text
+GET /api/v1/dashboard/what-matters/
+```
+
+Return base facts:
+
+```text
+item_id
+title
+item_type
+domains
+base_score
+reasons
+due/start info
+importance
+```
+
+Do not return a fake confidence percentage.
+
+Frontend may add the local nearby-shopping reason/boost.
+
+---
+
+# 8. Daily Briefing
 
 Django determines facts first.
 
@@ -149,53 +250,113 @@ Possible facts:
 - overdue Tasks
 - upcoming Events
 - highest-priority items
-- pending Shopping
-- recent Expense summary
+- pending Shopping count
+- current-period finance summary from Transactions
 
 Pipeline:
 
 ```text
-Django structured facts
-    ↓
-compact briefing JSON
-    ↓
+structured Django facts
+   ↓
+bounded briefing payload
+   ↓
 Groq
-    ↓
-concise prose
+   ↓
+concise grounded prose
 ```
 
 Rules:
 - supplied facts only
 - no outside knowledge
-- no invented tasks
-- no motivational filler
-- do not change dates/amounts
+- no invented actions
+- dates/amounts unchanged
 - urgent first
 - concise
+- no motivational filler
 
 If Groq fails:
 - dashboard remains useful
-- optionally use deterministic fallback copy
+- deterministic fallback summary is allowed
 
 Do not send all raw Notes.
 
 ---
 
-# STEP D — Expense Dashboard
+# 9. Transactions / Finance Dashboard
+
+This replaces the old `Expense Dashboard` wording.
+
+Financial source of truth:
+
+```text
+finance_transactions
+```
+
+Never calculate the dashboard from NoteItem amount fields.
+
+Show:
+
+```text
+Current balance
+Income this period
+Expenses this period
+Recent transactions
+Largest debits
+Primary-domain spending
+Transaction count
+```
+
+Filters:
+
+```text
+This week
+This month
+Last month
+Custom range
+Currency
+```
+
+Tabs/segments:
+
+```text
+All
+Expenses
+Income
+```
+
+---
+
+# 10. Finance arithmetic
 
 PostgreSQL/Django performs all arithmetic.
 
-Display:
-- selected month total
-- recent expenses
-- primary-domain totals
-- largest expenses
-- count
-- simple date/month filter
+For one currency:
 
-Use one primary reporting domain so multi-domain expenses are counted once.
+```text
+balance = CREDIT - DEBIT
+```
 
-Cross-check Universal Search queries against the dashboard.
+Period boundaries use `AppUser.timezone`.
+
+Different currencies remain separate.
+
+No silent FX conversion.
+
+Primary-domain totals use `finance_transactions.primary_domain_id`.
+
+Do not double count multi-domain source NoteItems.
+
+---
+
+# 11. Search/dashboard consistency
+
+These must agree:
+
+```text
+Transactions dashboard
+Universal Search structured finance answers
+Daily Briefing finance facts
+```
 
 Examples:
 
@@ -203,52 +364,56 @@ Examples:
 where did I spend the most money?
 how much did I spend last month?
 largest education expense
+income this month
 ```
 
-Search answers and dashboard values must agree.
+All share the same deterministic finance services/query semantics.
+
+Write cross-feature consistency tests.
 
 ---
 
-# STEP E — Query parser / retrieval / RAG evaluation
-
-This is a major capstone requirement.
-
-## 1. Regex/query-parser dataset
+# 12. Query-parser evaluation dataset
 
 Create approximately 100–200 labelled queries.
 
-Include:
-- money expressions
+Cover:
 - BDT/Tk/৳
 - USD/$
+- credit/debit wording
 - over/under
 - MAX/MIN
 - SUM/AVG/COUNT
 - type cues
-- domain cues
+- Domain cues
 - status cues
 - quoted phrases
-- date ranges
+- dates
 - relative dates
-- ambiguous phrasing
+- timezone edges
+- ambiguous wording
 - spelling variation
-- long inputs
 - Unicode
-- adversarial regex inputs
+- long inputs
+- adversarial regex cases
 
-Evaluate:
-- amount/currency parsing accuracy
-- operator extraction accuracy
+Metrics:
+- amount extraction accuracy
+- currency extraction accuracy
+- direction extraction accuracy
+- operator accuracy
 - date-resolution accuracy
 - field precision/recall
 - false-hard-filter rate
-- explicit type/domain/status extraction accuracy
+- type/domain/status extraction accuracy
 
-There is no intent-classifier metric because no classifier model should exist.
+No intent-classifier metric because no classifier exists.
 
-## 2. Retrieval benchmark
+---
 
-Create labelled query/relevant-item pairs.
+# 13. Retrieval benchmark
+
+Create labelled query/relevant-result pairs.
 
 Compare:
 
@@ -262,29 +427,43 @@ Metrics:
 - Recall@K
 - MRR
 - Precision@K
-- nDCG@K if graded labels exist
+- nDCG@K if graded
 - latency
 - no-result rate
 
-Do not claim hybrid is best without measuring it.
+Do not claim hybrid is superior without measured results.
 
-## 3. Structured analytics evaluation
+Include:
+- NoteItem queries
+- Transaction-label queries
+- mixed source queries
+- quoted exact phrases
+- semantic paraphrases
+
+---
+
+# 14. Structured analytics evaluation
 
 Queries such as:
 
 ```text
 largest expense
-total this month
-average expense
+total spent this month
+income last month
+average debit
 unfinished task count
 events next week
 ```
 
-must match deterministic fixture answers exactly.
+must match deterministic fixtures exactly.
 
-## 4. Strict RAG evaluation
+Groq must not participate in expected arithmetic.
 
-Evaluate:
+---
+
+# 15. Strict RAG evaluation
+
+Measure:
 - source relevance
 - source-ID validity
 - citation/source coverage
@@ -293,282 +472,472 @@ Evaluate:
 - prompt-injection resistance
 - conflict handling
 - deterministic-answer bypass
+- cross-user leakage
 
 Release targets:
 
 ```text
 cross-user source leakage = 0
-invalid source IDs displayed = 0
-known unsupported factual claims in labelled test set = 0
+invalid displayed source IDs = 0
+known unsupported factual claims in labelled suite = 0
 ```
 
-If generation cannot be validated, show abstention.
+When validation fails, withhold generated text.
 
 ---
 
-# STEP F — Next.js frontend experience hardening
+# 16. Part 4 API split audit
 
-Use the updated `fluid-interactive-website-prompt.md` as the frontend interaction source of truth.
+Verify production uses:
 
-## Sidebar
+```text
+POST /api/v1/search/
+POST /api/v1/search/answer/
+```
+
+`/search/`:
+- deterministic parser
+- structured query/hybrid retrieval
+- deterministic answers
+- no Groq dependency
+
+`/search/answer/`:
+- backend re-retrieves evidence
+- strict context
+- Groq only when needed
+
+Do not regress to one slow endpoint where provider failure blocks search results.
+
+---
+
+# 17. Relevance honesty
+
+Review UI labels.
+
+Allowed:
+
+```text
+Relevance 94
+Highly relevant
+```
+
+Avoid:
+
+```text
+94% confidence
+94% correct
+```
+
+unless a calibrated probability model exists.
+
+Document normalization.
+
+---
+
+# 18. Next.js experience hardening
+
+Use the reconciled motion guide.
+
+Target:
+- fast
+- fluid
+- tactile
+- calm
+- immediately usable
+
+Focus on:
+- sidebar collapse/expand
+- Dashboard group
+- Universal Search
+- category cards/sheets
+- Transaction interactions
+- task completion
+- forms
+- loading states
+- route transitions
+
+Do not rely on:
+- particles
+- cursor trails
+- WebGL decoration
+- moving backgrounds
+- scroll-jacking
+- long loaders
+
+---
+
+# 19. Sidebar hardening
 
 Verify:
-- smooth collapse/expand
 - no label jitter
-- active indicator
-- tooltips in collapsed state
+- Dashboard child routes
+- active state
+- collapsed tooltips
 - mobile drawer
 - keyboard navigation
 - harmless persisted UI preference
-- logout clearly separated
+- logout visually separated
 
-## Your Space
+Dashboard collapsed behavior:
+- icon may open child popover/flyout
+- accessible keyboard support
+- no hidden unreachable child routes
+
+---
+
+# 20. Category experience
+
+Dashboard categories:
+
+```text
+Tasks
+Events
+Shopping
+Transactions
+Study
+```
 
 Verify:
-- responsive card grid
-- useful compact previews
-- card-to-modal transition
-- X/Escape/backdrop close
-- focus trap
+- responsive summaries
+- useful previews
+- Add
+- View all
+- modal/sheet or route transitions
+- focus trap where dialog used
+- Escape
+- backdrop behavior
 - focus restore
-- scroll lock
-- mobile full-screen sheet
-- large list pagination/virtualization only if actually needed
+- mobile full-screen sheet where appropriate
 
-## Universal Search
+No `Your Space` naming in production UI/docs.
+
+---
+
+# 21. Universal Search hardening
 
 Verify:
-- available globally
+- global entry
 - Cmd/Ctrl+K
-- desktop split layout
+- desktop split
 - mobile tabs
-- correct relevance placement
+- current-query request ownership
+- cancellation
+- provider outage isolation
 - source navigation
-- stale request cancellation
-- provider outage leaves left Search Notes usable
-- right answer always belongs to current query
+- Transaction results
+- abstention
+- deterministic finance answers
+- left results available before Groq
 
-## Motion quality
+---
 
-Target:
-- expressive
-- tactile
-- premium
-- animation-forward
-- immediately usable
+# 22. Reduced motion
 
-Use:
-- shared motion tokens
-- layout animation
-- spring transitions
-- blur/opacity/scale overlays
-- restrained stagger
-- polished skeletons
-- tactile press feedback
+Mandatory.
 
-Do not use:
-- particle systems
-- cursor trails
-- WebGL decoration
-- scroll-jacking
-- long cinematic loaders
-- constant animated backgrounds
-
-## Reduced motion
-
-Everything must remain usable under:
+Under:
 
 ```text
 prefers-reduced-motion: reduce
 ```
 
+reduce/disable:
+- Lenis
+- stagger
+- spring travel
+- large transforms
+- shared-layout zoom
+- animated counters
+
+Keep:
+- visible focus
+- essential state transition
+- immediate content
+
+No functionality depends on animation.
+
 ---
 
-# STEP G — Automated release testing
+# 23. Accessibility audit
 
-## Frontend
+Keyboard:
+- sidebar
+- Dashboard children
+- search shortcut
+- result navigation
+- dialogs/sheets
+- source links
+- forms
+- onboarding replay
+- transaction forms
+- place/reminder controls
 
-Use the Next.js-compatible test setup.
+Verify:
+- semantic buttons/links
+- labels
+- focus visibility
+- dialog semantics
+- focus trap
+- focus restore
+- screen-reader status for loading/error/success
+- no color-only finance meaning
 
-Expected:
+---
+
+# 24. Automated frontend release tests
+
+Use:
 - Vitest
 - React Testing Library
 - user-event
 - jest-dom
 - Playwright
 
-Test:
-- auth/protected routes
+Cover:
+- Supabase auth UI/session
+- protected routes
 - Notes CRUD
-- AI Review
-- BYOK
-- Sidebar
-- Your Space
-- Universal Search
-- Search Notes
-- Ask My Notes
-- stale request cancellation
+- AI review
+- BYOK/trial
+- onboarding
+- Dashboard navigation
+- Transactions
+- finance summary
+- sidebar
+- Search
+- grounded answer
+- stale requests
 - Places
 - Reminders
-- location errors
-- What Matters Now
-- Daily Briefing
-- Expense Dashboard
+- Location errors
+- What Matters
+- Briefing
+- reduced motion
 - loading/error/empty states
-
-## Backend
-
-Use Django TestCase/APITestCase.
-
-Test:
-- ownership
-- UUID lookup behavior
-- auth identity mapping
-- Notes/NoteItems
-- AI structured validation
-- regex parser
-- structured search
-- FTS
-- embedding lifecycle
-- vector user isolation
-- hybrid retrieval
-- RAG context/source validation
-- Place/Reminder isolation
-- Expense aggregates
-- priority scoring
-- briefing preparation
-
-Mock Groq in routine tests.
-
-## Critical Playwright journeys
-
-At least:
-1. auth
-2. Quick Capture
-3. AI review/confirm
-4. multi-item Note
-5. Your Space updates
-6. semantic/hybrid search
-7. grounded answer
-8. structured expense query
-9. open/close Space modal
-10. sidebar collapse/expand
-11. Place + reminder
-12. mocked location entry
-13. What Matters Now
-14. Daily Briefing
-15. logout
-
-Run representative desktop and mobile viewports.
-
-No browser console or hydration errors.
 
 ---
 
-# STEP H — Security / privacy
+# 25. Backend release tests
+
+Use Django TestCase/APITestCase.
+
+Cover:
+- auth identity mapping
+- ownership
+- Notes/NoteItems
+- Transaction constraints
+- finance aggregation
+- timezone period boundaries
+- UserPreferences
+- trial entitlement
+- AI validation
+- query parser modules
+- structured search
+- FTS
+- embeddings
+- vector isolation
+- hybrid retrieval
+- RAG context/source validation
+- Place/Reminder isolation
+- priority base scoring
+- briefing payload preparation
+
+Mock Groq in routine tests.
+
+---
+
+# 26. Critical Playwright journeys
+
+At least:
+
+1. register/login
+2. onboarding
+3. Quick Capture
+4. AI review/confirm
+5. multi-item Note
+6. DEBIT Transaction confirmation
+7. CREDIT Transaction confirmation
+8. Dashboard Transactions update
+9. semantic/hybrid search
+10. grounded answer
+11. structured finance query
+12. verify query value equals finance dashboard value
+13. sidebar collapse/expand
+14. Place creation
+15. reminder creation
+16. mocked location entry
+17. nearby Shopping alert
+18. What Matters
+19. Daily Briefing
+20. Settings preference change
+21. logout
+
+Desktop + mobile representative viewports.
+
+No console/hydration errors.
+
+---
+
+# 27. Security / privacy review
 
 ## Secrets
-- Django secret env-only
-- DB URL env-only
-- Groq server key env-only
-- BYOK remains non-persistent
-- Supabase secret/service credentials backend-only
-- only safe values use `NEXT_PUBLIC_`
+Backend only:
+- `DJANGO_SECRET_KEY`
+- `DATABASE_URL`
+- Groq server key
+- Supabase secret/admin credentials if actually needed
+
+Frontend public:
+- `NEXT_PUBLIC_API_BASE_URL`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+
+Never expose:
+- service-role/secret key
+- database URL
+- Django secret
+- Groq server key
 
 ## Search
-- query length limit
-- regex complexity/timeout safety
-- user scope before exposure
+- input length cap
+- regex safety
+- owner scope first
 - no cross-user cache
 - no raw vectors
-- no admin-only artifacts
-- no live GPS leakage
+- no admin artifacts
+- no live GPS
 
-## Strict RAG
-- notes treated as untrusted data
-- context delimiting
+## RAG
+- Notes untrusted
+- context delimiters
+- source validation
+- abstention
 - no outside knowledge
-- no prompt instructions from notes
-- source ID validation
-- no generated answer on validation failure
-- insufficient-context fallback
+- no instructions from Notes
+
+## Finance
+- admin cannot read personal transaction rows/amounts
+- no finance content in operational logs
+- no client authoritative user IDs
 
 ## Location
 - optional
-- OFF by default
+- OFF default
 - no movement history
-- live GPS never sent to Groq
-- precise Places excluded from admin content views
+- browser-only live GPS
+- precise Places excluded from normal admin content
 
-## Deletion
-Deleting a Note must cascade according to DB policy:
+---
+
+# 28. Deletion review
+
+Deleting AppUser:
+- cascades private application data per policy
+
+Deleting Note:
 - NoteItems
 - embeddings
 - reminders
 - AI artifacts
+- Note-derived Transaction through NoteItem cascade
+
+Deleting Place:
+- Shopping assignment -> SET NULL
+- dependent LOCATION reminder -> delete/cascade
+
+Manual Transaction:
+- not tied to Note deletion
+
+Test all cascades.
 
 ---
 
-# STEP I — Performance / reliability
-
-## Next.js
+# 29. Performance — Next.js
 
 Measure:
 - route bundles
-- search overlay bundle
-- map lazy-load bundle
-- hydration time
-- unnecessary client components
+- Search overlay bundle
+- map lazy bundle
+- hydration
+- client-component boundaries
 - rerenders
-- modal/list rendering
-- font strategy
+- large lists
+- font loading
 
-Do not mark the whole app `use client`.
+Do not mark root app `use client`.
 
-## Motion
+Dynamic import:
+- map
+- other genuinely heavy browser-only features
 
-Prefer:
-- transform
-- opacity
-
-Avoid layout-thrashing animations.
-
-Test on:
-- mid-range laptop
-- mobile emulation
-- reduced-motion mode
-
-## Backend
-
-Review:
-- select_related/prefetch_related
-- query counts
-- PostgreSQL indexes
-- vector latency
-- FTS latency
-- structured analytics indexes
-- top-K caps
-- bounded RAG context
-- embedding-model caching
-- provider timeouts
-- duplicate requests
-
-Do not add Redis/Celery unless proven necessary.
+Virtualization/pagination only where real list size justifies it.
 
 ---
 
-# STEP J — Deployment
+# 30. Performance — backend
 
-Target concept:
+Review:
+- select_related/prefetch_related
+- indexes
+- query counts
+- finance aggregation plans
+- FTS latency
+- vector latency
+- top-K limits
+- context caps
+- embedding model process caching
+- provider timeouts
+- duplicate calls
+
+Do not add Redis/Celery merely for architectural prestige.
+
+Add only with measured need.
+
+---
+
+# 31. Embedding deployment risk
+
+`all-MiniLM-L6-v2` may have:
+- model download time
+- memory footprint
+- cold-start impact
+
+Measure on target backend host.
+
+If target host cannot run it reliably, document alternatives before changing:
+- smaller compatible embedding model
+- hosted embedding provider
+- separate embedding service
+
+A model change requires:
+- documented dimension change if any
+- migration
+- full re-embedding
+- retrieval re-evaluation
+
+Do not silently swap models.
+
+---
+
+# 32. Deployment target
+
+Canonical target:
 
 ```text
 Next.js frontend -> Vercel or comparable
 Django backend   -> Render/Fly/comparable
-PostgreSQL       -> implemented provider
-Auth             -> Supabase Auth if implemented
+Database         -> Supabase PostgreSQL
+Authentication   -> Supabase Auth
+Google OAuth     -> Google Cloud + Supabase provider
 ```
 
-Frontend env examples:
+Do not reintroduce Neon unless the project explicitly decides to migrate databases.
+
+---
+
+# 33. Production environment variables
+
+Frontend:
 
 ```text
 NEXT_PUBLIC_API_BASE_URL
@@ -576,154 +945,252 @@ NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 ```
 
-Never expose:
+Backend:
 
 ```text
-NEXT_PUBLIC_GROQ_API_KEY
-NEXT_PUBLIC_DATABASE_URL
-NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY
+DJANGO_SECRET_KEY
+DATABASE_URL
+DATABASE_SSL_REQUIRE
+SUPABASE_URL
+SUPABASE_AUTH_ENABLED
+SUPABASE_JWT_AUDIENCE
+SUPABASE_JWKS_URL
+GROQ_API_KEY  # optional server fallback/trial only
+ALLOWED_HOSTS
+CORS_ALLOWED_ORIGINS
+CSRF_TRUSTED_ORIGINS where applicable
 ```
 
-Backend:
-- DJANGO_SECRET_KEY
-- DATABASE_URL
-- optional GROQ_API_KEY fallback
-- ALLOWED_HOSTS
-- CORS_ALLOWED_ORIGINS
-- Supabase backend verification/admin credentials if used
-
-Deployment smoke:
-1. migrations
-2. backend health
-3. auth
-4. CORS
-5. Next.js production build
-6. Universal Search
-7. strict RAG abstention
-8. provider failure
-9. Places permission flow
-10. mobile smoke
+Never print secrets in deployment logs.
 
 ---
 
-# STEP K — Documentation
+# 34. Google OAuth deployment completion
+
+Local Google OAuth may already work.
+
+At production deployment:
+1. deploy frontend;
+2. know final production frontend origin;
+3. know Supabase project callback;
+4. add production frontend origin to Google OAuth client where required;
+5. keep Supabase callback URI authorized in Google;
+6. add production redirect URL(s) to Supabase Auth allow-list;
+7. update Supabase Site URL;
+8. test login/logout/callback in production.
+
+Google OAuth remains Supabase-mediated.
+
+Do not point Google directly at Django as the OAuth callback.
+
+---
+
+# 35. CORS / auth smoke
+
+Production smoke:
+- frontend can call Django
+- only expected origins allowed
+- Bearer Supabase access token accepted
+- wrong issuer/audience rejected
+- expired token rejected
+- suspended AppUser rejected
+- logout clears frontend session state
+- admin remains separate
+
+---
+
+# 36. Deployment smoke
+
+Run:
+1. Django migrations
+2. DB extension state
+3. backend health
+4. admin
+5. auth
+6. CORS
+7. Next.js production build
+8. Notes CRUD
+9. Transaction summary
+10. Search retrieval
+11. deterministic finance answer
+12. strict RAG abstention
+13. provider failure
+14. Places permission UI
+15. reminder active-session behavior
+16. mobile smoke
+
+---
+
+# 37. Documentation
 
 Update:
 - README
 - architecture
 - ERD
 - API
+- authentication
 - AI design
+- transaction/finance design
 - search/RAG
-- location reminders
+- location/reminders
 - deployment
 - testing/evaluation
 - frontend architecture
-- motion/interaction guide
+- motion guide
 
-Document specifically:
-- no intent-classifier model
-- deterministic regex/query parser
-- hard-filter vs soft-hint rules
-- structured SQL analytics
-- pgvector + FTS hybrid search
-- relevance-score meaning
-- deterministic-answer shortcut
-- strict RAG validation
+Document explicitly:
+- Part 3.5 finance authority
+- no top-level Your Space
+- Transaction vs NoteItem
+- no intent classifier
+- deterministic parser
+- search endpoint split
+- relevance semantics
+- strict RAG
 - user isolation
-- location/search privacy boundary
-- Next.js architecture
-- reduced-motion support
+- location privacy
+- browser reminder limitation
+- Next.js auth boundary
+- reduced motion
+- Supabase PostgreSQL deployment
 
 ---
 
-# Final demo flow
+# 38. Final demo flow
 
 1. register/login
-2. Quick Capture:
+2. show onboarding/personalization briefly
+3. Quick Capture:
    `Tomorrow I have class at 10, buy eggs from Agora afterwards, and I spent 250 taka on books.`
-3. AI extracts three items
-4. edit + confirm
-5. open Your Space
-6. Tasks / Events / Expenses / Shopping previews update
-7. expand a Space card
-8. collapse/expand sidebar
-9. open Universal Search with Cmd/Ctrl+K
-10. query:
+4. raw Note saves first
+5. AI extracts structured items
+6. edit/confirm
+7. confirm DEBIT Transaction
+8. add/confirm salary CREDIT example
+9. open Dashboard -> Transactions
+10. show balance/income/expense
+11. collapse/expand Dashboard sidebar
+12. Cmd/Ctrl+K
+13. semantic query:
    `university work I need to worry about`
-11. left shows ranked sources + Relevance
-12. right shows grounded answer + sources
-13. query:
+14. left ranked evidence
+15. right grounded answer + sources
+16. finance query:
    `where did I spend the most money?`
-14. show deterministic SQL-backed answer
-15. show saved Agora Place
-16. simulate location entry
-17. show aggregated Shopping alert
-18. What Matters Now
-19. Daily Briefing
-20. Expense Dashboard
-21. briefly show retrieval/RAG evaluation
+17. show deterministic answer
+18. show same value in Finance Dashboard
+19. saved Agora Place
+20. simulated location entry
+21. one aggregated Shopping alert
+22. What Matters Now
+23. Daily Briefing
+24. retrieval/RAG evaluation
+25. logout
 
 Do not depend on physical movement.
 
 ---
 
-# Final acceptance criteria
+# 39. Known limitations to state honestly
 
-The project is complete only when:
-1. Next.js is the production frontend.
-2. no important production page uses mock data.
-3. auth/ownership are secure.
-4. raw Notes remain source of truth.
-5. AI extraction/review works.
-6. Your Space is real.
-7. Universal Search works globally.
-8. no intent-classifier model exists.
-9. regex/query parsing is tested.
-10. structured analytics are correct.
-11. pgvector semantic retrieval works.
-12. PostgreSQL FTS works.
-13. hybrid retrieval is evaluated.
-14. Search Notes ranks useful evidence.
-15. relevance is labelled correctly.
-16. strict RAG uses only retrieved context.
-17. invalid/unsupported generated answers are withheld.
-18. Places/reminders/location work within web limits.
-19. What Matters Now is deterministic.
-20. Daily Briefing is grounded in structured facts.
-21. Expense calculations are deterministic.
-22. interaction quality is polished.
-23. reduced-motion/accessibility works.
-24. backend/frontend/E2E tests pass.
-25. security/privacy review passes.
-26. production deployment smoke passes.
-27. docs are current.
-28. demo flow is repeatable.
-29. limitations are documented.
-30. no unnecessary V2 feature was added.
+At minimum:
+- browser reminders are active-session V1 behavior
+- no background GPS history
+- no native push while browser closed
+- no bank integration
+- no FX conversion
+- no accounting/tax system
+- English-first embedding/search assumptions if still true
+- server embedding model may cold-start on small hosting
+- Groq availability/quota affects AI organization/briefing, not raw Notes
+- BYOK key disappears on refresh/logout by design
 
 ---
 
-# Deliverable before implementation
+# 40. Product scope freeze
+
+Do not add before capstone completion:
+- native mobile app
+- WhatsApp/SMS
+- OCR
+- collaboration
+- complex calendar integration
+- custom model training
+- agents
+- voice assistant
+- recommendation engine
+- banking
+- investment tools
+- gamification
+
+---
+
+# 41. Final acceptance criteria
+
+The project is complete only when:
+
+1. Next.js is production frontend.
+2. final navigation is consistent.
+3. no top-level Your Space remains.
+4. Transaction ledger is finance authority.
+5. no important production page uses mock data.
+6. auth/user isolation secure.
+7. raw Notes remain source of truth.
+8. AI review/fallback works.
+9. manual add works.
+10. finance totals deterministic/timezone-correct.
+11. Search works without Groq.
+12. parser deterministic/tested.
+13. FTS works.
+14. pgvector works.
+15. hybrid retrieval evaluated.
+16. relevance labelled honestly.
+17. strict RAG validates sources.
+18. unsupported answers abstain.
+19. Places/reminders work within web limits.
+20. live GPS stays browser-only.
+21. What Matters consumes preferences.
+22. nearby Shopping boost stays privacy-preserving.
+23. Daily Briefing grounded in structured facts.
+24. finance/search values agree.
+25. reduced motion/accessibility pass.
+26. backend/frontend/E2E pass.
+27. security/privacy review passes.
+28. production deployment smoke passes.
+29. Google OAuth production config passes if enabled.
+30. docs are consistent.
+31. demo repeatable.
+32. limitations documented.
+33. no unnecessary V2 scope added.
+
+---
+
+# 42. Deliverable before implementation
 
 Provide:
-1. full audit
-2. mock/technical-debt inventory
-3. priority-scoring design
-4. briefing context schema
-5. expense aggregation policy
-6. regex/query-parser evaluation plan
-7. retrieval benchmark plan
-8. strict RAG evaluation plan
-9. frontend UX/motion audit
-10. accessibility checklist
-11. backend/frontend/E2E release plan
-12. security/privacy checklist
-13. performance risks
-14. deployment plan
-15. documentation gaps
-16. exact step order
-17. demo checklist
+
+1. full project audit
+2. stale-doc/old-terminology inventory
+3. mock/technical-debt inventory
+4. What Matters scoring design
+5. preference boost design
+6. nearby client-context design
+7. briefing payload schema
+8. finance dashboard aggregation policy
+9. cross-feature finance consistency plan
+10. parser evaluation plan
+11. retrieval benchmark
+12. strict RAG evaluation
+13. frontend UX/motion audit
+14. accessibility checklist
+15. release test matrix
+16. security/privacy checklist
+17. performance risks
+18. deployment plan
+19. Google OAuth production checklist
+20. documentation gaps
+21. exact implementation order
+22. demo checklist
 
 Then wait for:
 
