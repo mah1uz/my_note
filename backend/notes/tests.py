@@ -1,55 +1,52 @@
 from django.contrib import admin
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
-from rest_framework_simplejwt.tokens import RefreshToken
 
+from accounts.models import AppUser
 from .models import Note
-
-User = get_user_model()
 
 
 class NoteModelTests(TestCase):
-    def test_defaults_ordering_and_user_cascade(self):
-        user = User.objects.create_user(username='owner', password='SafePass!2026')
-        older = Note.objects.create(user=user, raw_text='Older')
-        newer = Note.objects.create(user=user, raw_text='Newer')
+    def test_defaults_ordering_and_app_user_cascade(self):
+        user = AppUser.objects.create(email='owner@example.com')
+        older = Note.objects.create(app_user=user, raw_text='Older')
+        newer = Note.objects.create(app_user=user, raw_text='Newer')
         self.assertEqual(Note.objects.first(), newer)
         self.assertEqual(older.processing_status, Note.ProcessingStatus.UNPROCESSED)
         user.delete()
         self.assertFalse(Note.objects.exists())
 
-    def test_note_is_registered_in_admin(self):
-        self.assertIn(Note, admin.site._registry)
+    def test_private_note_is_not_registered_in_admin(self):
+        self.assertNotIn(Note, admin.site._registry)
 
 
 class NoteApiTests(APITestCase):
     def setUp(self):
-        self.user_a = User.objects.create_user(username='a@example.com', email='a@example.com', password='SafePass!2026')
-        self.user_b = User.objects.create_user(username='b@example.com', email='b@example.com', password='SafePass!2026')
-        self.note_a = Note.objects.create(user=self.user_a, raw_text='User A private note')
-        self.note_b = Note.objects.create(user=self.user_b, raw_text='User B private note')
+        self.user_a = AppUser.objects.create(email='a@example.com')
+        self.user_b = AppUser.objects.create(email='b@example.com')
+        self.note_a = Note.objects.create(app_user=self.user_a, raw_text='User A private note')
+        self.note_b = Note.objects.create(app_user=self.user_b, raw_text='User B private note')
 
     def authenticate(self, user):
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+        self.client.force_authenticate(user)
 
     def test_unauthenticated_requests_are_rejected(self):
         self.assertEqual(self.client.get('/api/v1/notes/').status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_list_is_user_scoped_and_newest_first(self):
-        Note.objects.create(user=self.user_a, raw_text='Newest A note')
+        Note.objects.create(app_user=self.user_a, raw_text='Newest A note')
         self.authenticate(self.user_a)
         response = self.client.get('/api/v1/notes/')
         self.assertEqual([item['raw_text'] for item in response.data], ['Newest A note', 'User A private note'])
 
     def test_create_trims_text_sets_owner_and_unprocessed_status(self):
         self.authenticate(self.user_a)
-        response = self.client.post('/api/v1/notes/', {'raw_text': '  Buy eggs  ', 'user': self.user_b.pk, 'processing_status': 'PROCESSED'}, format='json')
+        response = self.client.post('/api/v1/notes/', {'raw_text': '  Buy eggs  ', 'processing_status': 'PROCESSED'}, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         note = Note.objects.get(pk=response.data['id'])
-        self.assertEqual(note.user, self.user_a)
+        self.assertEqual(note.app_user, self.user_a)
         self.assertEqual(note.raw_text, 'Buy eggs')
         self.assertEqual(note.processing_status, Note.ProcessingStatus.UNPROCESSED)
 
@@ -79,8 +76,10 @@ class NoteApiTests(APITestCase):
 
 class AdminAccessTests(TestCase):
     def setUp(self):
-        self.regular = User.objects.create_user(username='regular', password='SafePass!2026')
-        self.admin_user = User.objects.create_superuser(username='admin', email='admin@example.com', password='AdminPass!2026')
+        from django.contrib.auth import get_user_model
+        user_model = get_user_model()
+        self.regular = user_model.objects.create_user(username='regular', password='SafePass!2026')
+        self.admin_user = user_model.objects.create_superuser(username='admin', email='admin@example.com', password='AdminPass!2026')
 
     def test_anonymous_and_regular_users_cannot_access_admin_index(self):
         admin_url = reverse('admin:index')
@@ -88,6 +87,6 @@ class AdminAccessTests(TestCase):
         self.client.force_login(self.regular)
         self.assertEqual(self.client.get(admin_url).status_code, status.HTTP_302_FOUND)
 
-    def test_superuser_can_access_note_admin(self):
+    def test_superuser_cannot_access_private_note_admin(self):
         self.client.force_login(self.admin_user)
-        self.assertEqual(self.client.get(reverse('admin:notes_note_changelist')).status_code, status.HTTP_200_OK)
+        self.assertNotIn(Note, admin.site._registry)
