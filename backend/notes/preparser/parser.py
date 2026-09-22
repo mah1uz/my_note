@@ -10,6 +10,31 @@ MONEY_RE = re.compile(
 )
 DEBIT_RE = re.compile(r'\b(bought|purchased|spent|paid|cost|charged|bill|fee|rent|fare)\b', re.I)
 CREDIT_RE = re.compile(r'\b(salary|received|credited|earned|income|refund|cashback|bonus|allowance)\b', re.I)
+# Intent markers decide HOW money reads, not whether it exists.
+# Future intent: a commitment where nothing has been spent yet.
+FUTURE_INTENT_RE = re.compile(
+    r'\b(have to|has to|need to|needs to|want to|plan to|planning to|going to|will|shall)\b'
+    r'[\w\s,]{0,40}?\b(buy|get|pick up|purchase|pay|spend|order)\b'
+    r'|\b(buy|get|pick up|purchase|pay|spend|order)\b[\w\s,]{0,20}?\b(tomorrow|later|next|soon|today)\b',
+    re.I,
+)
+# Past spend: money already left. Any explicit past-tense spend verb counts,
+# even without the DEBIT_RE nouns above (e.g. "bought" is covered by both).
+PAST_SPEND_RE = re.compile(
+    r'\b(bought|purchased|spent|paid|cost|charged|was charged)\b', re.I,
+)
+
+
+# Obligation tied to an explicit date: "submit the report on Friday",
+# "have to visit campus tomorrow". Routes toward EVENT, never assumed.
+OBLIGATION_DATE_RE = re.compile(
+    r'\b(have to|has to|need to|needs to|must|should|due)\b'
+    r'[\w\s,]{0,60}?'
+    r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|'
+    r'january|february|march|april|may|june|july|august|september|october|november|december|'
+    r'\d{4}-\d{2}-\d{2}|\d{1,2}(st|nd|rd|th)?)\b',
+    re.I,
+)
 
 
 def _amount(number, scale):
@@ -51,11 +76,18 @@ def parse_note_evidence(text):
         text = text[:MAX_INPUT_LENGTH]
     debit = bool(DEBIT_RE.search(text))
     credit = bool(CREDIT_RE.search(text))
+    future = bool(FUTURE_INTENT_RE.search(text))
+    past = bool(PAST_SPEND_RE.search(text))
+    # Intent is unknown when markers conflict or are absent entirely.
+    intent = 'future' if future and not past else 'past' if past and not future else None
     return {
         'money': parse_money(text),
         'direction': 'DEBIT' if debit and not credit else 'CREDIT' if credit and not debit else None,
         'direction_ambiguous': debit and credit,
+        'intent': intent,
+        'intent_ambiguous': future and past,
         'task_hint': bool(re.search(r'\b(todo|need to|remember to|must|should)\b', text, re.I)),
         'event_hint': bool(re.search(r'\b(on|at|meeting|class|appointment|exam)\b', text, re.I)),
+        'obligation_hint': bool(OBLIGATION_DATE_RE.search(text)),
         'shopping_hint': bool(re.search(r'\b(buy|bought|shopping|groceries|pick up)\b', text, re.I)),
     }

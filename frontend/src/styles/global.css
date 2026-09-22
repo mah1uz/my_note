@@ -276,6 +276,7 @@ h1, h2, h3 { letter-spacing: -.032em; line-height: 1.08; text-wrap: balance; }
 .confidence { display: inline-block; color: var(--ink-soft); font-size: 12px; }
 .confidence-low { color: #8f2f24; background: var(--danger-tint); padding: 8px 10px; border-radius: 8px; }
 .confidence-review { color: #7a5410; background: var(--warning-tint); padding: 8px 10px; border-radius: 8px; }
+.tense-flag { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--warning-tint); border: 1px solid #e8d9a8; color: #6d4c0d; font-size: 12.5px; line-height: 1.5; }
 .confirmed-items { margin-top: 24px; }
 .confirmed-item { padding: 16px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .confirmed-item h4 { margin: 9px 0; }

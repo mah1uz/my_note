@@ -99,6 +99,7 @@ export default function AIReviewPanel({ note, onNoteChanged, disabled = false })
       <form onSubmit={(event) => { event.preventDefault(); run('confirm') }}>
         {drafts.map((draft, index) => <fieldset className="draft-item" key={draft.key} disabled={locked}>
           <legend>Item {index + 1}</legend><Confidence value={draft.confidence} />
+          {draft.metadata?.tense_conflict && <p className="tense-flag" role="note">⚠ {draft.metadata.tense_conflict}</p>}
           <ItemFields value={draft} domainOptions={review.domains.map((domain) => domain.slug)} onChange={(value) => setDrafts((items) => items.map((item) => item.key === draft.key ? value : item))} />
           <button type="button" className="button button-danger" aria-label={`Remove item ${index + 1}`} onClick={() => setDrafts((items) => items.filter((item) => item.key !== draft.key))}>Remove item</button>
         </fieldset>)}

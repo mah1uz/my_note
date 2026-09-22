@@ -245,8 +245,6 @@ class IntelligenceApiTests(APITestCase):
         self.assertIn('deterministic_evidence', draft.metadata)
 
     def test_personal_key_is_never_persisted_returned_or_logged(self):
-        # The BYOK contract: the key travels in one request header to Groq and
-        # must never land in the database, API responses, or admin-visible logs.
         key = 'gsk_test_personal_key_xyz'
         response = self.client.post(
             self.base + 'analyze/', {'revision': self.note.revision},
@@ -262,6 +260,61 @@ class IntelligenceApiTests(APITestCase):
             self.assertNotIn(key, blob)
         self.provider.assert_called_once()
         self.assertNotIn(key, json.dumps(self.client.get(self.base + 'review/').data))
+
+    def analyze_text(self, text, items):
+        note = Note.objects.create(app_user=self.owner, raw_text=text)
+        self.provider.return_value = json.dumps({'summary': '', 'items': items})
+        response = self.client.post(
+            f'/api/v1/notes/{note.pk}/analyze/', {'revision': 0},
+            format='json', HTTP_X_GROQ_TRIAL='true',
+        )
+        self.assertEqual(response.status_code, 200)
+        note.refresh_from_db()
+        return note
+
+    def test_future_intent_reported_as_expense_is_flagged(self):
+        # The exact reported scenario: nothing spent, provider guessed EXPENSE.
+        note = self.analyze_text('i have to buy shampoo for 100 taka', [
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        draft = note.items.get()
+        self.assertFalse(draft.is_confirmed)
+        self.assertIn('future purchase', draft.metadata.get('tense_conflict', ''))
+        # The flag is a warning, not a block: confirming keeps text and flag.
+        response = self.client.post(
+            f'/api/v1/notes/{note.pk}/confirm-analysis/',
+            {'revision': note.revision, 'items': [{
+                'id': draft.pk, 'item_type': 'EXPENSE', 'title': 'Shampoo',
+                'amount': '100', 'currency': 'BDT', 'domains': ['shopping', 'finance'],
+            }]}, format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        draft.refresh_from_db()
+        self.assertTrue(draft.is_confirmed)
+        self.assertIn('tense_conflict', draft.metadata)
+
+    def test_past_spend_reported_as_shopping_task_is_flagged(self):
+        note = self.analyze_text('bought shampoo for 100 taka', [
+            prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
+                       domains=['shopping']),
+        ])
+        draft = note.items.get()
+        self.assertIn('already spent', draft.metadata.get('tense_conflict', ''))
+
+    def test_correctly_routed_items_carry_no_tense_flag(self):
+        cases = [
+            ('i have to buy shampoo for 100 taka', dict(
+                type='TASK', title='Buy shampoo', amount=100, currency='BDT', domains=['shopping'])),
+            ('bought shampoo for 100 taka', dict(
+                type='EXPENSE', title='Shampoo', amount=100, currency='BDT', domains=['shopping', 'finance'])),
+            ('shampoo 100 taka', dict(
+                type='TASK', title='Shampoo', amount=100, currency='BDT', domains=['shopping'])),
+        ]
+        for text, item in cases:
+            with self.subTest(text=text):
+                note = self.analyze_text(text, [prediction(**item)])
+                self.assertNotIn('tense_conflict', note.items.get().metadata)
 
     def test_multi_item_confirmation_correction_removal_and_manual_addition(self):
         self.provider.return_value = json.dumps(example_output(list(EXAMPLES)[3]))

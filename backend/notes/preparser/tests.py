@@ -29,3 +29,53 @@ class NotePreparserTests(SimpleTestCase):
     def test_long_input_is_bounded(self):
         evidence = parse_note_evidence('x' * 50000)
         self.assertEqual(evidence['money'], [])
+
+    def test_future_purchase_intent_is_not_a_spend(self):
+        # The reported shampoo scenario: commitment, nothing spent yet.
+        evidence = parse_note_evidence('i have to buy shampoo for 100 taka')
+        self.assertEqual(evidence['intent'], 'future')
+        self.assertTrue(evidence['shopping_hint'])
+        self.assertIsNone(evidence['direction'])
+        self.assertEqual(evidence['money'][0]['currency'], 'BDT')
+
+    def test_future_intent_forms(self):
+        for text in (
+            'need to get rice 50 tk tomorrow',
+            'will pay house rent 20000 taka next month',
+            'planning to buy a phone for 20k soon',
+            'must pick up medicine today, around 300 taka',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(parse_note_evidence(text)['intent'], 'future')
+
+    def test_past_spend_intent(self):
+        for text in (
+            'bought shampoo for 100 taka',
+            'paid 1200 taka for internet yesterday',
+            'spent 500 on transport',
+        ):
+            with self.subTest(text=text):
+                evidence = parse_note_evidence(text)
+                self.assertEqual(evidence['intent'], 'past')
+                self.assertEqual(evidence['direction'], 'DEBIT')
+
+    def test_vague_money_has_no_intent(self):
+        evidence = parse_note_evidence('shampoo 100 taka')
+        self.assertIsNone(evidence['intent'])
+        self.assertFalse(evidence['intent_ambiguous'])
+        self.assertTrue(evidence['money'])
+
+    def test_conflicting_intent_markers_stay_unknown(self):
+        evidence = parse_note_evidence('bought rice yesterday but have to buy oil for 200 taka')
+        self.assertIsNone(evidence['intent'])
+        self.assertTrue(evidence['intent_ambiguous'])
+
+    def test_obligation_with_date_hints_event(self):
+        for text in (
+            'have to submit the report on Friday',
+            'must visit campus tomorrow for admission',
+            'project due 2026-10-05, need to prepare slides',
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(parse_note_evidence(text)['obligation_hint'])
+        self.assertFalse(parse_note_evidence('buy shampoo')['obligation_hint'])

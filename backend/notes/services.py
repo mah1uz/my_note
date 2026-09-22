@@ -27,6 +27,28 @@ def analysis_is_running(note):
                 note.analysis_started_at > timezone.now() - timedelta(seconds=settings.AI_ANALYSIS_LEASE_SECONDS))
 
 
+def tense_conflict_flag(predicted, evidence):
+    """Flag provider items whose type contradicts explicit tense markers.
+
+    Review-only signal: the item is still saved as a draft for the user to
+    correct. Never invents, removes, or rewrites provider output.
+    """
+    if not evidence.get('money'):
+        return {}
+    item_type = predicted.get('type')
+    domains = predicted.get('domains') or []
+    if item_type == 'EXPENSE' and evidence.get('intent') == 'future':
+        return {'tense_conflict': (
+            'This looks like a future purchase, not money already spent. '
+            'Confirm as an expense only if you already paid.'
+        )}
+    if item_type == 'TASK' and 'shopping' in domains and evidence.get('intent') == 'past':
+        return {'tense_conflict': (
+            'This looks like money already spent. Consider changing it to an expense.'
+        )}
+    return {}
+
+
 def claim_revision(note, revision, **changes):
     """Conditional UPDATE acquires SQLite's write lock and prevents stale writes."""
     changed = Note.objects.filter(pk=note.pk, app_user_id=note.app_user_id, revision=revision).update(
@@ -109,11 +131,14 @@ def analyze(note, revision, user_api_key=None, trial=False):
         raw = groq_service.redact(provider_response, extra_key=user_api_key)
         payload = parse_analysis(raw)
         validated = []
-        for index, predicted in enumerate(payload['items']):
+        for predicted in payload['items']:
             data = {key: value for key, value in predicted.items() if key not in ('type', 'confidence')}
             data['item_type'] = predicted['type']
             # Keep explicit parser evidence visible for review; never replace provider values.
-            data['metadata'] = {'deterministic_evidence': deterministic_evidence} if index == 0 else {}
+            data['metadata'] = {
+                'deterministic_evidence': deterministic_evidence,
+                **tense_conflict_flag(predicted, deterministic_evidence),
+            }
             serializer = ItemInputSerializer(data=data)
             serializer.is_valid(raise_exception=True)
             validated.append((serializer.validated_data, predicted['confidence']))
