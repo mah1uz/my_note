@@ -6,6 +6,9 @@ import { useNotes } from './context/NotesContext'
 import { confirmPasswordReset, requestPasswordReset } from './api/authApi'
 import { apiRequest } from './api/http'
 import { analyzeNote } from './api/itemsApi'
+import { listItems } from './api/itemsApi'
+import { getTransactionSummary } from './api/transactionsApi'
+import { itemDate } from './features/items/itemForm'
 import { LogoutIcon, MenuIcon, NavIcon, PlacesIcon, SparkleIcon } from './components/icons'
 import AIReviewPanel from './features/notes/AIReviewPanel'
 import { EventsPage, ExpensesPage, ShoppingPage, TasksPage } from './features/items/ItemPages'
@@ -59,7 +62,7 @@ function AiNotices() {
   }
   const backlog = backlogNotes(notes)
   if (!backlog.length) return null
-  return <div className="notice-banner" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>{backlog.length} note{backlog.length === 1 ? '' : 's'} need{backlog.length === 1 ? 's' : ''} processing.</strong><span> Draft them all at once, or verify them straight through.</span></div><ProcessButtons compact backlogCount={backlog.length} onDone={refresh} /></div>
+  return <div className="notice-banner" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>{backlog.length} note{backlog.length === 1 ? '' : 's'} need{backlog.length === 1 ? 's' : ''} processing.</strong><span> Process them all at once, or draft them for manual review.</span></div><ProcessButtons compact onDone={refresh} /></div>
 }
 
 function AppLayout({ children }) {
@@ -109,11 +112,37 @@ function QuickCapture({ compact = false }) {
 }
 
 function DashboardPage() {
-  const { dashboardItems, tasks } = useAppState()
   const { currentUser } = useAuth()
   const { notes, refresh } = useNotes()
   const backlog = backlogNotes(notes)
-  return <><PageHeader eyebrow="Monday, September 21" title={`Good morning, ${currentUser?.name || 'there'}`} description="A calm place for everything you want to remember." /><QuickCapture /><section className="section-block queue-panel" aria-label="Processing queue"><div className="section-heading"><div><span className="eyebrow">Capture to confirmed</span><h2>Processing queue</h2></div>{backlog.length > 0 && <span className="pill pill-medium">{backlog.length} waiting</span>}</div>{backlog.length ? <><ProcessButtons backlogCount={backlog.length} onDone={refresh} /><div className="queue-list">{backlog.map((note) => <article className="queue-row" key={note.id}><div><Link to={`/app/notes/${note.id}`} className="queue-title">{note.originalText.slice(0, 90) || 'Untitled note'}</Link><span className="queue-meta">{note.processingStatus === 'FAILED' ? 'Needs a retry' : 'Not processed yet'} · open to organize manually</span></div><Pill tone={note.processingStatus === 'FAILED' ? 'high' : 'medium'}>{note.processingStatus}</Pill></article>)}</div></> : <p className="queue-empty">All caught up — every note is processed.</p>}</section><section className="section-block"><div className="section-heading"><div><span className="eyebrow">Stay in the loop</span><h2>What matters now</h2></div><Link to="/app/tasks" className="text-link">See all tasks <span>→</span></Link></div><div className="matter-grid">{dashboardItems.map((item) => <article className="matter-card" key={item.id}><div className="matter-top"><Pill tone={item.priority}>{item.type}</Pill><span className={`priority priority-${item.priority.toLowerCase()}`} /> </div><h3>{item.title}</h3><p>{item.reason}</p><span className="card-domain">{item.domain}</span></article>)}</div></section><section className="dashboard-grid"><div className="summary-card"><div className="section-heading"><div><span className="eyebrow">At a glance</span><h2>Today&apos;s rhythm</h2></div><span className="date-chip">Sep 21</span></div><div className="summary-list"><div><span className="summary-number">{tasks.filter((task) => task.status !== 'DONE').length}</span><span>Tasks</span></div><div><span className="summary-number">1</span><span>Event</span></div><div><span className="summary-number">৳250</span><span>Expenses</span></div></div></div><div className="briefing-card"><span className="eyebrow">Daily briefing · prototype</span><h2>A little room to breathe</h2><p>You have a focused day ahead. Your EM quiz is coming up, and there are three small tasks waiting for you.</p><Link to="/app/search" className="button button-light">Ask your notes <span>→</span></Link></div></section></>
+  const [dash, setDash] = useState({ loading: true, tasks: [], events: [], summary: [] })
+  useEffect(() => {
+    if (!currentUser) return
+    let active = true
+    setDash((current) => ({ ...current, loading: true }))
+    Promise.all([listItems('type=TASK'), listItems('type=EVENT'), getTransactionSummary()])
+      .then(([tasks, events, summary]) => {
+        if (active) setDash({ loading: false, tasks, events, summary: summary.currencies || [] })
+      })
+      .catch(() => { if (active) setDash((current) => ({ ...current, loading: false })) })
+    return () => { active = false }
+  }, [currentUser?.id])
+  const openTasks = dash.tasks.filter((task) => task.status !== 'COMPLETED')
+  const openEvents = dash.events.filter((event) => event.status !== 'COMPLETED' && event.status !== 'CANCELLED')
+  const importanceRank = (item) => ({ HIGH: 0, NORMAL: 1, LOW: 2 })[item.importance] || 1
+  const dueTime = (item) => {
+    const value = item.due_datetime || item.due_date || item.start_datetime || item.start_date
+    const time = value ? new Date(value).getTime() : NaN
+    return Number.isNaN(time) ? Infinity : time
+  }
+  const matters = [...openTasks, ...openEvents]
+    .sort((a, b) => importanceRank(a) - importanceRank(b) || dueTime(a) - dueTime(b))
+    .slice(0, 3)
+  const today = new Date()
+  const eyebrowDate = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(today)
+  const dateChip = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(today)
+  const balance = dash.summary[0]
+  return <><PageHeader eyebrow={eyebrowDate} title={`Good morning, ${currentUser?.name || 'there'}`} description="A calm place for everything you want to remember." /><QuickCapture /><section className="section-block queue-panel" aria-label="Processing queue"><div className="section-heading"><div><span className="eyebrow">Capture to confirmed</span><h2>Processing queue</h2></div>{backlog.length > 0 && <span className="pill pill-medium">{backlog.length} waiting</span>}</div>{backlog.length ? <><ProcessButtons onDone={refresh} /><div className="queue-list">{backlog.map((note) => <article className="queue-row" key={note.id}><div><Link to={`/app/notes/${note.id}`} className="queue-title">{note.originalText.slice(0, 90) || 'Untitled note'}</Link><span className="queue-meta">{note.processingStatus === 'FAILED' ? 'Needs a retry' : 'Not processed yet'} · open to organize manually</span></div><Pill tone={note.processingStatus === 'FAILED' ? 'high' : 'medium'}>{note.processingStatus}</Pill></article>)}</div></> : <p className="queue-empty">All caught up — every note is processed.</p>}</section><section className="section-block"><div className="section-heading"><div><span className="eyebrow">Stay in the loop</span><h2>What matters now</h2></div><Link to="/app/tasks" className="text-link">See all tasks <span>→</span></Link></div>{dash.loading ? <div className="loading-state">Loading what matters…</div> : matters.length ? <div className="matter-grid">{matters.map((item) => <article className="matter-card" key={`${item.item_type}-${item.id}`}><div className="matter-top"><Pill tone={item.importance}>{item.item_type}</Pill><span className={`priority priority-${item.importance.toLowerCase()}`} /> </div><h3>{item.title}</h3><p>{itemDate(item, item.item_type === 'TASK' ? 'due' : 'start')}</p><span className="card-domain">{item.domains[0] || ''}</span></article>)}</div> : <EmptyState title="Nothing waiting" text="No open tasks or events. Capture a note to get started." />}</section><section className="dashboard-grid"><div className="summary-card"><div className="section-heading"><div><span className="eyebrow">At a glance</span><h2>Today&apos;s rhythm</h2></div><span className="date-chip">{dateChip}</span></div><div className="summary-list"><div><span className="summary-number">{openTasks.length}</span><span>Tasks</span></div><div><span className="summary-number">{openEvents.length}</span><span>Events</span></div><div><span className="summary-number">{balance ? `${balance.currency} ${balance.balance}` : '—'}</span><span>Balance</span></div></div></div><div className="briefing-card"><span className="eyebrow">Daily briefing</span><h2>A little room to breathe</h2><p>{openTasks.length === 0 && openEvents.length === 0 ? 'A clear day. Capture anything on your mind and it will show up here.' : `You have ${openTasks.length} open task${openTasks.length === 1 ? '' : 's'} and ${openEvents.length} upcoming event${openEvents.length === 1 ? '' : 's'}.`}</p><Link to="/app/search" className="button button-light">Ask your notes <span>→</span></Link></div></section></>
 }
 
 function NoteCard({ note, onDelete }) {

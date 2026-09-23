@@ -33,10 +33,15 @@ class SearchAnswerView(APIView):
             raise ValidationError({'query': str(error)}) from error
         answer = deterministic_answer(request.user, parsed)
         if answer is None:
-            try:
-                answer = generate_grounded_answer(request.user, query, results)
-            except Exception:
-                answer = {'answer': "I couldn't produce a sufficiently grounded answer from your notes.", 'sources': [], 'mode': 'abstained'}
+            if not results:
+                # Nothing shares a content term with the question: abstain
+                # without spending a provider call on unrelated evidence.
+                answer = {'answer': "I couldn't find anything in your notes about that.", 'sources': [], 'mode': 'abstained'}
+            else:
+                try:
+                    answer = generate_grounded_answer(request.user, query, results)
+                except Exception:
+                    answer = {'answer': "I couldn't produce a sufficiently grounded answer from your notes.", 'sources': [], 'mode': 'abstained'}
         return Response({'query': query, 'results': results, **answer})
 
 

@@ -86,9 +86,10 @@ class NoteViewSet(viewsets.ModelViewSet):
     def process_all(self, request):
         """Sequentially process the owned backlog (UNPROCESSED + FAILED).
 
-        Mode 'analyze' drafts every note for later review; mode 'verify'
-        additionally confirms each note's drafts unedited. Same credential
-        contract as single-note analysis: personal key or trial, never stored.
+        Mode 'analyze' is fully automatic: it analyzes and confirms every
+        note with no per-note review step. Mode 'verify' analyzes only and
+        leaves drafts for manual per-note review. Same credential contract
+        as single-note analysis: personal key or trial, never stored.
         """
         mode = str(request.data.get('mode') or 'analyze').strip().lower()
         user_api_key = request.headers.get('X-Groq-Api-Key', '').strip() or None

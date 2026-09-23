@@ -284,14 +284,14 @@ BACKLOG_STATUSES = (
 BULK_LIMIT = 25
 
 
-def confirm_all_drafts(note):
-    """Verify mode: confirm every current draft unedited.
+def confirm_all_drafts(note, skip_flagged=True):
+    """Confirm every current draft unedited.
 
-    Drafts carrying review flags (tense_conflict, possible_split) are left
-    unconfirmed so a human resolves them; the caller reports them back.
-    Raw text is never touched; only draft flags change. Used by bulk
-    processing after a successful analysis of the same revision.
-    Returns (confirmed_count, skipped_for_review_count).
+    With skip_flagged (verify mode), drafts carrying review flags
+    (tense_conflict, possible_split) stay unconfirmed for human review and
+    the caller reports them back. Analyze mode confirms everything: fully
+    automatic, no per-note review step. Raw text is never touched; only
+    draft flags change. Returns (confirmed_count, skipped_for_review_count).
     """
     if analysis_is_running(note):
         raise Conflict('Wait for analysis to finish before confirming.')
@@ -304,7 +304,7 @@ def confirm_all_drafts(note):
         confirmed, skipped = 0, 0
         for item in drafts:
             flags = item.metadata or {}
-            if flags.get('tense_conflict') or flags.get('possible_split'):
+            if skip_flagged and (flags.get('tense_conflict') or flags.get('possible_split')):
                 skipped += 1
                 continue
             item.is_confirmed = True
@@ -318,11 +318,14 @@ def confirm_all_drafts(note):
 
 
 def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT):
-    """Sequentially analyze every backlog note (UNPROCESSED + FAILED).
+    """Sequentially process every backlog note (UNPROCESSED + FAILED).
 
-    Verify mode additionally confirms each note's drafts unedited.
-    Trial quota is consumed per analyzed note; exhaustion stops the run
-    and remaining notes are reported as skipped, never half-processed.
+    Analyze mode is fully automatic: it analyzes and confirms every draft
+    with no per-note review step. Verify mode analyzes only, leaving drafts
+    for manual per-note review (flagged drafts are additionally protected
+    from any auto-confirm path). Trial quota is consumed per analyzed note;
+    exhaustion stops the run and remaining notes are reported as skipped,
+    never half-processed.
     """
     if mode not in ('analyze', 'verify'):
         raise ValidationError({'mode': 'Use analyze or verify.'})
@@ -361,15 +364,12 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
             results.append({'id': note.pk, 'status': 'failed', 'code': 'invalid'})
             continue
         if mode == 'verify':
+            results.append({'id': note.pk, 'status': 'analyzed', 'code': 'ok'})
+        else:
             try:
-                confirmed, skipped = confirm_all_drafts(note)
+                confirm_all_drafts(note, skip_flagged=False)
             except (Conflict, ValidationError):
                 results.append({'id': note.pk, 'status': 'failed', 'code': 'verify_failed'})
                 continue
-            results.append({
-                'id': note.pk, 'status': 'verified',
-                'code': 'review_remaining' if skipped else 'ok',
-            })
-        else:
-            results.append({'id': note.pk, 'status': 'analyzed', 'code': 'ok'})
+            results.append({'id': note.pk, 'status': 'confirmed', 'code': 'ok'})
     return {'mode': mode, 'results': results, 'stopped': stopped}

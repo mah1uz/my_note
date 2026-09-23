@@ -76,3 +76,28 @@ class SearchApiTests(APITestCase):
     def test_search_requires_query(self):
         response = self.client.post('/api/v1/search/', {'query': ' '}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_stopwords_never_retrieve_on_their_own(self):
+        parsed = parse_query('do i have any exams?')
+        self.assertEqual(parsed['content_terms'], ['exams'])
+        self.assertEqual(parse_query('do i have any')['content_terms'], [])
+
+    def test_irrelevant_note_is_excluded_and_empty_abstains(self):
+        toothpaste = Note.objects.create(app_user=self.user, raw_text='I have to buy toothpaste tomorrow.')
+        NoteItem.objects.create(
+            note=toothpaste, item_type='TASK', title='Buy toothpaste',
+            summary='Pick up toothpaste', is_confirmed=True,
+        )
+        response = self.client.post('/api/v1/search/', {'query': 'do i have any exams?'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['results'], [])
+        answer = self.client.post('/api/v1/search/answer/', {'query': 'do i have any exams?'}, format='json')
+        self.assertEqual(answer.data['mode'], 'abstained')
+        self.assertIn("couldn't find anything", answer.data['answer'])
+
+    def test_title_match_outranks_raw_text_match(self):
+        note = Note.objects.create(app_user=self.user, raw_text='university mentioned here')
+        NoteItem.objects.create(note=note, item_type='TASK', title='Unrelated title', is_confirmed=True)
+        response = self.client.post('/api/v1/search/', {'query': 'university'}, format='json')
+        titles = [result['title'] for result in response.data['results']]
+        self.assertLess(titles.index('University deadline'), titles.index('Unrelated title'))

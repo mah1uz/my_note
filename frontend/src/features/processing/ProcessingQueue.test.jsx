@@ -30,8 +30,10 @@ function installMock() {
     if (path.endsWith('/auth/me/')) return jsonResponse(state.profile)
     if (path.endsWith('/items/')) return jsonResponse([])
     if (path.endsWith('/notes/process-all/')) {
-      bulkCalls.push({ body: JSON.parse(options.body), headers: options.headers })
-      return jsonResponse({ mode: 'analyze', results: [{ id: 1, status: 'analyzed', code: 'ok' }], stopped: null })
+      const body = JSON.parse(options.body)
+      bulkCalls.push({ body, headers: options.headers })
+      const status = body.mode === 'analyze' ? 'confirmed' : 'analyzed'
+      return jsonResponse({ mode: body.mode, results: [{ id: 1, status, code: 'ok' }], stopped: null })
     }
     if (path.endsWith('/notes/')) return jsonResponse(state.notes)
     if (path.endsWith('/review/')) {
@@ -84,8 +86,8 @@ describe('processing queue', () => {
     ]
     expect(backlogNotes(normalized).map((note) => note.id)).toEqual(['1', '2'])
     expect(backlogNotes([])).toEqual([])
-    expect(summarizeResults({ mode: 'verify', results: [{ status: 'verified' }, { status: 'failed', code: 'provider' }], stopped: 'trial_exhausted' }))
-      .toEqual({ analyzed: 0, verified: 1, failed: 1, skipped: 0, total: 2, stopped: 'trial_exhausted', failures: ['provider'] })
+    expect(summarizeResults({ mode: 'analyze', results: [{ status: 'confirmed' }, { status: 'failed', code: 'provider' }], stopped: 'trial_exhausted' }))
+      .toEqual({ analyzed: 0, confirmed: 1, failed: 1, skipped: 0, total: 2, stopped: 'trial_exhausted', failures: ['provider'] })
   })
 
   it('prompts for AI setup until configured, then shows the backlog banner', async () => {
@@ -98,7 +100,7 @@ describe('processing queue', () => {
     expect(screen.queryByText(/ai organization is off/i)).not.toBeInTheDocument()
   })
 
-  it('runs Analyze All with the trial flag and reports the summary', async () => {
+  it('runs Analyze All with the trial flag and reports confirmations', async () => {
     const user = userEvent.setup()
     renderApp()
     await user.click(screen.getByRole('button', { name: /enable trial/i }))
@@ -106,18 +108,14 @@ describe('processing queue', () => {
     await waitFor(() => expect(bulkCalls.length).toBe(1))
     expect(bulkCalls[0].body).toEqual({ mode: 'analyze' })
     expect(bulkCalls[0].headers['X-Groq-Trial']).toBe('true')
-    expect(await screen.findByText(/analyzed 1/i)).toBeInTheDocument()
+    expect(await screen.findByText(/confirmed 1/i)).toBeInTheDocument()
   })
 
-  it('arms Analyze & Verify behind a second click', async () => {
+  it('runs Verify & Review immediately to draft for manual review', async () => {
     const user = userEvent.setup()
     renderApp()
     await user.click(screen.getByRole('button', { name: /enable trial/i }))
-    const verify = (await screen.findAllByRole('button', { name: /analyze & verify/i }))[0]
-    await user.click(verify)
-    expect(bulkCalls.length).toBe(0)
-    expect(await screen.findByText(/confirms ai drafts without review/i)).toBeInTheDocument()
-    await user.click(await screen.findByRole('button', { name: /confirm 2 notes as-is/i }))
+    await user.click((await screen.findAllByRole('button', { name: /verify & review/i }))[0])
     await waitFor(() => expect(bulkCalls.length).toBe(1))
     expect(bulkCalls[0].body).toEqual({ mode: 'verify' })
   })

@@ -27,13 +27,15 @@ function useItems(query) {
   }
 }
 
-function TaskCard({ item, onChanged }) {
-  const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState(() => itemForm(item))
+/**
+ * Shared tick + expense-recording logic for task rows. A priced shopping
+ * task can become a ledger expense when completed; the ledger row belongs
+ * to that completion, so reopening voids it. Recorded state is always
+ * re-read from the ledger, never trusted from local memory alone.
+ */
+function useTaskCompletion(item, onChanged) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  // A shopping task with a price can become a ledger expense when done.
-  // The ledger row belongs to this completion: reopening voids it.
   const recordable = item.item_type === 'TASK'
     && item.domains.includes('shopping')
     && item.amount != null && item.currency
@@ -73,19 +75,11 @@ function TaskCard({ item, onChanged }) {
     const toCompleted = item.status !== 'COMPLETED'
     const ok = await save({ status: toCompleted ? 'COMPLETED' : 'PENDING' })
     if (!ok || toCompleted || !recordedId) return
-    try {
-      await deleteTransaction(recordedId)
-      if (active.current) {
-        setRecordedId(null)
-        setRecordMsg('Recorded expense removed.')
-      }
-    } catch (requestError) {
-      if (active.current) setError(requestErrorText(requestError))
-    }
+    await voidRecorded(recordedId)
   }
 
   const record = async () => {
-    if (recordBusy || recordedId) return
+    if (recordBusy || recordedId) return false
     setRecordBusy(true)
     setRecordMsg('')
     try {
@@ -102,10 +96,33 @@ function TaskCard({ item, onChanged }) {
         setRecordedId(created.id)
         setRecordMsg('Recorded as expense.')
       }
+      return true
     } catch (requestError) {
       if (active.current) setRecordMsg(requestErrorText(requestError))
+      return false
     } finally { if (active.current) setRecordBusy(false) }
   }
+
+  const voidRecorded = async (id) => {
+    try {
+      await deleteTransaction(id)
+      if (active.current) {
+        setRecordedId(null)
+        setRecordMsg('Recorded expense removed.')
+      }
+    } catch (requestError) {
+      if (active.current) setError(requestErrorText(requestError))
+    }
+  }
+
+  return { busy, error, recordable, recordedId, recordBusy, recordMsg, save, toggle, record, voidRecorded }
+}
+
+function TaskCard({ item, onChanged }) {
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState(() => itemForm(item))
+  const completion = useTaskCompletion(item, onChanged)
+  const { busy, error, recordable, recordedId, recordBusy, recordMsg, save, toggle, record } = completion
 
   return <article className="structured-card">
     <div className={`task-row ${item.status === 'COMPLETED' ? 'completed' : ''}`}>
@@ -124,8 +141,38 @@ function TaskCard({ item, onChanged }) {
   </article>
 }
 
+function ShoppingRow({ item, onChanged }) {
+  const completion = useTaskCompletion(item, onChanged)
+  const done = item.status === 'COMPLETED'
+  // Ticking a priced item completes it and moves the price into the ledger
+  // in the same gesture; reopening voids the recorded row (same symmetry as
+  // the Tasks page). State changes refresh the list; the ledger lookup on
+  // remount is the source of truth, never local memory.
+  const completeAndRecord = async () => {
+    const linked = completion.recordedId
+    const ok = await completion.save({ status: 'COMPLETED' })
+    if (!ok) return
+    if (completion.recordable && !linked) await completion.record()
+  }
+  const reopen = async () => {
+    const linked = completion.recordedId
+    const ok = await completion.save({ status: 'PENDING' })
+    if (ok && linked) await completion.voidRecorded(linked)
+  }
+  return <li className={`shopping-row${done ? ' completed' : ''}`}>
+    <button className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={done ? reopen : completeAndRecord}>{done ? '✓' : ''}</button>
+    <Link to={`/app/notes/${item.note}`}>{item.title}</Link>
+    {item.amount != null && <span className="shopping-price">{item.currency || ''} {item.amount}</span>}
+    {completion.recordable && done && (completion.recordedId
+      ? <span className="pill pill-success">Recorded</span>
+      : <button className="text-button" disabled={completion.recordBusy} onClick={() => completion.record()}>{completion.recordBusy ? 'Recording…' : 'Record'}</button>)}
+    {completion.recordMsg && <span className="record-message" role="status">{completion.recordMsg}</span>}
+    {completion.error && <span className="form-error" role="alert">{completion.error}</span>}
+  </li>
+}
+
 function ItemPage({ title, type, empty, shopping = false }) {
-  const query = new URLSearchParams({ type, ...(shopping ? { domain: 'shopping', status: 'PENDING' } : {}) }).toString()
+  const query = new URLSearchParams({ type, ...(shopping ? { domain: 'shopping' } : {}) }).toString()
   const { items, loading, error, refresh } = useItems(query)
   const preset = { item_type: type, domains: shopping ? ['shopping'] : [] }
   const [formOpen, setFormOpen] = useState(false)
@@ -160,7 +207,7 @@ function ItemPage({ title, type, empty, shopping = false }) {
   return <>
     <header className="page-header"><div><span className="eyebrow">Your confirmed items</span><h1>{title}</h1><p>{shopping ? 'Shopping tasks grouped by text hints. No maps or location tracking.' : 'Only items you have reviewed and confirmed appear here.'}</p></div><div className="page-actions"><button className="button button-ghost" onClick={() => (formOpen ? setFormOpen(false) : openForm())}>{formOpen ? 'Cancel' : `Add ${title.toLowerCase()} manually`}</button><Link className="button button-primary" to="/app/notes">Organize a note</Link></div></header>
     {formOpen && <form className="manual-create" onSubmit={submit}><h2>Add {title.toLowerCase()} manually</h2><p className="field-help">Saved directly without AI. It appears here immediately after creation.</p><ItemFields value={form} onChange={setForm} />{createError && <p role="alert" className="form-error">{createError}</p>}<button className="button button-primary" type="submit" disabled={creating}>{creating ? 'Saving…' : `Save ${title.toLowerCase().replace(/s$/, '')}`}</button></form>}
-    {loading ? <p role="status">Loading {title.toLowerCase()}…</p> : error ? <p role="alert" className="form-error">{error} <button onClick={refresh}>Try again</button></p> : items.length === 0 ? <div className="empty-state"><h2>{empty}</h2><p>Save and organize a note to get started.</p></div> : shopping ? <div className="shopping-grid">{Object.entries(groups).map(([name, group]) => <article className="shopping-card" key={name}><h2>{name}</h2><p>{group.length} items</p><ul>{group.map((item) => <li key={item.id}><Link to={`/app/notes/${item.note}`}>{item.title}</Link></li>)}</ul></article>)}</div> : <div className="structured-list">{items.map((item) => type === 'TASK' ? <TaskCard key={`${item.id}-${item.revision}`} item={item} onChanged={refresh} /> : <article className="structured-card" key={item.id}>
+    {loading ? <p role="status">Loading {title.toLowerCase()}…</p> : error ? <p role="alert" className="form-error">{error} <button onClick={refresh}>Try again</button></p> : items.length === 0 ? <div className="empty-state"><h2>{empty}</h2><p>Save and organize a note to get started.</p></div> : shopping ? <div className="shopping-grid">{Object.entries(groups).map(([name, group]) => <article className="shopping-card" key={name}><h2>{name}</h2><p>{group.length} items</p><ul>{group.map((item) => <ShoppingRow key={`${item.id}-${item.revision}`} item={item} onChanged={refresh} />)}</ul></article>)}</div> : <div className="structured-list">{items.map((item) => type === 'TASK' ? <TaskCard key={`${item.id}-${item.revision}`} item={item} onChanged={refresh} /> : <article className="structured-card" key={item.id}>
       <div className="domain-list">{item.domains.map((domain) => <span className="pill" key={domain}>{domain}</span>)}</div><h2>{item.title}</h2><p>{item.summary}</p><p>{itemDate(item)}</p>
       {type === 'EXPENSE' && <><strong>{item.amount == null ? 'Amount not specified' : `${item.currency || 'Currency unknown'} ${item.amount}`}</strong>{item.quantity != null && <p>{item.quantity} {item.unit || 'unit unknown'}</p>}</>}
       <Link className="text-link" to={`/app/notes/${item.note}`}>Source note →</Link>

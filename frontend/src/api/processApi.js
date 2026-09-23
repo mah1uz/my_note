@@ -26,7 +26,7 @@ export function getAiEntitlement(signal) {
 
 /** Collapse a process-all response into counts for display. Pure helper. */
 export function summarizeResults(data) {
-  const counts = { analyzed: 0, verified: 0, failed: 0, skipped: 0 }
+  const counts = { analyzed: 0, confirmed: 0, failed: 0, skipped: 0 }
   const failures = []
   for (const row of data?.results || []) {
     if (counts[row.status] !== undefined) counts[row.status] += 1

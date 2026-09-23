@@ -2,7 +2,7 @@ import json
 from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, When
 from django.utils import timezone
 from zoneinfo import ZoneInfo
 
@@ -55,34 +55,40 @@ def _filter_transactions(queryset, parsed, user):
 
 def retrieve(user, query, limit=MAX_RESULTS):
     parsed = parse_query(query)
-    terms = [term for term in parsed['terms'] if len(term) > 1]
+    content = parsed['content_terms']
     item_queryset = NoteItem.objects.filter(
         note__app_user=user, note__is_archived=False, is_confirmed=True,
     ).select_related('note').prefetch_related('domains')
     transaction_queryset = FinanceTransaction.objects.filter(user=user).select_related('note_item')
     if parsed['item_type']:
         item_queryset = item_queryset.filter(item_type=parsed['item_type'])
-    item_queryset = _filter_text(item_queryset, terms, ('title', 'summary', 'normalized_text', 'note__raw_text'))
+    # Titles/summaries outrank raw note text; every returned row matches at
+    # least one content term. Stopwords never retrieve on their own, so a
+    # query with no content overlap returns nothing instead of noise.
+    item_queryset = _filter_text(item_queryset, content, (('title', 3), ('summary', 2), ('normalized_text', 2), ('note__raw_text', 1)))
     transaction_queryset = _filter_transactions(transaction_queryset, parsed, user)
-    transaction_queryset = _filter_text(transaction_queryset, terms, ('label', 'primary_domain__name'))
-    results = [_item_result(item) for item in item_queryset.order_by('-updated_at', '-id')[:limit]]
-    results.extend(_transaction_result(item) for item in transaction_queryset.order_by('-transaction_at', '-created_at')[:limit])
-    # Stable lexical ordering: exact title/label matches first, then source recency.
+    transaction_queryset = _filter_text(transaction_queryset, content, (('label', 3), ('primary_domain__name', 2)))
+    results = [_item_result(item) for item in item_queryset.order_by('-_relevance', '-updated_at', '-id')[:limit]]
+    results.extend(_transaction_result(item) for item in transaction_queryset.order_by('-_relevance', '-transaction_at', '-created_at')[:limit])
+    # Stable lexical ordering: exact title/label matches first, then relevance.
     query_lower = parsed['query'].lower()
     results.sort(key=lambda result: (query_lower not in result['title'].lower(), result['kind'], str(result['id'])))
     return parsed, results[:limit]
 
 
-def _filter_text(queryset, terms, fields):
+def _filter_text(queryset, terms, weighted_fields):
     if not terms:
-        return queryset
-    expression = Q()
-    for term in terms:
-        term_expression = Q()
-        for field in fields:
-            term_expression |= Q(**{f'{field}__icontains': term})
-        expression |= term_expression
-    return queryset.filter(expression).distinct()
+        return queryset.none()
+    annotations = {}
+    score = None
+    for index, term in enumerate(terms):
+        term_score = None
+        for field, weight in weighted_fields:
+            part = Case(When(**{f'{field}__icontains': term, 'then': weight}), default=0, output_field=IntegerField())
+            term_score = part if term_score is None else term_score + part
+        annotations[f'_score_{index}'] = term_score
+        score = term_score if score is None else score + term_score
+    return queryset.annotate(**annotations, _relevance=score).filter(_relevance__gte=1).distinct()
 
 
 def deterministic_answer(user, parsed):

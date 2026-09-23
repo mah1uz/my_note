@@ -74,8 +74,8 @@ test('bulk processing clears the unprocessed backlog from the dashboard', async 
   // Manual queue lists backlog notes for hand organization.
   await expect(page.getByRole('link', { name: /e2e zero items/i })).toBeVisible()
 
-  // Analyze All drafts both notes; the queue reports the summary.
+  // Analyze All confirms both notes automatically; the queue reports it.
   await page.getByRole('button', { name: /^analyze all/i }).first().click()
-  await expect(page.getByText(/analyzed 2/i)).toBeVisible()
+  await expect(page.getByText(/confirmed 2/i)).toBeVisible()
   expect(pageErrors).toEqual([])
 })

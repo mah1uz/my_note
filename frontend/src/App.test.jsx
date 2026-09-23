@@ -71,7 +71,11 @@ function installApiMock() {
       if (!state.authenticated) return jsonResponse({ detail: 'Authentication required.' }, 401)
       return jsonResponse({ user: state.profile, preferences: { ...state.prefs } })
     }
-    if (path.endsWith('/items/')) return jsonResponse([])
+    if (path.endsWith('/items/')) {
+      const type = url.searchParams.get('type')
+      return jsonResponse((state.itemsList || []).filter((item) => !type || item.item_type === type))
+    }
+    if (path.endsWith('/transactions/summary/')) return jsonResponse(state.txSummary || { currencies: [] })
     if (path.endsWith('/review/')) {
       const note = state.notes.find((item) => item.id === Number(path.split('/').at(-3)))
       return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: [], domains: [], analysis_running: false })
@@ -145,6 +149,8 @@ describe('Part 2 full-stack UI flows', () => {
     state.failNotes = false
     state.delayNotes = false
     state.failNoteDetail = 0
+    state.itemsList = []
+    state.txSummary = null
     state.failLogin = false
     setAccessToken(null)
     window.history.pushState({}, '', '/')
@@ -234,6 +240,20 @@ describe('Part 2 full-stack UI flows', () => {
     await user.click(await screen.findByRole('button', { name: /analyze buy eggs\./i }))
     expect(await screen.findByRole('heading', { name: /captured thought/i })).toBeInTheDocument()
     expect(state.analyzedNoteIds).toEqual([1])
+  })
+
+  it('shows live dashboard counts instead of dummy numbers', async () => {
+    state.authenticated = true
+    state.itemsList = [
+      { id: 1, item_type: 'TASK', title: 'Real task', status: 'PENDING', importance: 'HIGH', domains: ['work'], due_date: '2026-09-24' },
+      { id: 2, item_type: 'TASK', title: 'Done task', status: 'COMPLETED', importance: 'LOW', domains: [] },
+      { id: 3, item_type: 'EVENT', title: 'Real event', status: 'PENDING', importance: 'NORMAL', domains: [], start_date: '2026-09-25' },
+    ]
+    state.txSummary = { currencies: [{ currency: 'BDT', credits: '5000.0000', debits: '1200.0000', balance: '3800.0000' }] }
+    renderApp('/app')
+    expect(await screen.findByText('Real task')).toBeInTheDocument()
+    expect(screen.getByText('BDT 3800.0000')).toBeInTheDocument()
+    expect(screen.queryByText('৳250')).not.toBeInTheDocument()
   })
 
   it('keeps the grounded Ask page usable', async () => {

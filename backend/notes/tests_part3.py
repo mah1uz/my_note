@@ -359,7 +359,7 @@ class IntelligenceApiTests(APITestCase):
         ])
         self.assertNotIn('tense_conflict', shopping.items.get().metadata)
 
-    def test_verify_mode_leaves_flagged_drafts_for_review(self):
+    def test_verify_mode_leaves_everything_for_manual_review(self):
         note = self.analyze_text('i have to buy shampoo for 100 taka', [
             prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
                        domains=['shopping']),
@@ -367,23 +367,44 @@ class IntelligenceApiTests(APITestCase):
                        domains=['shopping', 'finance']),
         ])
         # Put the analyzed note back on the backlog; bulk verify re-analyzes
-        # (same fixture) and must refuse to confirm either flagged draft.
+        # (same fixture) and confirms nothing: every draft awaits manual review.
         # The shared setUp note is parked as processed to isolate this case.
         Note.objects.filter(pk=self.note.pk).update(processing_status='PROCESSED')
         Note.objects.filter(pk=note.pk).update(processing_status='UNPROCESSED')
         response = self.client.post('/api/v1/notes/process-all/', {'mode': 'verify'},
                                     format='json', HTTP_X_GROQ_TRIAL='true')
         self.assertEqual(response.status_code, 200)
-        # The EXPENSE carries a tense flag, the TASK shares one money mention:
-        # verify confirms neither and says so.
         self.assertEqual(
             response.data['results'],
-            [{'id': note.pk, 'status': 'verified', 'code': 'review_remaining'}],
+            [{'id': note.pk, 'status': 'analyzed', 'code': 'ok'}],
         )
         note.refresh_from_db()
         self.assertEqual(note.processing_status, 'REVIEW_REQUIRED')
         self.assertEqual(note.items.filter(is_confirmed=False).count(), 2)
         self.assertEqual(note.items.filter(is_confirmed=True).count(), 0)
+
+    def test_analyze_mode_confirms_even_flagged_drafts(self):
+        note = self.analyze_text('i have to buy shampoo for 100 taka', [
+            prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
+                       domains=['shopping']),
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        Note.objects.filter(pk=self.note.pk).update(processing_status='PROCESSED')
+        Note.objects.filter(pk=note.pk).update(processing_status='UNPROCESSED')
+        response = self.client.post('/api/v1/notes/process-all/', {'mode': 'analyze'},
+                                    format='json', HTTP_X_GROQ_TRIAL='true')
+        self.assertEqual(response.status_code, 200)
+        # Fully automatic: flags stay visible as metadata, but both drafts are
+        # confirmed and the note leaves the backlog.
+        self.assertEqual(
+            response.data['results'],
+            [{'id': note.pk, 'status': 'confirmed', 'code': 'ok'}],
+        )
+        note.refresh_from_db()
+        self.assertEqual(note.processing_status, 'PROCESSED')
+        self.assertEqual(note.items.filter(is_confirmed=True).count(), 2)
+        self.assertTrue(note.items.filter(metadata__has_key='possible_split').exists())
 
     def test_multi_item_confirmation_correction_removal_and_manual_addition(self):
         self.provider.return_value = json.dumps(example_output(list(EXAMPLES)[3]))
@@ -473,6 +494,18 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(response.data['processing_status'], 'UNPROCESSED')
         self.client.force_authenticate(self.other)
         self.assertEqual(self.client.get(self.base).status_code, 404)
+
+    def test_notes_list_is_owner_scoped_and_fresh_accounts_see_none(self):
+        # Provisioning creates no notes: a brand-new account lists nothing,
+        # and no account ever sees another account's notes.
+        fresh = AppUser.objects.create(email='fresh@example.com')
+        owned = self.client.get('/api/v1/notes/').data
+        self.assertEqual(len(owned), 1)
+        self.assertEqual(owned[0]['raw_text'], self.text)
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.get('/api/v1/notes/').data, [])
+        self.client.force_authenticate(fresh)
+        self.assertEqual(self.client.get('/api/v1/notes/').data, [])
 
     def test_unauthenticated_requests_rejected(self):
         self.client.force_authenticate(None)
@@ -660,7 +693,7 @@ class BulkProcessTests(APITestCase):
         defaults.update(headers)
         return self.client.post('/api/v1/notes/process-all/', {'mode': mode}, format='json', **defaults)
 
-    def test_analyze_mode_drafts_backlog_and_leaves_processed_alone(self):
+    def test_analyze_mode_confirms_backlog_automatically(self):
         first = self.make(self.texts[0])
         second = self.make(self.texts[1], status='FAILED')
         done = self.make(self.texts[2], status='PROCESSED')
@@ -670,30 +703,29 @@ class BulkProcessTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             [(row['id'], row['status']) for row in response.data['results']],
-            [(first.pk, 'analyzed'), (second.pk, 'analyzed')],
+            [(first.pk, 'confirmed'), (second.pk, 'confirmed')],
         )
         for note in (first, second):
             note.refresh_from_db()
-            self.assertEqual(note.processing_status, 'REVIEW_REQUIRED')
-            self.assertTrue(note.items.filter(is_confirmed=False).exists())
-            self.assertFalse(note.items.filter(is_confirmed=True).exists())
+            self.assertEqual(note.processing_status, 'PROCESSED')
+            self.assertTrue(note.items.filter(is_confirmed=True).exists())
+            self.assertFalse(note.items.filter(is_confirmed=False).exists())
         done.refresh_from_db()
         self.assertEqual(done.items.count(), 0)
-        self.assertFalse(Note.objects.filter(pk=hidden.pk, processing_status='REVIEW_REQUIRED').exists())
+        self.assertFalse(Note.objects.filter(pk=hidden.pk, processing_status='PROCESSED').exists())
         self.assertEqual(Note.objects.get(pk=foreign.pk).items.count(), 0)
         self.provider.assert_called()
 
-    def test_verify_mode_confirms_drafts_without_touching_text(self):
+    def test_verify_mode_leaves_drafts_for_manual_review(self):
         note = self.make(self.texts[2])
         response = self.bulk('verify')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data['results'], [{'id': note.pk, 'status': 'verified', 'code': 'ok'}])
+        self.assertEqual(response.data['results'], [{'id': note.pk, 'status': 'analyzed', 'code': 'ok'}])
         note.refresh_from_db()
-        self.assertEqual(note.processing_status, 'PROCESSED')
+        self.assertEqual(note.processing_status, 'REVIEW_REQUIRED')
         self.assertEqual(note.raw_text, self.texts[2])
-        self.assertTrue(note.items.filter(is_confirmed=True).exists())
-        self.assertFalse(note.items.filter(is_confirmed=False).exists())
-        self.assertTrue(note.ai_logs.filter(operation='CONFIRM', status='SUCCESS').exists())
+        self.assertTrue(note.items.filter(is_confirmed=False).exists())
+        self.assertFalse(note.items.filter(is_confirmed=True).exists())
 
     def test_empty_backlog_returns_empty_results(self):
         self.assertEqual(self.bulk('analyze').data, {'mode': 'analyze', 'results': [], 'stopped': None})
@@ -725,7 +757,7 @@ class BulkProcessTests(APITestCase):
         self.assertEqual(response.data['stopped'], 'trial_exhausted')
         self.assertEqual(
             [(row['id'], row['status']) for row in response.data['results']],
-            [(first.pk, 'analyzed'), (second.pk, 'failed')],
+            [(first.pk, 'confirmed'), (second.pk, 'failed')],
         )
         second.refresh_from_db()
         self.assertEqual(second.processing_status, 'UNPROCESSED')
