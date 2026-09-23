@@ -147,6 +147,35 @@ class AdminManagementTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_cannot_remove_last_active_super_admin(self):
+        from .admin_views import would_remove_last_super_admin
+        lone = AdminProfile.objects.create(
+            django_user=User.objects.create_user(username='lone', password='StrongPass!2026'),
+            role='SUPER_ADMIN',
+        )
+        # With the fixture super admin active, lone is not the last one.
+        self.assertFalse(would_remove_last_super_admin(lone, {'role': 'ADMIN'}))
+        # Retire the fixture super admin directly: lone becomes the last.
+        AdminProfile.objects.filter(pk=self.super_profile.pk).update(is_active=False)
+        lone.refresh_from_db()
+        self.assertTrue(would_remove_last_super_admin(lone, {'role': 'ADMIN'}))
+        self.assertTrue(would_remove_last_super_admin(lone, {'is_active': False}))
+        # ...but harmless or unrelated changes pass, as does demotion
+        # while a second active super admin exists.
+        self.assertFalse(would_remove_last_super_admin(lone, {}))
+        other = AdminProfile.objects.create(
+            django_user=User.objects.create_user(username='second2', password='StrongPass!2026'),
+            role='SUPER_ADMIN',
+        )
+        self.assertFalse(would_remove_last_super_admin(lone, {'role': 'ADMIN'}))
+        # And via the API, removing a non-last super admin still works.
+        AdminProfile.objects.filter(pk=self.super_profile.pk).update(is_active=True)
+        self.client.credentials(HTTP_AUTHORIZATION=self.super_auth)
+        demote = self.client.patch(
+            f'/api/v1/admin/admins/{other.pk}/', {'role': 'ADMIN'}, format='json',
+        )
+        self.assertEqual(demote.status_code, status.HTTP_200_OK)
+
 
 class AISettingsTests(APITestCase):
     def setUp(self):

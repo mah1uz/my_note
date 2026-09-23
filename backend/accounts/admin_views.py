@@ -4,8 +4,10 @@ Private note/item content is never serialized here by design.
 """
 from django.contrib.auth import get_user_model
 from django.db import models
+from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.authentication import TokenAuthentication
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,13 +15,14 @@ from rest_framework.authtoken.models import Token
 
 from notes.models import Note, NoteItem
 
-from .models import AdminProfile, AppUser
+from .models import AdminProfile, AppUser, ProAccessRequest
 from .permissions import IsActiveAdmin, IsSuperAdmin
 from .serializers import (
     AdminCreateSerializer,
     AdminLoginSerializer,
     AdminProfileSerializer,
     AdminUserSerializer,
+    AdminProRequestSerializer,
     AISettingsSerializer,
 )
 from .services.ai_config import get_server_ai_enabled, set_server_ai_enabled
@@ -30,6 +33,26 @@ User = get_user_model()
 
 def _actor(request):
     return getattr(request.user, 'admin_profile', None)
+
+
+def would_remove_last_super_admin(profile, validated_data):
+    """True if applying these changes leaves zero active super admins.
+
+    Defense in depth alongside the self-edit block: the API permission
+    layer normally guarantees another active super admin (the actor), but
+    this documents and enforces the invariant at the decision point.
+    """
+    if profile.role != AdminProfile.Role.SUPER_ADMIN or not profile.is_active:
+        return False
+    demoting = (
+        validated_data.get('role', profile.role) != AdminProfile.Role.SUPER_ADMIN
+        or validated_data.get('is_active', True) is False
+    )
+    if not demoting:
+        return False
+    return not AdminProfile.objects.filter(
+        role=AdminProfile.Role.SUPER_ADMIN, is_active=True,
+    ).exclude(pk=profile.pk).exists()
 
 
 class AdminPagination(PageNumberPagination):
@@ -215,6 +238,11 @@ class AdminDetailView(APIView):
             )
         serializer = AdminProfileSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        if would_remove_last_super_admin(profile, serializer.validated_data):
+            return Response(
+                {'detail': 'Cannot remove the last active super admin.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         changed = {}
         if 'role' in serializer.validated_data:
             changed['role'] = serializer.validated_data['role']
@@ -249,3 +277,63 @@ class AISettingsView(APIView):
             metadata={'server_ai_enabled': enabled},
         )
         return Response({'server_ai_enabled': enabled})
+
+
+class ProRequestListView(generics.ListAPIView):
+    """Admin queue of Pro access requests. Identity shown is the verified
+    account email; nothing here is visible to normal users."""
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsActiveAdmin]
+    pagination_class = AdminPagination
+    serializer_class = AdminProRequestSerializer
+
+    def get_queryset(self):
+        queryset = ProAccessRequest.objects.select_related('user').order_by('-created_at', '-id')
+        status_filter = (self.request.query_params.get('status') or '').strip().upper()
+        if status_filter:
+            if status_filter not in ProAccessRequest.Status.values:
+                raise ValidationError({'status': 'Unsupported status filter.'})
+            queryset = queryset.filter(status=status_filter)
+        return queryset
+
+
+class ProRequestDetailView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsActiveAdmin]
+
+    def _get_request(self, code):
+        try:
+            return ProAccessRequest.objects.select_related('user').get(code=str(code).strip().upper())
+        except (ProAccessRequest.DoesNotExist, ValueError):
+            return None
+
+    def get(self, request, code):
+        pro_request = self._get_request(code)
+        if pro_request is None:
+            return Response({'detail': 'Pro request not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AdminProRequestSerializer(pro_request).data)
+
+    def patch(self, request, code):
+        pro_request = self._get_request(code)
+        if pro_request is None:
+            return Response({'detail': 'Pro request not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = AdminProRequestSerializer(pro_request, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        changed = dict(serializer.validated_data)
+        for field, value in changed.items():
+            setattr(pro_request, field, value)
+        if 'status' in changed and changed['status'] != ProAccessRequest.Status.PENDING:
+            pro_request.decided_at = timezone.now()
+        pro_request.save(update_fields=[*changed.keys(), 'decided_at', 'updated_at'])
+        log_admin_action(
+            'pro_request.updated', request=request, actor=_actor(request),
+            target_user=pro_request.user, metadata={'status': pro_request.status},
+        )
+        if 'status' in changed:
+            try:
+                from notifications.services import notify_pro_request_update
+                notify_pro_request_update(pro_request)
+            except Exception:
+                pass
+        pro_request.refresh_from_db()
+        return Response(AdminProRequestSerializer(pro_request).data)

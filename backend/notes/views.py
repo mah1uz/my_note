@@ -17,6 +17,10 @@ class AnalyzeThrottle(UserRateThrottle):
     scope = 'analyze'
 
 
+class BulkThrottle(UserRateThrottle):
+    scope = 'bulk'
+
+
 def review_data(note):
     return {
         'note': NoteSerializer(note).data,
@@ -38,9 +42,17 @@ class NoteViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         note = serializer.instance
         text_changed = serializer.validated_data.get('raw_text', note.raw_text) != note.raw_text
+        # Optional optimistic concurrency: clients that send the revision they
+        # edited get a 409 on conflict instead of silent last-writer-wins.
+        # Absent revision keeps the legacy behavior.
+        raw_revision = self.request.data.get('revision', None)
+        try:
+            expected = note.revision if raw_revision is None else int(raw_revision)
+        except (TypeError, ValueError):
+            raise ValidationError({'revision': 'Revision must be an integer.'})
         with transaction.atomic():
             changes = {'processing_status': 'UNPROCESSED', 'analysis_started_at': None} if text_changed else {}
-            services.claim_revision(note, note.revision, **changes)
+            services.claim_revision(note, expected, **changes)
             if text_changed:
                 note.items.filter(is_confirmed=False).delete()
             serializer.save()
@@ -77,6 +89,32 @@ class NoteViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         services.confirm(note, **serializer.validated_data)
         return Response(review_data(note))
+
+    @action(detail=False, methods=['post'], url_path='process-all', throttle_classes=[BulkThrottle])
+    def process_all(self, request):
+        """Sequentially process the owned backlog (UNPROCESSED + FAILED).
+
+        Mode 'analyze' is fully automatic: it analyzes and confirms every
+        note with no per-note review step. Mode 'verify' analyzes only and
+        leaves drafts for manual per-note review. Same credential contract
+        as single-note analysis: personal key or trial, never stored.
+        """
+        mode = str(request.data.get('mode') or 'analyze').strip().lower()
+        user_api_key = request.headers.get('X-Groq-Api-Key', '').strip() or None
+        if user_api_key and len(user_api_key) > 200:
+            return Response({
+                'detail': 'The Groq API key is invalid. Enter a valid key and try again.',
+                'code': 'invalid_key',
+            }, status=400)
+        trial = request.headers.get('X-Groq-Trial', '').strip().lower() in ('1', 'true', 'yes', 'on')
+        try:
+            return Response(services.process_backlog(request.user, mode, user_api_key=user_api_key, trial=trial))
+        except ProviderFailure as error:
+            detail = 'Bulk processing could not start. ' if mode in ('analyze', 'verify') else 'Bulk processing failed. '
+            return Response({
+                'detail': f'{detail}{error}',
+                'code': error.code,
+            }, status=error.status_code)
 
 
 class NoteItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):

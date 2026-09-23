@@ -80,6 +80,18 @@ class UserAuthIdentity(models.Model):
 
 
 class UserPreference(models.Model):
+    class Profession(models.TextChoices):
+        STUDENT = 'STUDENT', 'Student'
+        EMPLOYED = 'EMPLOYED', 'Employed'
+        BOTH = 'BOTH', 'Both'
+        OTHER = 'OTHER', 'Other'
+        PREFER_NOT_TO_SAY = 'PREFER_NOT_TO_SAY', 'Prefer not to say'
+
+    class PriorityProfile(models.TextChoices):
+        BALANCED = 'BALANCED', 'Balanced'
+        STUDY_FIRST = 'STUDY_FIRST', 'Study first'
+        WORK_FIRST = 'WORK_FIRST', 'Work first'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name='preferences')
     notification_enabled = models.BooleanField(default=False)
@@ -87,6 +99,12 @@ class UserPreference(models.Model):
     location_reminders_enabled = models.BooleanField(default=False)
     daily_briefing_enabled = models.BooleanField(default=True)
     week_starts_on = models.PositiveSmallIntegerField(default=0)
+    profession = models.CharField(max_length=24, choices=Profession.choices, blank=True, default='')
+    priority_profile = models.CharField(
+        max_length=24, choices=PriorityProfile.choices, default=PriorityProfile.BALANCED,
+    )
+    onboarding_completed_at = models.DateTimeField(null=True, blank=True)
+    onboarding_tour_version = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -96,6 +114,36 @@ class UserPreference(models.Model):
             models.CheckConstraint(
                 condition=models.Q(week_starts_on__gte=0, week_starts_on__lte=6),
                 name='user_preference_week_start_range',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(profession__in=['', 'STUDENT', 'EMPLOYED', 'BOTH', 'OTHER', 'PREFER_NOT_TO_SAY']),
+                name='user_preference_valid_profession',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(priority_profile__in=['BALANCED', 'STUDY_FIRST', 'WORK_FIRST']),
+                name='user_preference_valid_priority',
+            ),
+        ]
+
+
+class UserAiEntitlement(models.Model):
+    """Backend-authoritative free-trial quota. One row per AppUser."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name='ai_entitlement')
+    trial_limit = models.PositiveIntegerField(default=5)
+    trial_used = models.PositiveIntegerField(default=0)
+    trial_started_at = models.DateTimeField(null=True, blank=True)
+    trial_expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_ai_entitlements'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(trial_used__lte=models.F('trial_limit')),
+                name='ai_trial_usage_within_limit',
             ),
         ]
 
@@ -159,3 +207,40 @@ class AdminAuditEvent(models.Model):
             models.Index(fields=('target_user', 'created_at'), name='audit_user_created_idx'),
             models.Index(fields=('action', 'created_at'), name='audit_action_created_idx'),
         ]
+
+
+class ProAccessRequest(models.Model):
+    """User request for Pro access. The code is the opaque request token:
+    generated server-side, unique, carrying no identity or permission."""
+
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        CONTACTED = 'CONTACTED', 'Contacted'
+        APPROVED = 'APPROVED', 'Approved'
+        DECLINED = 'DECLINED', 'Declined'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(AppUser, on_delete=models.CASCADE, related_name='pro_requests')
+    code = models.CharField(max_length=12, unique=True)
+    reason = models.CharField(max_length=500, blank=True, default='')
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'pro_access_requests'
+        ordering = ('-created_at', '-id')
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(status__in=['PENDING', 'CONTACTED', 'APPROVED', 'DECLINED']),
+                name='pro_request_valid_status',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('user', 'status'), name='pro_request_user_status_idx'),
+            models.Index(fields=('status', 'created_at'), name='pro_request_status_created_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.code} {self.status}'

@@ -5,6 +5,7 @@ from unittest.mock import patch
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
 from django.test import TestCase, override_settings
+from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
 
 from .authentication import SupabaseJWTAuthentication
@@ -90,3 +91,32 @@ class SupabaseJWTAuthenticationTests(TestCase):
         with patch.object(SupabaseJWTAuthentication, '_client', return_value=fake_client):
             with self.assertRaises(Exception):
                 SupabaseJWTAuthentication().authenticate(request)
+
+    def test_expired_token_is_rejected(self):
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        claims = {
+            'iss': 'https://project.supabase.co/auth/v1', 'sub': 'expired-user', 'aud': 'authenticated',
+            'email': 'expired@example.com', 'iat': datetime.now(dt_timezone.utc) - timedelta(minutes=10),
+            'exp': datetime.now(dt_timezone.utc) - timedelta(minutes=5),
+        }
+        token = jwt.encode(claims, private_key, algorithm='ES256', headers={'kid': 'test-key'})
+        request = APIRequestFactory().get('/', HTTP_AUTHORIZATION=f'Bearer {token}')
+        fake_key = SimpleNamespace(key=private_key.public_key())
+        fake_client = SimpleNamespace(get_signing_key_from_jwt=lambda value: fake_key)
+        with patch.object(SupabaseJWTAuthentication, '_client', return_value=fake_client):
+            with self.assertRaises(exceptions.AuthenticationFailed):
+                SupabaseJWTAuthentication().authenticate(request)
+        self.assertFalse(AppUser.objects.filter(email='expired@example.com').exists())
+
+    def test_malformed_authorization_header_is_rejected(self):
+        for header in ('Token abc123', 'Bearer', 'Bearer a b'):
+            with self.subTest(header=header):
+                request = APIRequestFactory().get('/', HTTP_AUTHORIZATION=header)
+                with self.assertRaises(exceptions.AuthenticationFailed):
+                    SupabaseJWTAuthentication().authenticate(request)
+
+    @override_settings(SUPABASE_JWKS_URL='')
+    def test_missing_jwks_configuration_is_rejected(self):
+        request = APIRequestFactory().get('/', HTTP_AUTHORIZATION='Bearer anything')
+        with self.assertRaises(exceptions.AuthenticationFailed):
+            SupabaseJWTAuthentication().authenticate(request)

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -71,7 +71,11 @@ function installApiMock() {
       if (!state.authenticated) return jsonResponse({ detail: 'Authentication required.' }, 401)
       return jsonResponse({ user: state.profile, preferences: { ...state.prefs } })
     }
-    if (path.endsWith('/items/')) return jsonResponse([])
+    if (path.endsWith('/items/')) {
+      const type = url.searchParams.get('type')
+      return jsonResponse((state.itemsList || []).filter((item) => !type || item.item_type === type))
+    }
+    if (path.endsWith('/transactions/summary/')) return jsonResponse(state.txSummary || { currencies: [] })
     if (path.endsWith('/review/')) {
       const note = state.notes.find((item) => item.id === Number(path.split('/').at(-3)))
       return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: [], domains: [], analysis_running: false })
@@ -89,12 +93,27 @@ function installApiMock() {
       return jsonResponse(notePayload(note), 201)
     }
 
+    const analyzeMatch = path.match(/\/notes\/(\d+)\/analyze\/$/)
+    if (analyzeMatch && method === 'POST') {
+      const id = Number(analyzeMatch[1])
+      state.analyzedNoteIds = [...(state.analyzedNoteIds || []), id]
+      const note = state.notes.find((item) => item.id === id)
+      if (!note) return jsonResponse({ detail: 'Not found.' }, 404)
+      return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: [], domains: [], analysis_running: false })
+    }
+
     const match = path.match(/\/notes\/(\d+)\/$/)
     if (match) {
       const id = Number(match[1])
       const index = state.notes.findIndex((note) => note.id === id)
       if (index < 0) return jsonResponse({ detail: 'Not found.' }, 404)
-      if (method === 'GET') return jsonResponse(notePayload(state.notes[index]))
+      if (method === 'GET') {
+        if (state.failNoteDetail > 0) {
+          state.failNoteDetail -= 1
+          return jsonResponse({ detail: 'Note is temporarily unavailable.' }, 503)
+        }
+        return jsonResponse(notePayload(state.notes[index]))
+      }
       if (method === 'PATCH') {
         state.notes[index] = { ...state.notes[index], raw_text: JSON.parse(options.body).raw_text }
         return jsonResponse(notePayload(state.notes[index]))
@@ -129,6 +148,9 @@ describe('Part 2 full-stack UI flows', () => {
     state.nextId = 2
     state.failNotes = false
     state.delayNotes = false
+    state.failNoteDetail = 0
+    state.itemsList = []
+    state.txSummary = null
     state.failLogin = false
     setAccessToken(null)
     window.history.pushState({}, '', '/')
@@ -147,7 +169,7 @@ describe('Part 2 full-stack UI flows', () => {
     renderApp('/login')
     await user.click(await screen.findByRole('button', { name: /log in/i }))
     expect(screen.getByText(/enter your email and password/i)).toBeInTheDocument()
-    await user.type(screen.getByLabelText(/email or username/i), 'maya@example.com')
+    await user.type(screen.getByLabelText(/^email$/i), 'maya@example.com')
     await user.type(screen.getByLabelText(/^password$/i), 'wrong-password')
     await user.click(screen.getByRole('button', { name: /log in/i }))
     expect(await screen.findByText(/invalid credentials/i)).toBeInTheDocument()
@@ -200,19 +222,58 @@ describe('Part 2 full-stack UI flows', () => {
     expect(await screen.findByText(/temporarily unavailable/i)).toBeInTheDocument()
   })
 
-  it('keeps later feature pages mocked and usable', async () => {
+  it('shows a retry action when a note fails to load, then recovers', async () => {
+    state.authenticated = true
+    state.failNoteDetail = 1
+    const user = userEvent.setup()
+    renderApp('/app/notes/1')
+    expect(await screen.findByRole('heading', { name: /couldn't load this note/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+    expect(await screen.findByRole('heading', { name: /captured thought/i })).toBeInTheDocument()
+    expect(screen.getByText('Buy eggs.')).toBeInTheDocument()
+  })
+
+  it('analyzes a note on the spot from the note card', async () => {
+    state.authenticated = true
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /analyze buy eggs\./i }))
+    expect(await screen.findByRole('heading', { name: /captured thought/i })).toBeInTheDocument()
+    expect(state.analyzedNoteIds).toEqual([1])
+  })
+
+  it('shows live dashboard cards instead of dummy numbers', async () => {
+    state.authenticated = true
+    const freshAt = new Date().toISOString()
+    state.notes = [
+      { id: 1, raw_text: 'Fresh thought from today', created_at: freshAt },
+      { id: 2, raw_text: 'Old thought from weeks ago', created_at: '2026-09-01T08:00:00Z' },
+    ]
+    state.itemsList = []
+    state.txSummary = { currencies: [] }
+    renderApp('/app')
+    const tasksCard = await screen.findByRole('region', { name: "Today's tasks" })
+    expect(within(tasksCard).getByText('Fresh thought from today')).toBeInTheDocument()
+    expect(tasksCard).toHaveTextContent('Fresh thought from today')
+    expect(tasksCard).not.toHaveTextContent('Old thought from weeks ago')
+    expect(screen.queryByText('৳250')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Recent notes' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Processing queue' })).toBeInTheDocument()
+  })
+
+  it('keeps the grounded Ask page usable', async () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app/search')
     await user.click(await screen.findByRole('button', { name: /ask my notes/i }))
-    expect(screen.getByText(/mock answer · prototype/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /ask a grounded question/i })).toBeInTheDocument()
   })
 
   it('clears and reloads Notes when the authenticated account changes', async () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/login')
-    await user.type(screen.getByLabelText(/email or username/i), 'bob@example.com')
+    await user.type(screen.getByLabelText(/^email$/i), 'bob@example.com')
     await user.type(screen.getByLabelText(/^password$/i), 'secret123')
     await user.click(screen.getByRole('button', { name: /log in/i }))
     expect(await screen.findByRole('heading', { name: /good morning, bob user/i })).toBeInTheDocument()
@@ -278,6 +339,39 @@ describe('Part 2 full-stack UI flows', () => {
     await user.click(toggle)
     expect(await screen.findByRole('button', { name: 'Close menu' })).toBeInTheDocument()
     expect(document.querySelector('.sidebar.open')).toBeInTheDocument()
+  })
+
+  it('shows Unlock Pro above logout, persists collapse, and offers header search', async () => {
+    state.authenticated = true
+    const store = {}
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key) => (key in store ? store[key] : null),
+        setItem: (key, value) => { store[key] = String(value) },
+        removeItem: (key) => { delete store[key] },
+        clear: () => { for (const key of Object.keys(store)) delete store[key] },
+      },
+    })
+    const user = userEvent.setup()
+    renderApp('/app')
+    const unlock = await screen.findByRole('button', { name: /unlock pro/i })
+    const sidebarBottom = unlock.closest('.sidebar-bottom')
+    expect(sidebarBottom.textContent).toMatch(/Unlock Pro.*Log out/s)
+    expect(document.querySelector('.header-search')).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: /global search/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^notifications$/i })).toBeInTheDocument()
+    expect(document.querySelector('.topbar .theme-toggle[role="switch"]')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Open menu' }))
+    expect(window.localStorage.getItem('rememberly_nav')).toBe('open')
+  })
+
+  it('routes header search to the search page with the query', async () => {
+    state.authenticated = true
+    const user = userEvent.setup()
+    renderApp('/app')
+    await user.type(await screen.findByRole('searchbox', { name: /global search/i }), 'exam time{enter}')
+    expect(await screen.findByPlaceholderText(/what do you want to know|search notes/i)).toBeInTheDocument()
   })
 
   it('renders all protected application pages for an authenticated user', async () => {

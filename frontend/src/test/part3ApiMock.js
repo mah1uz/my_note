@@ -15,7 +15,7 @@ export function installPart3Mock() {
       created_at: '2026-09-21T08:00:00Z', updated_at: '2026-09-21T08:00:00Z' },
     items: [], analysisItems: [exampleItem()], confirmedPayload: null,
     failAnalyze: false, failConfirm: false, failReview: false, failList: false, failPatch: false,
-    analyzeWait: null, analysisRunning: false
+    analyzeWait: null, analysisRunning: false, transactions: []
   }
   const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
   const review = () => ({ note: { ...state.note }, items: state.items.map((item) => ({ ...item, revision: state.note.revision })),
@@ -67,6 +67,20 @@ export function installPart3Mock() {
       Object.assign(item, body)
       state.note.revision++
       return response(item)
+    }
+    if (path.endsWith('/transactions/')) {
+      if (options.method === 'POST') {
+        const created = { id: `tx-${state.transactions.length + 1}`, ...body }
+        state.transactions.push(created)
+        return response(created, 201)
+      }
+      const noteItem = url.searchParams.get('note_item')
+      return response(state.transactions.filter((row) => String(row.note_item) === String(noteItem)))
+    }
+    if (/\/transactions\/.+\/$/.test(path) && options.method === 'DELETE') {
+      const id = path.split('/').at(-2)
+      state.transactions = state.transactions.filter((row) => row.id !== id)
+      return response(null, 204)
     }
     throw new Error(`Unhandled Part 3 mock: ${path}`)
   }))

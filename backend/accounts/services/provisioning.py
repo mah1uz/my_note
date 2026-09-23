@@ -1,7 +1,7 @@
 from django.db import transaction
 from django.utils import timezone
 
-from accounts.models import AppUser, UserAuthIdentity, UserPreference
+from accounts.models import AppUser, UserAiEntitlement, UserAuthIdentity, UserPreference
 
 
 def _claim_email(claims):
@@ -55,4 +55,5 @@ def provision_from_claims(claims):
     )
     UserAuthIdentity.objects.create(user=user, auth_system='SUPABASE', issuer=issuer, subject=subject, last_seen_at=now)
     UserPreference.objects.create(user=user)
+    UserAiEntitlement.objects.create(user=user)
     return user

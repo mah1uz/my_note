@@ -38,6 +38,7 @@ class ItemInputSerializer(StrictFieldsMixin, serializers.Serializer):
     place_hint = serializers.CharField(max_length=120, allow_null=True, default=None)
     status = serializers.ChoiceField(choices=ITEM_STATUSES, default='PENDING')
     importance = serializers.ChoiceField(choices=IMPORTANCES, default='NORMAL')
+    metadata = serializers.JSONField(required=False, default=dict)
 
     def validate_domains(self, domains):
         if len(domains) > len(DOMAINS) or len({domain.pk for domain in domains}) != len(domains):
@@ -88,5 +89,6 @@ class NoteItemSerializer(serializers.ModelSerializer):
             'domains', 'start_date', 'due_date', 'start_datetime', 'due_datetime',
             'amount', 'currency', 'quantity', 'unit', 'place_hint', 'status',
             'importance', 'confidence', 'is_confirmed', 'created_at', 'updated_at',
+            'metadata',
         )
         read_only_fields = fields

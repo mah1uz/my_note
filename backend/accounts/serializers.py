@@ -5,7 +5,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import AdminProfile, UserPreference
+from .models import AdminProfile, ProAccessRequest, UserAiEntitlement, UserPreference
 
 
 class AppUserSerializer(serializers.Serializer):
@@ -78,7 +78,7 @@ class AdminProfileSerializer(serializers.ModelSerializer):
 class AdminCreateSerializer(serializers.Serializer):
     username = serializers.RegexField(regex=r'^[\w.@+-]+$', max_length=150)
     email = serializers.EmailField(required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True, trim_whitespace=False, min_length=8)
+    password = serializers.CharField(write_only=True, trim_whitespace=False, min_length=6)
     role = serializers.ChoiceField(choices=('ADMIN', 'SUPER_ADMIN'), default='ADMIN')
 
     def validate_username(self, value):
@@ -132,12 +132,56 @@ class AISettingsSerializer(serializers.Serializer):
 
 class PreferenceSerializer(serializers.ModelSerializer):
     week_starts_on = serializers.IntegerField(min_value=0, max_value=6, required=False)
+    onboarding_completed_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = UserPreference
         fields = (
             'notification_enabled', 'time_reminders_enabled',
             'location_reminders_enabled', 'daily_briefing_enabled',
-            'week_starts_on',
+            'week_starts_on', 'profession', 'priority_profile',
+            'onboarding_completed_at', 'onboarding_tour_version',
         )
         extra_kwargs = {field: {'required': False} for field in fields}
+
+
+class AiEntitlementSerializer(serializers.ModelSerializer):
+    remaining = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UserAiEntitlement
+        fields = ('trial_limit', 'trial_used', 'remaining', 'trial_started_at', 'trial_expires_at')
+        read_only_fields = fields
+
+    def get_remaining(self, entitlement):
+        return max(entitlement.trial_limit - entitlement.trial_used, 0)
+
+
+class ProRequestCreateSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500, allow_blank=True, default='')
+
+    def validate_reason(self, value):
+        return value.strip()[:500]
+
+
+class ProRequestSerializer(serializers.ModelSerializer):
+    """User projection: code + status, never the database primary key."""
+
+    class Meta:
+        model = ProAccessRequest
+        fields = ('code', 'status', 'reason', 'created_at', 'decided_at')
+        read_only_fields = fields
+
+
+class AdminProRequestSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    display_name = serializers.CharField(source='user.display_name', read_only=True)
+    status = serializers.ChoiceField(choices=ProAccessRequest.Status.choices)
+
+    class Meta:
+        model = ProAccessRequest
+        fields = (
+            'code', 'user_email', 'display_name', 'reason', 'status',
+            'created_at', 'updated_at', 'decided_at',
+        )
+        read_only_fields = ('code', 'user_email', 'display_name', 'reason', 'created_at', 'updated_at', 'decided_at')

@@ -17,7 +17,7 @@ from rest_framework.test import APITestCase
 
 from ai.schema import InvalidAnalysis, parse_analysis
 from ai.services import groq_service
-from accounts.models import AppUser, SystemSetting
+from accounts.models import AppUser, SystemSetting, UserAiEntitlement
 from .constants import DOMAINS
 from .models import AIProcessingLog, Domain, Note, NoteItem
 from .test_fixtures import EXAMPLES, example_output, prediction
@@ -134,6 +134,37 @@ class ProviderAdapterTests(SimpleTestCase):
         self.assertNotIn('personal-session-key', str(raised.exception))
 
     @patch('ai.services.groq_service.Groq')
+    def test_sdk_uses_configured_model(self, sdk):
+        from django.conf import settings
+        client = sdk.return_value.__enter__.return_value
+        client.chat.completions.create.return_value = SimpleNamespace(choices=[SimpleNamespace(
+            finish_reason='stop', message=SimpleNamespace(content='{"summary":"", "items":[]}'))])
+        groq_service.analyze_note('Buy eggs', timezone.now())
+        self.assertEqual(client.chat.completions.create.call_args.kwargs['model'], settings.GROQ_MODEL)
+
+    @patch('ai.services.groq_service.Groq')
+    def test_retired_model_error_is_diagnosable_and_sanitized(self, sdk):
+        request = httpx.Request('POST', 'https://example.invalid')
+        response = httpx.Response(400, request=request)
+        sdk.return_value.__enter__.return_value.chat.completions.create.side_effect = APIStatusError(
+            'The model llama-3.3-70b-versatile has been decommissioned', response=response, body=None)
+        with self.assertRaises(groq_service.ProviderFailure) as raised:
+            groq_service.analyze_note('Buy eggs', timezone.now(), api_key='gsk_personal_secret_xyz')
+        self.assertEqual(raised.exception.code, 'provider')
+        self.assertIn('400', str(raised.exception))
+        self.assertNotIn('gsk_personal_secret_xyz', str(raised.exception))
+
+    def test_provider_echo_of_personal_key_is_redacted(self):
+        # analyze_note returns provider content verbatim; redaction is applied
+        # by the service layer before anything is persisted or logged.
+        raw = groq_service.redact(
+            '{"summary":"saw gsk_personal_secret_xyz", "items":[]}',
+            extra_key='gsk_personal_secret_xyz',
+        )
+        self.assertNotIn('gsk_personal_secret_xyz', raw)
+        self.assertIn('[REDACTED]', raw)
+
+    @patch('ai.services.groq_service.Groq')
     def test_incomplete_response_is_failure(self, sdk):
         sdk.return_value.__enter__.return_value.chat.completions.create.return_value = SimpleNamespace(
             choices=[SimpleNamespace(finish_reason='length')])
@@ -175,6 +206,9 @@ class IntelligenceApiTests(APITestCase):
         self.text = 'I need eggs from Agora.'
         self.note = Note.objects.create(app_user=self.owner, raw_text=self.text)
         self.base = f'/api/v1/notes/{self.note.pk}/'
+        # Trial quota is backend-enforced; existing intelligence tests exercise
+        # throttling/retry paths, not quota, so lift the limit for this suite.
+        UserAiEntitlement.objects.create(user=self.owner, trial_limit=100)
         self.provider = patch('ai.services.groq_service.analyze_note', return_value=json.dumps(example_output(self.text))).start()
         self.addCleanup(patch.stopall)
 
@@ -199,6 +233,178 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(self.client.get('/api/v1/items/').data, [])
         self.assertNotIn('raw_response', str(response.data))
         self.assertEqual(self.note.ai_logs.get().parsed_response, example_output(self.text))
+
+    def test_deterministic_evidence_is_review_signal_and_survives_confirmation(self):
+        self.assertEqual(self.analyze().status_code, 200)
+        draft = self.note.items.get()
+        self.assertIn('deterministic_evidence', draft.metadata)
+        response = self.confirm([{'id': draft.pk, 'item_type': draft.item_type, 'title': draft.title}])
+        self.assertEqual(response.status_code, 200)
+        draft.refresh_from_db()
+        self.assertTrue(draft.is_confirmed)
+        self.assertIn('deterministic_evidence', draft.metadata)
+
+    def test_personal_key_is_never_persisted_returned_or_logged(self):
+        key = 'gsk_test_personal_key_xyz'
+        response = self.client.post(
+            self.base + 'analyze/', {'revision': self.note.revision},
+            format='json', HTTP_X_GROQ_API_KEY=key,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(key, json.dumps(response.data))
+        for log in self.note.ai_logs.all():
+            blob = json.dumps({
+                'raw': log.raw_response, 'parsed': log.parsed_response,
+                'error_code': log.error_code, 'error_message': log.error_message,
+            })
+            self.assertNotIn(key, blob)
+        self.provider.assert_called_once()
+        self.assertNotIn(key, json.dumps(self.client.get(self.base + 'review/').data))
+
+    def analyze_text(self, text, items):
+        note = Note.objects.create(app_user=self.owner, raw_text=text)
+        self.provider.return_value = json.dumps({'summary': '', 'items': items})
+        response = self.client.post(
+            f'/api/v1/notes/{note.pk}/analyze/', {'revision': 0},
+            format='json', HTTP_X_GROQ_TRIAL='true',
+        )
+        self.assertEqual(response.status_code, 200)
+        note.refresh_from_db()
+        return note
+
+    def test_future_intent_reported_as_expense_is_flagged(self):
+        # The exact reported scenario: nothing spent, provider guessed EXPENSE.
+        note = self.analyze_text('i have to buy shampoo for 100 taka', [
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        draft = note.items.get()
+        self.assertFalse(draft.is_confirmed)
+        self.assertIn('future purchase', draft.metadata.get('tense_conflict', ''))
+        # The flag is a warning, not a block: confirming keeps text and flag.
+        response = self.client.post(
+            f'/api/v1/notes/{note.pk}/confirm-analysis/',
+            {'revision': note.revision, 'items': [{
+                'id': draft.pk, 'item_type': 'EXPENSE', 'title': 'Shampoo',
+                'amount': '100', 'currency': 'BDT', 'domains': ['shopping', 'finance'],
+            }]}, format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        draft.refresh_from_db()
+        self.assertTrue(draft.is_confirmed)
+        self.assertIn('tense_conflict', draft.metadata)
+
+    def test_past_spend_reported_as_shopping_task_is_flagged(self):
+        note = self.analyze_text('bought shampoo for 100 taka', [
+            prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
+                       domains=['shopping']),
+        ])
+        draft = note.items.get()
+        self.assertIn('already spent', draft.metadata.get('tense_conflict', ''))
+
+    def test_correctly_routed_items_carry_no_tense_flag(self):
+        cases = [
+            ('i have to buy shampoo for 100 taka', dict(
+                type='TASK', title='Buy shampoo', amount=100, currency='BDT', domains=['shopping'])),
+            ('bought shampoo for 100 taka', dict(
+                type='EXPENSE', title='Shampoo', amount=100, currency='BDT', domains=['shopping', 'finance'])),
+            ('shampoo 100 taka', dict(
+                type='TASK', title='Shampoo', amount=100, currency='BDT', domains=['shopping'])),
+        ]
+        for text, item in cases:
+            with self.subTest(text=text):
+                note = self.analyze_text(text, [prediction(**item)])
+                self.assertNotIn('tense_conflict', note.items.get().metadata)
+
+    def test_split_items_are_kept_and_all_flagged(self):
+        # The reported shampoo case: one money mention, two same-price items.
+        # Nothing is merged; both drafts survive with a split warning, and the
+        # future-tense EXPENSE additionally carries the tense warning.
+        note = self.analyze_text('i have to buy shampoo for 100 taka', [
+            prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
+                       domains=['shopping']),
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        self.assertEqual(note.items.count(), 2)
+        for draft in note.items.all():
+            self.assertFalse(draft.is_confirmed)
+            self.assertIn('possible_split', draft.metadata)
+            self.assertIn('Keep the one that fits', draft.metadata['possible_split'])
+        expense = note.items.get(item_type='EXPENSE')
+        self.assertIn('future purchase', expense.metadata.get('tense_conflict', ''))
+        task = note.items.get(item_type='TASK')
+        self.assertNotIn('tense_conflict', task.metadata)
+
+    def test_distinct_money_mentions_are_not_flagged_as_split(self):
+        note = self.analyze_text('bought shampoo for 100 taka and soap for 50 taka', [
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+            prediction(type='EXPENSE', title='Soap', amount=50, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        self.assertEqual(note.items.count(), 2)
+        for draft in note.items.all():
+            self.assertNotIn('possible_split', draft.metadata)
+
+    def test_obligation_task_suggests_event_but_dated_shopping_does_not(self):
+        dated = self.analyze_text('have to submit the report on Friday', [
+            prediction(type='TASK', title='Submit report', due_date='2026-09-25',
+                       domains=['work']),
+        ])
+        self.assertIn('event', dated.items.get().metadata.get('tense_conflict', ''))
+        shopping = self.analyze_text('buy milk tomorrow', [
+            prediction(type='TASK', title='Buy milk', due_date='2026-09-23',
+                       domains=['shopping']),
+        ])
+        self.assertNotIn('tense_conflict', shopping.items.get().metadata)
+
+    def test_verify_mode_leaves_everything_for_manual_review(self):
+        note = self.analyze_text('i have to buy shampoo for 100 taka', [
+            prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
+                       domains=['shopping']),
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        # Put the analyzed note back on the backlog; bulk verify re-analyzes
+        # (same fixture) and confirms nothing: every draft awaits manual review.
+        # The shared setUp note is parked as processed to isolate this case.
+        Note.objects.filter(pk=self.note.pk).update(processing_status='PROCESSED')
+        Note.objects.filter(pk=note.pk).update(processing_status='UNPROCESSED')
+        response = self.client.post('/api/v1/notes/process-all/', {'mode': 'verify'},
+                                    format='json', HTTP_X_GROQ_TRIAL='true')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data['results'],
+            [{'id': note.pk, 'status': 'analyzed', 'code': 'ok'}],
+        )
+        note.refresh_from_db()
+        self.assertEqual(note.processing_status, 'REVIEW_REQUIRED')
+        self.assertEqual(note.items.filter(is_confirmed=False).count(), 2)
+        self.assertEqual(note.items.filter(is_confirmed=True).count(), 0)
+
+    def test_analyze_mode_confirms_even_flagged_drafts(self):
+        note = self.analyze_text('i have to buy shampoo for 100 taka', [
+            prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
+                       domains=['shopping']),
+            prediction(type='EXPENSE', title='Shampoo', amount=100, currency='BDT',
+                       domains=['shopping', 'finance']),
+        ])
+        Note.objects.filter(pk=self.note.pk).update(processing_status='PROCESSED')
+        Note.objects.filter(pk=note.pk).update(processing_status='UNPROCESSED')
+        response = self.client.post('/api/v1/notes/process-all/', {'mode': 'analyze'},
+                                    format='json', HTTP_X_GROQ_TRIAL='true')
+        self.assertEqual(response.status_code, 200)
+        # Fully automatic: flags stay visible as metadata, but both drafts are
+        # confirmed and the note leaves the backlog.
+        self.assertEqual(
+            response.data['results'],
+            [{'id': note.pk, 'status': 'confirmed', 'code': 'ok'}],
+        )
+        note.refresh_from_db()
+        self.assertEqual(note.processing_status, 'PROCESSED')
+        self.assertEqual(note.items.filter(is_confirmed=True).count(), 2)
+        self.assertTrue(note.items.filter(metadata__has_key='possible_split').exists())
 
     def test_multi_item_confirmation_correction_removal_and_manual_addition(self):
         self.provider.return_value = json.dumps(example_output(list(EXAMPLES)[3]))
@@ -242,6 +448,31 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(self.confirm([]).data['note']['processing_status'], 'REVIEW_REQUIRED')
         self.assertEqual(self.note.items.count(), 0)
 
+    def test_empty_analysis_preserves_existing_drafts(self):
+        self.assertEqual(self.analyze().status_code, 200)
+        draft_id = self.note.items.get(is_confirmed=False).pk
+        self.provider.return_value = '{"summary":"No facts", "items":[]}'
+        self.assertEqual(self.analyze().status_code, 200)
+        self.assertEqual(self.note.ai_logs.filter(status='EMPTY').count(), 1)
+        self.assertTrue(self.note.items.filter(pk=draft_id, is_confirmed=False).exists())
+        self.assertEqual(self.note.processing_status, 'REVIEW_REQUIRED')
+
+    def test_stale_revision_trial_analyze_burns_no_quota(self):
+        from accounts.models import UserAiEntitlement
+        entitlement = UserAiEntitlement.objects.get(user=self.owner)
+        used_before = entitlement.trial_used
+        revision_before = self.note.revision
+        response = self.client.post(
+            self.base + 'analyze/', {'revision': revision_before + 5},
+            format='json', HTTP_X_GROQ_TRIAL='true',
+        )
+        self.assertEqual(response.status_code, 409)
+        entitlement.refresh_from_db()
+        self.note.refresh_from_db()
+        self.assertEqual(entitlement.trial_used, used_before)
+        self.assertEqual(self.note.revision, revision_before)
+        self.provider.assert_not_called()
+
     def test_failures_preserve_note_old_drafts_and_enable_manual_fallback(self):
         self.analyze()
         draft = self.note.items.get()
@@ -280,6 +511,26 @@ class IntelligenceApiTests(APITestCase):
         self.provider.assert_not_called()
         item.refresh_from_db()
         self.assertEqual(item.status, 'PENDING')
+
+    def test_note_detail_retrieve_returns_owned_note_and_hides_foreign(self):
+        response = self.client.get(self.base)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['raw_text'], self.text)
+        self.assertEqual(response.data['processing_status'], 'UNPROCESSED')
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.get(self.base).status_code, 404)
+
+    def test_notes_list_is_owner_scoped_and_fresh_accounts_see_none(self):
+        # Provisioning creates no notes: a brand-new account lists nothing,
+        # and no account ever sees another account's notes.
+        fresh = AppUser.objects.create(email='fresh@example.com')
+        owned = self.client.get('/api/v1/notes/').data
+        self.assertEqual(len(owned), 1)
+        self.assertEqual(owned[0]['raw_text'], self.text)
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.get('/api/v1/notes/').data, [])
+        self.client.force_authenticate(fresh)
+        self.assertEqual(self.client.get('/api/v1/notes/').data, [])
 
     def test_unauthenticated_requests_rejected(self):
         self.client.force_authenticate(None)
@@ -376,6 +627,22 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(self.note.items.get().title, 'Approved')
         self.assertEqual(response.data['processing_status'], 'UNPROCESSED')
 
+    def test_stale_revision_note_edit_conflicts_instead_of_overwriting(self):
+        first = self.client.patch(
+            self.base, {'raw_text': 'First writer', 'revision': self.note.revision}, format='json',
+        )
+        self.assertEqual(first.status_code, 200)
+        stale = self.client.patch(
+            self.base, {'raw_text': 'Stale writer', 'revision': 0}, format='json',
+        )
+        self.assertEqual(stale.status_code, 409)
+        self.note.refresh_from_db()
+        self.assertEqual(self.note.raw_text, 'First writer')
+        current = self.client.patch(
+            self.base, {'raw_text': 'Current writer', 'revision': first.data['revision']}, format='json',
+        )
+        self.assertEqual(current.status_code, 200)
+
     @override_settings(GROQ_API_KEY='synthetic-secret')
     def test_provider_output_cannot_echo_key_into_logs_or_api(self):
         data = example_output(self.text)
@@ -437,3 +704,143 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(response.data['code'], 'trial_unavailable')
         self.assertIn('Free trial is not available', response.data['detail'])
         self.provider.assert_not_called()
+
+
+@override_settings(GROQ_API_KEY='synthetic-test-key')
+class BulkProcessTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.owner = AppUser.objects.create(email='bulk@example.com')
+        self.other = AppUser.objects.create(email='bulk-other@example.com')
+        self.client.force_authenticate(self.owner)
+        UserAiEntitlement.objects.create(user=self.owner, trial_limit=100)
+        self.provider = patch(
+            'ai.services.groq_service.analyze_note', side_effect=self.fixture,
+        ).start()
+        self.addCleanup(patch.stopall)
+        self.texts = list(EXAMPLES)
+
+    def fixture(self, raw_text, now, api_key=None):
+        return json.dumps(example_output(raw_text))
+
+    def make(self, text, status='UNPROCESSED', owner=None, archived=False):
+        note = Note.objects.create(app_user=owner or self.owner, raw_text=text)
+        Note.objects.filter(pk=note.pk).update(processing_status=status, is_archived=archived)
+        note.refresh_from_db()
+        return note
+
+    def bulk(self, mode='analyze', **headers):
+        defaults = {'HTTP_X_GROQ_TRIAL': 'true'}
+        defaults.update(headers)
+        return self.client.post('/api/v1/notes/process-all/', {'mode': mode}, format='json', **defaults)
+
+    def test_analyze_mode_confirms_backlog_automatically(self):
+        first = self.make(self.texts[0])
+        second = self.make(self.texts[1], status='FAILED')
+        done = self.make(self.texts[2], status='PROCESSED')
+        hidden = self.make(self.texts[3], archived=True)
+        foreign = self.make(self.texts[4], owner=self.other)
+        response = self.bulk('analyze')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [(row['id'], row['status']) for row in response.data['results']],
+            [(first.pk, 'confirmed'), (second.pk, 'confirmed')],
+        )
+        for note in (first, second):
+            note.refresh_from_db()
+            self.assertEqual(note.processing_status, 'PROCESSED')
+            self.assertTrue(note.items.filter(is_confirmed=True).exists())
+            self.assertFalse(note.items.filter(is_confirmed=False).exists())
+        done.refresh_from_db()
+        self.assertEqual(done.items.count(), 0)
+        self.assertFalse(Note.objects.filter(pk=hidden.pk, processing_status='PROCESSED').exists())
+        self.assertEqual(Note.objects.get(pk=foreign.pk).items.count(), 0)
+        self.provider.assert_called()
+
+    def test_verify_mode_leaves_drafts_for_manual_review(self):
+        note = self.make(self.texts[2])
+        response = self.bulk('verify')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['results'], [{'id': note.pk, 'status': 'analyzed', 'code': 'ok'}])
+        note.refresh_from_db()
+        self.assertEqual(note.processing_status, 'REVIEW_REQUIRED')
+        self.assertEqual(note.raw_text, self.texts[2])
+        self.assertTrue(note.items.filter(is_confirmed=False).exists())
+        self.assertFalse(note.items.filter(is_confirmed=True).exists())
+
+    def test_empty_backlog_returns_empty_results(self):
+        self.assertEqual(self.bulk('analyze').data, {'mode': 'analyze', 'results': [], 'stopped': None})
+
+    def test_invalid_mode_and_missing_credential_rejected(self):
+        self.make(self.texts[0])
+        self.assertEqual(self.bulk('everything').status_code, 400)
+        response = self.client.post('/api/v1/notes/process-all/', {'mode': 'analyze'}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['code'], 'credential_required')
+        self.provider.assert_not_called()
+
+    @override_settings(GROQ_API_KEY='')
+    def test_trial_unavailable_without_server_key(self):
+        self.make(self.texts[0])
+        response = self.bulk('analyze')
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data['code'], 'trial_unavailable')
+        self.provider.assert_not_called()
+
+    def test_trial_exhaustion_stops_run_and_reports(self):
+        entitlement = UserAiEntitlement.objects.get(user=self.owner)
+        entitlement.trial_limit = 1
+        entitlement.save(update_fields=('trial_limit', 'updated_at'))
+        first = self.make(self.texts[0])
+        second = self.make(self.texts[1])
+        response = self.bulk('analyze')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['stopped'], 'trial_exhausted')
+        self.assertEqual(
+            [(row['id'], row['status']) for row in response.data['results']],
+            [(first.pk, 'confirmed'), (second.pk, 'failed')],
+        )
+        second.refresh_from_db()
+        self.assertEqual(second.processing_status, 'UNPROCESSED')
+
+    def test_provider_outage_trips_breaker_and_reports_unvisited(self):
+        notes = [self.make(text) for text in self.texts[:4]]
+        self.provider.side_effect = groq_service.ProviderFailure('timeout', 'Synthetic timeout.', 504)
+        response = self.bulk('analyze', HTTP_X_GROQ_API_KEY='personal-session-key')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['stopped'], 'provider_unavailable')
+        self.assertEqual(
+            [(row['id'], row['status'], row['code']) for row in response.data['results']],
+            [(notes[0].pk, 'failed', 'timeout'),
+             (notes[1].pk, 'failed', 'timeout'),
+             (notes[2].pk, 'failed', 'timeout'),
+             (notes[3].pk, 'skipped', 'provider_unavailable')],
+        )
+        for note in notes[:3]:
+            note.refresh_from_db()
+            self.assertEqual(note.processing_status, 'FAILED')
+        notes[3].refresh_from_db()
+        self.assertEqual(notes[3].processing_status, 'UNPROCESSED')
+        self.assertEqual(self.provider.call_count, 3)
+
+    def test_personal_key_passthrough_never_persisted(self):
+        key = 'gsk_bulk_personal_xyz'
+        note = self.make(self.texts[0])
+        response = self.bulk('analyze', HTTP_X_GROQ_API_KEY=key)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(key, json.dumps(response.data))
+        for log in note.ai_logs.all():
+            self.assertNotIn(key, json.dumps({
+                'raw': log.raw_response, 'parsed': log.parsed_response,
+                'error_message': log.error_message,
+            }))
+        self.assertEqual(self.provider.call_args.kwargs.get('api_key'), key)
+
+    def test_running_note_is_left_out_of_backlog(self):
+        busy = self.make(self.texts[0], status='PROCESSING')
+        Note.objects.filter(pk=busy.pk).update(analysis_started_at=timezone.now())
+        response = self.bulk('analyze')
+        self.assertEqual(response.data['results'], [])
+        self.provider.assert_not_called()
+        busy.refresh_from_db()
+        self.assertEqual(busy.processing_status, 'PROCESSING')

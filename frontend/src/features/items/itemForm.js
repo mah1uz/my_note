@@ -23,7 +23,10 @@ export function itemForm(item = {}) {
     startDate: item.start_date || start.date, startTime: start.time,
     dueDate: item.due_date || due.date, dueTime: due.time,
     amount: item.amount ?? '', currency: item.currency || '', quantity: item.quantity ?? '',
-    unit: item.unit || '', place_hint: item.place_hint || ''
+    unit: item.unit || '', place_hint: item.place_hint || '',
+    // Server-attached review signals (evidence, conflict flags). Display-only:
+    // itemPayload never sends them back, so confirmations cannot wipe them.
+    metadata: item.metadata || {},
   }
 }
 

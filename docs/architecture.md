@@ -25,17 +25,15 @@ confirmed pending Shopping tasks by text `place_hint`. Places, Search, Daily
 Briefing, and What Matters Now remain mock/deferred features. PostgreSQL is
 required before Part 4.
 
-The access token is held in React memory. The refresh token is kept in an HttpOnly, SameSite cookie and is never exposed to JavaScript. On browser reload, React calls the refresh endpoint and then `/auth/me/` before deciding whether a protected route may render.
+The access token is held in React memory within the Supabase SPA session; Supabase JS manages session refresh. There is no Django-issued refresh endpoint, no HttpOnly refresh cookie, and no token blacklist (legacy token tables were removed). On browser reload, React restores the Supabase session and calls `/auth/me/` before deciding whether a protected route may render.
 
-Refresh requests are shared while one is in flight so rotating tokens cannot race. An unrecoverable refresh failure clears authenticated React state and cached Notes. Password changes invalidate existing access tokens and blacklist outstanding refresh tokens.
-
-The API accepts JSON request bodies only, including refresh and logout. Combined with the restricted development CORS allowlist and the refresh cookie's `SameSite=Lax` policy, this prevents cross-origin HTML form submissions from invoking authentication endpoints.
+An unrecoverable session failure clears authenticated React state and cached Notes. The API accepts JSON request bodies only. Combined with the restricted development CORS allowlist, this prevents cross-origin HTML form submissions from invoking authentication endpoints.
 
 New persisted Notes remain `UNPROCESSED`. Part 2 does not simulate AI extraction for those notes.
 
 AI failures leave the raw Note saved and mark it `FAILED`; users can retry or
-organize manually. AI logs are append-only Django Admin read-only records and
-are not exposed through normal user APIs. The optional server Groq key is
+organize manually. AI logs are append-only records and are not registered in
+Django Admin nor exposed through normal user APIs. The optional server Groq key is
 backend-only. A personal user key can be held in React memory for the current
 session and sent only as `X-Groq-Api-Key` to Django's analyze endpoint; Django
 calls Groq and never persists the credential.

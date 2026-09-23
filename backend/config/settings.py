@@ -44,6 +44,8 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'accounts',
     'notes',
+    'finance',
+    'notifications',
 ]
 
 MIDDLEWARE = [
@@ -95,7 +97,7 @@ else:
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 6}},
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
@@ -112,7 +114,7 @@ CORS_ALLOWED_ORIGINS = env_list(
     'http://localhost:5173,http://127.0.0.1:5173',
 )
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_HEADERS = (*default_headers, 'x-groq-api-key')
+CORS_ALLOW_HEADERS = (*default_headers, 'x-groq-api-key', 'x-groq-trial')
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 REST_FRAMEWORK = {
@@ -124,7 +126,7 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
     ),
-    'DEFAULT_THROTTLE_RATES': {'anon': '60/min', 'user': '300/min', 'analyze': '6/min'},
+    'DEFAULT_THROTTLE_RATES': {'anon': '60/min', 'user': '300/min', 'analyze': '6/min', 'bulk': '30/hour', 'pro': '10/hour'},
 }
 
 EMAIL_BACKEND = os.getenv(
@@ -135,7 +137,9 @@ DEFAULT_FROM_EMAIL = 'Rememberly <no-reply@rememberly.local>'
 
 # AI is optional: ordinary Notes CRUD and manual organization need no key.
 GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
-GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
+# Groq retired llama-3.3-70b-versatile on 2026-08-16; gpt-oss-120b is their
+# recommended replacement. Override per environment with GROQ_MODEL.
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
 GROQ_TIMEOUT_SECONDS = float(os.getenv('GROQ_TIMEOUT_SECONDS', '20'))
 AI_MAX_NOTE_CHARACTERS = 12000
 AI_ANALYSIS_LEASE_SECONDS = 120

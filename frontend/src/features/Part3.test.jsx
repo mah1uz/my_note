@@ -190,12 +190,32 @@ describe('Part 3 review and confirmed-item integration', () => {
     expect(screen.queryByText('৳4,850')).not.toBeInTheDocument()
   })
 
-  it('groups real pending Shopping tasks by text hint and omits completed tasks', async () => {
+  it('hides dateless events while keeping dated ones', async () => {
+    api.items = [
+      exampleItem({ is_confirmed: true, item_type: 'EVENT', title: 'Dated gathering', start_date: '2026-09-23', domains: ['personal'] }),
+      exampleItem({ id: 2, is_confirmed: true, item_type: 'EVENT', title: 'Vague someday', domains: ['personal'] }),
+    ]
+    renderApp('/app/events')
+    expect(await screen.findByRole('heading', { name: 'Dated gathering' })).toBeInTheDocument()
+    expect(screen.queryByText('Vague someday')).not.toBeInTheDocument()
+  })
+
+  it('shows pending and completed Shopping tasks with per-item ticks', async () => {
     api.items = [exampleItem({ is_confirmed: true }), exampleItem({ id: 2, title: 'Rice', is_confirmed: true, place_hint: null }), exampleItem({ id: 3, title: 'Already done', is_confirmed: true, status: 'COMPLETED' })]
     renderApp('/app/shopping')
     expect(await screen.findByRole('heading', { name: 'Agora' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'No location' })).toBeInTheDocument()
-    expect(screen.queryByText('Already done')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /mark already done incomplete/i })).toBeInTheDocument()
+    expect(screen.getByText('Already done')).toBeInTheDocument()
+  })
+
+  it('ticking a priced shopping item records it as an expense', async () => {
+    api.items = [exampleItem({ is_confirmed: true, amount: '100.00', currency: 'BDT' })]
+    const user = userEvent.setup()
+    renderApp('/app/shopping')
+    await user.click(await screen.findByRole('button', { name: /mark buy eggs complete/i }))
+    expect(await screen.findByText('Recorded')).toBeInTheDocument()
+    expect(api.transactions).toEqual([{ id: 'tx-1', note_item: 1, direction: 'DEBIT', amount: '100.00', currency: 'BDT', label: 'Buy eggs', transaction_at: expect.any(String), primary_domain: 'shopping' }])
   })
 
   it('supports empty states on all four item pages', async () => {
