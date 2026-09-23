@@ -47,8 +47,19 @@ export async function adminRequest(path, options = {}) {
   const headers = { ...options.headers }
   if (options.body && !(options.body instanceof FormData)) headers['Content-Type'] = 'application/json'
   if (adminToken) headers.Authorization = `Token ${adminToken}`
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers })
-  return parseResponse(response)
+  // Same hang class as the main client: a stalled admin request must time
+  // out instead of spinning forever.
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 30000)
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers, signal: controller.signal })
+    return parseResponse(response)
+  } catch (error) {
+    if (controller.signal.aborted) throw new ApiError('The admin request timed out. Try again.', 408, null)
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export async function adminLogin(username, password) {

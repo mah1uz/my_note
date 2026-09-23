@@ -1,10 +1,12 @@
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 from django.utils import timezone
 
 from .models import AppUser, UserAiEntitlement, UserPreference
-from .serializers import AiEntitlementSerializer, AppUserSerializer, PreferenceSerializer
+from .serializers import AiEntitlementSerializer, AppUserSerializer, PreferenceSerializer, ProRequestCreateSerializer, ProRequestSerializer
+from .services.pro_requests import create_pro_request
 
 
 def _require_app_user(request):
@@ -143,3 +145,42 @@ class OnboardingCompleteView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save(onboarding_completed_at=timezone.now())
         return Response(settings_payload(request.user))
+
+
+class ProThrottle(UserRateThrottle):
+    scope = 'pro'
+
+
+class ProRequestView(APIView):
+    """Create or read the authenticated user's Pro access request.
+
+    The request code is generated server-side and identifies the request
+    only; it grants nothing. An open pending request is returned instead
+    of creating duplicates.
+    """
+
+    throttle_classes = [ProThrottle]
+
+    def get(self, request):
+        denied = _require_app_user(request)
+        if denied:
+            return denied
+        latest = request.user.pro_requests.order_by('-created_at', '-id').first()
+        if latest is None:
+            return Response(
+                {'detail': 'No Pro access request yet.', 'code': 'pro_request_none'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(ProRequestSerializer(latest).data)
+
+    def post(self, request):
+        denied = _require_app_user(request)
+        if denied:
+            return denied
+        serializer = ProRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        pro_request, created = create_pro_request(request.user, serializer.validated_data.get('reason', ''))
+        return Response(
+            ProRequestSerializer(pro_request).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )

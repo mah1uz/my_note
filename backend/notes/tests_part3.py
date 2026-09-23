@@ -448,6 +448,31 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(self.confirm([]).data['note']['processing_status'], 'REVIEW_REQUIRED')
         self.assertEqual(self.note.items.count(), 0)
 
+    def test_empty_analysis_preserves_existing_drafts(self):
+        self.assertEqual(self.analyze().status_code, 200)
+        draft_id = self.note.items.get(is_confirmed=False).pk
+        self.provider.return_value = '{"summary":"No facts", "items":[]}'
+        self.assertEqual(self.analyze().status_code, 200)
+        self.assertEqual(self.note.ai_logs.filter(status='EMPTY').count(), 1)
+        self.assertTrue(self.note.items.filter(pk=draft_id, is_confirmed=False).exists())
+        self.assertEqual(self.note.processing_status, 'REVIEW_REQUIRED')
+
+    def test_stale_revision_trial_analyze_burns_no_quota(self):
+        from accounts.models import UserAiEntitlement
+        entitlement = UserAiEntitlement.objects.get(user=self.owner)
+        used_before = entitlement.trial_used
+        revision_before = self.note.revision
+        response = self.client.post(
+            self.base + 'analyze/', {'revision': revision_before + 5},
+            format='json', HTTP_X_GROQ_TRIAL='true',
+        )
+        self.assertEqual(response.status_code, 409)
+        entitlement.refresh_from_db()
+        self.note.refresh_from_db()
+        self.assertEqual(entitlement.trial_used, used_before)
+        self.assertEqual(self.note.revision, revision_before)
+        self.provider.assert_not_called()
+
     def test_failures_preserve_note_old_drafts_and_enable_manual_fallback(self):
         self.analyze()
         draft = self.note.items.get()
@@ -601,6 +626,22 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(self.note.items.count(), 1)
         self.assertEqual(self.note.items.get().title, 'Approved')
         self.assertEqual(response.data['processing_status'], 'UNPROCESSED')
+
+    def test_stale_revision_note_edit_conflicts_instead_of_overwriting(self):
+        first = self.client.patch(
+            self.base, {'raw_text': 'First writer', 'revision': self.note.revision}, format='json',
+        )
+        self.assertEqual(first.status_code, 200)
+        stale = self.client.patch(
+            self.base, {'raw_text': 'Stale writer', 'revision': 0}, format='json',
+        )
+        self.assertEqual(stale.status_code, 409)
+        self.note.refresh_from_db()
+        self.assertEqual(self.note.raw_text, 'First writer')
+        current = self.client.patch(
+            self.base, {'raw_text': 'Current writer', 'revision': first.data['revision']}, format='json',
+        )
+        self.assertEqual(current.status_code, 200)
 
     @override_settings(GROQ_API_KEY='synthetic-secret')
     def test_provider_output_cannot_echo_key_into_logs_or_api(self):
@@ -761,6 +802,26 @@ class BulkProcessTests(APITestCase):
         )
         second.refresh_from_db()
         self.assertEqual(second.processing_status, 'UNPROCESSED')
+
+    def test_provider_outage_trips_breaker_and_reports_unvisited(self):
+        notes = [self.make(text) for text in self.texts[:4]]
+        self.provider.side_effect = groq_service.ProviderFailure('timeout', 'Synthetic timeout.', 504)
+        response = self.bulk('analyze', HTTP_X_GROQ_API_KEY='personal-session-key')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['stopped'], 'provider_unavailable')
+        self.assertEqual(
+            [(row['id'], row['status'], row['code']) for row in response.data['results']],
+            [(notes[0].pk, 'failed', 'timeout'),
+             (notes[1].pk, 'failed', 'timeout'),
+             (notes[2].pk, 'failed', 'timeout'),
+             (notes[3].pk, 'skipped', 'provider_unavailable')],
+        )
+        for note in notes[:3]:
+            note.refresh_from_db()
+            self.assertEqual(note.processing_status, 'FAILED')
+        notes[3].refresh_from_db()
+        self.assertEqual(notes[3].processing_status, 'UNPROCESSED')
+        self.assertEqual(self.provider.call_count, 3)
 
     def test_personal_key_passthrough_never_persisted(self):
         key = 'gsk_bulk_personal_xyz'

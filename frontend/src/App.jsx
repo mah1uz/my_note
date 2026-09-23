@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useAppState } from './context/AppStateContext'
 import { useAuth } from './context/AuthContext'
@@ -6,10 +6,14 @@ import { useNotes } from './context/NotesContext'
 import { confirmPasswordReset, requestPasswordReset } from './api/authApi'
 import { apiRequest } from './api/http'
 import { analyzeNote } from './api/itemsApi'
-import { listItems } from './api/itemsApi'
-import { getTransactionSummary } from './api/transactionsApi'
-import { itemDate } from './features/items/itemForm'
-import { LogoutIcon, MenuIcon, NavIcon, PlacesIcon, SparkleIcon } from './components/icons'
+import { LogoutIcon, MenuIcon, NavIcon, NotesIcon, PlacesIcon, SearchIcon, SparkleIcon, TasksIcon } from './components/icons'
+import Reveal from './components/Reveal'
+import Tilt from './components/Tilt'
+import ThemeToggle from './components/ThemeToggle'
+import Notifications from './components/Notifications'
+import NotificationToast from './components/NotificationToast'
+import { AddNoteFab, AddNotePopup } from './components/AddNote'
+import { UnlockProCard, UnlockProModal } from './components/UnlockPro'
 import AIReviewPanel from './features/notes/AIReviewPanel'
 import { EventsPage, ExpensesPage, ShoppingPage, TasksPage } from './features/items/ItemPages'
 import AiProviderCard from './features/notes/AiProviderCard'
@@ -20,6 +24,8 @@ import TransactionsPage from './features/transactions/TransactionsPage'
 import OnboardingPage from './features/onboarding/OnboardingPage'
 import SearchFeaturePage from './features/search/SearchPage'
 import ProcessButtons from './features/processing/ProcessButtons'
+import QueueProgress from './features/processing/QueueProgress'
+import { useNotifications } from './features/notifications/useNotifications'
 import { backlogNotes } from './api/processApi'
 
 const navItems = [
@@ -38,12 +44,12 @@ function PageHeader({ eyebrow, title, description, action }) {
   return <header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1>{description && <p>{description}</p>}</div>{action}</header>
 }
 
-function Sidebar({ onLogout, open, onToggle }) {
+function Sidebar({ onLogout, open, onToggle, onUnlockPro }) {
   return <aside className={`sidebar${open ? ' open' : ' closed'}`}>
-    <div className="sidebar-top"><button className="menu-button" onClick={onToggle} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}><MenuIcon /></button></div>
+    <div className="sidebar-top"><Link className="brand" to="/app"><span className="brand-mark">R</span>{open && <span>rememberly</span>}</Link><button className="menu-button" onClick={onToggle} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}><MenuIcon /></button></div>
     <div className="sidebar-label">Your space</div>
-    <nav className="sidebar-nav" aria-label="Your space">{navItems.map(([label, path]) => <NavLink key={path} to={path} end={path === '/app'} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><span className="nav-icon" aria-hidden="true"><NavIcon label={label} /></span><span className="nav-label">{label}</span></NavLink>)}</nav>
-    <div className="sidebar-bottom"><div className="prototype-note"><span className="status-dot" aria-hidden="true" /> <span className="fold-text">Prototype data</span></div><button className="logout-button" onClick={onLogout}><span className="logout-text">Log out</span> <LogoutIcon /></button></div>
+    <nav className="sidebar-nav" aria-label="Your space">{navItems.map(([label, path]) => <NavLink key={path} to={path} end={path === '/app'} title={open ? undefined : label} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><span className="nav-icon" aria-hidden="true"><NavIcon label={label} /></span><span className="nav-label">{label}</span></NavLink>)}</nav>
+    <div className="sidebar-bottom"><UnlockProCard onOpen={onUnlockPro} /><button className="logout-button" onClick={onLogout} title={open ? undefined : 'Log out'}><span className="logout-text">Log out</span> <LogoutIcon /></button></div>
   </aside>
 }
 
@@ -65,17 +71,73 @@ function AiNotices() {
   return <div className="notice-banner" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>{backlog.length} note{backlog.length === 1 ? '' : 's'} need{backlog.length === 1 ? 's' : ''} processing.</strong><span> Process them all at once, or draft them for manual review.</span></div><ProcessButtons compact onDone={refresh} /></div>
 }
 
+function HeaderSearch() {
+  const navigate = useNavigate()
+  const [value, setValue] = useState('')
+  const inputRef = useRef(null)
+  useEffect(() => {
+    const onKey = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        inputRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+  const submit = (event) => {
+    event.preventDefault()
+    if (!value.trim()) return
+    navigate(`/app/search?q=${encodeURIComponent(value.trim())}`)
+  }
+  return <form className="header-search" role="search" onSubmit={submit}>
+    <SearchIcon size={17} />
+    <input ref={inputRef} type="search" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Search your notes, tasks, places…" aria-label="Global search" />
+    <kbd aria-hidden="true">⌘K</kbd>
+  </form>
+}
+
+function ProfileBlock() {
+  const { currentUser } = useAuth()
+  const name = currentUser?.name || currentUser?.email || 'there'
+  const initial = (name.trim()[0] || '?').toUpperCase()
+  return <div className="profile-block" aria-label={`Signed in as ${name}`}>
+    <span className="profile-avatar" aria-hidden="true">{initial}</span>
+    <span className="profile-text"><strong>{name}</strong><small>Free plan</small></span>
+  </div>
+}
+
 function AppLayout({ children }) {
   const { logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const [navOpen, setNavOpen] = useState(false)
+  const [navOpen, setNavOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem('rememberly_nav') === 'open'
+    } catch {
+      return false
+    }
+  })
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [proOpen, setProOpen] = useState(false)
+  const [noteOpen, setNoteOpen] = useState(false)
+  const { items: notifications, actionError: notificationError, markRead: markNotificationRead, markAllRead: markAllNotificationsRead } = useNotifications()
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('rememberly_nav', navOpen ? 'open' : 'closed')
+    } catch {
+      // Collapse state is a nicety; the sidebar still works without storage.
+    }
+  }, [navOpen])
   const handleLogout = async () => { try { await logout() } finally { clearSessionGroqKey(); navigate('/login') } }
   return <div className="app-shell">
-    <Sidebar open={navOpen} onToggle={() => setNavOpen(!navOpen)} onLogout={handleLogout} />
-    <main className="main-content"><div className="topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link></div><div className="mobile-topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link><button className="menu-button" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Toggle menu"><MenuIcon /></button></div>{mobileOpen && <div className="mobile-menu">{navItems.map(([label, path]) => <NavLink key={path} to={path} onClick={() => setMobileOpen(false)} className="mobile-menu-link">{label}</NavLink>)}<button onClick={handleLogout}>Log out</button></div>}<AiNotices /><div className="content-wrap" key={location.pathname}>{children}</div></main>
+    <Sidebar open={navOpen} onToggle={() => setNavOpen(!navOpen)} onLogout={handleLogout} onUnlockPro={() => setProOpen(true)} />
+    <main className="main-content"><div className="topbar"><HeaderSearch /><div className="topbar-actions"><ThemeToggle /><Notifications items={notifications} actionError={notificationError} onMarkRead={markNotificationRead} onMarkAllRead={markAllNotificationsRead} /><ProfileBlock /></div></div><div className="mobile-topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link><div className="mobile-topbar-actions"><ThemeToggle label="Toggle dark mode" /><button className="menu-button" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Toggle menu"><MenuIcon /></button></div></div>{mobileOpen && <div className="mobile-menu">{navItems.map(([label, path]) => <NavLink key={path} to={path} onClick={() => setMobileOpen(false)} className="mobile-menu-link">{label}</NavLink>)}<button onClick={handleLogout}>Log out</button></div>}<AiNotices /><div className="content-wrap" key={location.pathname}>{children}</div></main>
     <MobileNav />
+    <AddNoteFab onOpen={() => setNoteOpen(true)} />
+    <NotificationToast items={notifications} />
+    <AddNotePopup open={noteOpen} onClose={() => setNoteOpen(false)} />
+    <UnlockProModal open={proOpen} onClose={() => setProOpen(false)} />
   </div>
 }
 
@@ -111,38 +173,67 @@ function QuickCapture({ compact = false }) {
   </form>
 }
 
+function timeAgo(iso) {
+  if (!iso) return ''
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return days === 1 ? '1d ago' : `${days}d ago`
+}
+
 function DashboardPage() {
   const { currentUser } = useAuth()
   const { notes, refresh } = useNotes()
   const backlog = backlogNotes(notes)
-  const [dash, setDash] = useState({ loading: true, tasks: [], events: [], summary: [] })
-  useEffect(() => {
-    if (!currentUser) return
-    let active = true
-    setDash((current) => ({ ...current, loading: true }))
-    Promise.all([listItems('type=TASK'), listItems('type=EVENT'), getTransactionSummary()])
-      .then(([tasks, events, summary]) => {
-        if (active) setDash({ loading: false, tasks, events, summary: summary.currencies || [] })
-      })
-      .catch(() => { if (active) setDash((current) => ({ ...current, loading: false })) })
-    return () => { active = false }
-  }, [currentUser?.id])
-  const openTasks = dash.tasks.filter((task) => task.status !== 'COMPLETED')
-  const openEvents = dash.events.filter((event) => event.status !== 'COMPLETED' && event.status !== 'CANCELLED')
-  const importanceRank = (item) => ({ HIGH: 0, NORMAL: 1, LOW: 2 })[item.importance] || 1
-  const dueTime = (item) => {
-    const value = item.due_datetime || item.due_date || item.start_datetime || item.start_date
-    const time = value ? new Date(value).getTime() : NaN
-    return Number.isNaN(time) ? Infinity : time
-  }
-  const matters = [...openTasks, ...openEvents]
-    .sort((a, b) => importanceRank(a) - importanceRank(b) || dueTime(a) - dueTime(b))
-    .slice(0, 3)
+  const freshNotes = [...notes]
+    .filter((note) => {
+      const created = new Date(note.createdAt).getTime()
+      return !Number.isNaN(created) && Date.now() - created < 24 * 60 * 60 * 1000
+    })
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    .slice(0, 5)
+  const recentNotes = [...notes]
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    .slice(0, 5)
   const today = new Date()
-  const eyebrowDate = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(today)
-  const dateChip = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(today)
-  const balance = dash.summary[0]
-  return <><PageHeader eyebrow={eyebrowDate} title={`Good morning, ${currentUser?.name || 'there'}`} description="A calm place for everything you want to remember." /><QuickCapture /><section className="section-block queue-panel" aria-label="Processing queue"><div className="section-heading"><div><span className="eyebrow">Capture to confirmed</span><h2>Processing queue</h2></div>{backlog.length > 0 && <span className="pill pill-medium">{backlog.length} waiting</span>}</div>{backlog.length ? <><ProcessButtons onDone={refresh} /><div className="queue-list">{backlog.map((note) => <article className="queue-row" key={note.id}><div><Link to={`/app/notes/${note.id}`} className="queue-title">{note.originalText.slice(0, 90) || 'Untitled note'}</Link><span className="queue-meta">{note.processingStatus === 'FAILED' ? 'Needs a retry' : 'Not processed yet'} · open to organize manually</span></div><Pill tone={note.processingStatus === 'FAILED' ? 'high' : 'medium'}>{note.processingStatus}</Pill></article>)}</div></> : <p className="queue-empty">All caught up — every note is processed.</p>}</section><section className="section-block"><div className="section-heading"><div><span className="eyebrow">Stay in the loop</span><h2>What matters now</h2></div><Link to="/app/tasks" className="text-link">See all tasks <span>→</span></Link></div>{dash.loading ? <div className="loading-state">Loading what matters…</div> : matters.length ? <div className="matter-grid">{matters.map((item) => <article className="matter-card" key={`${item.item_type}-${item.id}`}><div className="matter-top"><Pill tone={item.importance}>{item.item_type}</Pill><span className={`priority priority-${item.importance.toLowerCase()}`} /> </div><h3>{item.title}</h3><p>{itemDate(item, item.item_type === 'TASK' ? 'due' : 'start')}</p><span className="card-domain">{item.domains[0] || ''}</span></article>)}</div> : <EmptyState title="Nothing waiting" text="No open tasks or events. Capture a note to get started." />}</section><section className="dashboard-grid"><div className="summary-card"><div className="section-heading"><div><span className="eyebrow">At a glance</span><h2>Today&apos;s rhythm</h2></div><span className="date-chip">{dateChip}</span></div><div className="summary-list"><div><span className="summary-number">{openTasks.length}</span><span>Tasks</span></div><div><span className="summary-number">{openEvents.length}</span><span>Events</span></div><div><span className="summary-number">{balance ? `${balance.currency} ${balance.balance}` : '—'}</span><span>Balance</span></div></div></div><div className="briefing-card"><span className="eyebrow">Daily briefing</span><h2>A little room to breathe</h2><p>{openTasks.length === 0 && openEvents.length === 0 ? 'A clear day. Capture anything on your mind and it will show up here.' : `You have ${openTasks.length} open task${openTasks.length === 1 ? '' : 's'} and ${openEvents.length} upcoming event${openEvents.length === 1 ? '' : 's'}.`}</p><Link to="/app/search" className="button button-light">Ask your notes <span>→</span></Link></div></section></>
+  const eyebrowDate = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(today).toUpperCase()
+  return <>
+    <div className="dash-intro">
+      <div><span className="eyebrow">{eyebrowDate}</span><h1>Good morning, {currentUser?.name || 'there'}</h1><p>A calm place for everything you want to remember.</p></div>
+      <blockquote className="dash-quote"><p>&ldquo;Capture first. Organize automatically.&rdquo;</p></blockquote>
+    </div>
+    <Tilt><QuickCapture /></Tilt>
+    <div className="dash-grid">
+      <Reveal delay={0}>
+        <section className="dash-card" aria-label="Recent notes">
+          <div className="dash-card-head"><span className="dash-card-icon"><NotesIcon size={18} /></span><h2>Recent notes</h2><Link className="dash-view-all" to="/app/notes">View all <span aria-hidden="true">→</span></Link></div>
+          {recentNotes.length ? <ul className="dash-list">{recentNotes.map((note) => <li key={note.id}><Link to={`/app/notes/${note.id}`}><span className="dash-row-icon"><NotesIcon size={17} /></span><span className="dash-row-main"><strong>{note.originalText.slice(0, 42) || 'Untitled note'}</strong><small>{note.originalText.slice(0, 60)}</small></span><span className="dash-row-meta">{timeAgo(note.createdAt)}</span></Link></li>)}</ul>
+            : <p className="dash-empty">No notes yet — capture your first thought above.</p>}
+        </section>
+      </Reveal>
+      <Reveal delay={110}>
+        <section className="dash-card" aria-label="Today's tasks">
+          <div className="dash-card-head"><span className="dash-card-icon"><TasksIcon size={18} /></span><h2>Today&apos;s tasks</h2><Link className="dash-view-all" to="/app/tasks">View all <span aria-hidden="true">→</span></Link></div>
+          {freshNotes.length ? <ul className="dash-list">{freshNotes.map((note) => <li key={note.id}><Link to={`/app/notes/${note.id}`}><span className="dash-row-icon"><NotesIcon size={17} /></span><span className="dash-row-main"><strong>{note.originalText.slice(0, 42) || 'Untitled note'}</strong><small>{note.processingStatus === 'FAILED' ? 'Needs a retry' : 'Captured today'}</small></span><span className="dash-row-meta">{timeAgo(note.createdAt)}</span></Link></li>)}</ul>
+            : <p className="dash-empty">Nothing fresh — enjoy the calm.</p>}
+          <div className="dash-foot"><span className="dash-foot-icon" aria-hidden="true">☀</span><div><strong>Stay on track</strong><small>{freshNotes.length ? `${freshNotes.length} fresh note${freshNotes.length === 1 ? '' : 's'} from the last 24 hours.` : 'Small steps today, a clearer tomorrow.'}</small></div></div>
+        </section>
+      </Reveal>
+      <Reveal delay={220}>
+        <section className="dash-card" aria-label="Processing queue">
+          <div className="dash-card-head"><span className="dash-card-icon"><SparkleIcon size={18} /></span><h2>Processing queue</h2><Link className="dash-view-all" to="/app/notes">View all <span aria-hidden="true">→</span></Link></div>
+          {backlog.length ? <ul className="dash-list">{backlog.slice(0, 5).map((note) => <li key={note.id}><Link to={`/app/notes/${note.id}`}><span className="dash-row-icon"><NotesIcon size={17} /></span><span className="dash-row-main"><strong>{note.originalText.slice(0, 42) || 'Untitled note'}</strong><small>{note.processingStatus === 'FAILED' ? 'Needs a retry' : 'Waiting to be organized'}</small></span><QueueProgress status={note.processingStatus} /></Link></li>)}</ul>
+            : <p className="dash-empty">Every note is processed and ready.</p>}
+          <div className="dash-foot dash-foot-ai"><span className="dash-foot-icon" aria-hidden="true"><SparkleIcon size={16} /></span><div><strong>AI is working for you</strong><small>{backlog.length ? `${backlog.length} note${backlog.length === 1 ? '' : 's'} in the queue.` : 'Every note is processed and ready.'}</small></div></div>
+        </section>
+      </Reveal>
+    </div>
+    {backlog.length > 0 && <section className="section-block queue-panel" aria-label="Bulk processing"><div className="section-heading"><div><span className="eyebrow">Capture to confirmed</span><h2>Process the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><ProcessButtons onDone={refresh} /></section>}
+  </>
 }
 
 function NoteCard({ note, onDelete }) {
@@ -212,7 +303,7 @@ function NoteDetailPage() {
   if (loading || detailLoading) return <div className="loading-state">Loading note…</div>
   if (missing || (!detailError && !note)) return <EmptyState title="Note not found" text="This note may have been deleted or is no longer available." />
   if (detailError) return <div className="empty-state"><div className="empty-icon"><SparkleIcon /></div><h3>Couldn&apos;t load this note</h3><p>{detailError}</p><button className="button button-primary" onClick={() => setReloadTick((value) => value + 1)}>Retry</button></div>
-  const save = async () => { if (!text.trim()) { setError('A note cannot be empty.'); return } if (pendingAction) return; setPendingAction('save'); try { await updateNote(note.id, text); setEditing(false); setError('') } catch (requestError) { setError(requestError.message) } finally { setPendingAction('') } }
+  const save = async () => { if (!text.trim()) { setError('A note cannot be empty.'); return } if (pendingAction) return; setPendingAction('save'); try { await updateNote(note.id, text, note.revision); setEditing(false); setError('') } catch (requestError) { setError(requestError.message) } finally { setPendingAction('') } }
   const remove = async () => { if (pendingAction) return; setPendingAction('delete'); try { await deleteNote(note.id); navigate('/app/notes') } catch (requestError) { setError(requestError.message); setPendingAction('') } }
   return <><Link to="/app/notes" className="back-link">← Back to notes</Link><div className="detail-header"><div><span className="eyebrow">Note detail</span><h1>Captured thought</h1><p>{new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="header-actions"><button className="button button-ghost" onClick={() => setEditing(!editing)} disabled={Boolean(pendingAction)}>{editing ? 'Cancel' : 'Edit'}</button><button className="button button-danger" onClick={remove} disabled={Boolean(pendingAction)}>{pendingAction === 'delete' ? 'Deleting…' : 'Delete'}</button></div></div>{error && <p className="form-error">{error}</p>}<div className="detail-card"><div className="original-note"><span className="eyebrow">Original note</span>{editing ? <textarea aria-label="Original note text" value={text} onChange={(event) => setText(event.target.value)} rows="5" /> : <p>{note.originalText}</p>}{editing && <><p className="field-help">Saving edits discards unconfirmed drafts. Previously confirmed facts stay unchanged.</p><button className="button button-primary" onClick={save} disabled={Boolean(pendingAction)}>{pendingAction === 'save' ? 'Saving…' : 'Save changes'}</button></>}</div><div className="detail-meta"><Pill tone="success">{note.processingStatus}</Pill><span>Owned by your account</span></div></div><AIReviewPanel note={note} disabled={editing || Boolean(pendingAction)} onNoteChanged={() => loadNote(note.id)} /></>
 }
@@ -226,7 +317,7 @@ function PlacesPage() {
   const startEdit = (place) => { setEditingId(place.id); setName(place.name); setAddress(place.address); setFormOpen(true) }
   const closeForm = () => { setEditingId(null); setName(''); setAddress(''); setFormOpen(false) }
   const save = (event) => { event.preventDefault(); if (!name.trim()) return; const changes = { name: name.trim(), address: address.trim() || 'Address to be added' }; if (editingId) updatePlace(editingId, changes); else addPlace({ ...changes, radius: 200 }); closeForm() }
-  return <><PageHeader eyebrow="Context, later" title="Places" description="Saved places for a future, smarter reminder experience." action={<button className="button button-primary" onClick={() => { if (formOpen) closeForm(); else { setEditingId(null); setFormOpen(true) } }}>{formOpen ? 'Cancel' : '+ Add place'}</button>} />{formOpen && <form className="inline-form" onSubmit={save}><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Place name" aria-label="Place name" required /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Mock address" aria-label="Mock address" /><button className="button button-primary">{editingId ? 'Save changes' : 'Save place'}</button></form>}{places.length ? <div className="places-grid">{places.map((place) => <article className="place-card" key={place.id}><div className="place-card-top"><span className="place-icon"><PlacesIcon /></span><button className="icon-button" aria-label={`Delete ${place.name}`} onClick={() => deletePlace(place.id)}>×</button></div><h2>{place.name}</h2><p>{place.address}</p><div className="place-footer"><span>Default radius</span><strong>{place.radius}m</strong></div><div className="place-actions"><button className="text-button" onClick={() => startEdit(place)}>Edit</button><button className="text-button danger-text" onClick={() => deletePlace(place.id)}>Delete</button></div></article>)}</div> : <EmptyState title="No places saved" text="Add a place to keep your errands organized." />}<p className="prototype-disclaimer">Prototype only. No maps, GPS, or browser location APIs are active.</p></>
+  return <><PageHeader eyebrow="Context, later" title="Places" description="Saved places for a future, smarter reminder experience." action={<button className="button button-primary" onClick={() => { if (formOpen) closeForm(); else { setEditingId(null); setFormOpen(true) } }}>{formOpen ? 'Cancel' : '+ Add place'}</button>} />{formOpen && <form className="inline-form" onSubmit={save}><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Place name" aria-label="Place name" required /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Street, area…" aria-label="Place address" /><button className="button button-primary">{editingId ? 'Save changes' : 'Save place'}</button></form>}{places.length ? <div className="places-grid">{places.map((place) => <article className="place-card" key={place.id}><div className="place-card-top"><span className="place-icon"><PlacesIcon /></span><button className="icon-button" aria-label={`Delete ${place.name}`} onClick={() => deletePlace(place.id)}>×</button></div><h2>{place.name}</h2><p>{place.address}</p><div className="place-footer"><span>Default radius</span><strong>{place.radius}m</strong></div><div className="place-actions"><button className="text-button" onClick={() => startEdit(place)}>Edit</button><button className="text-button danger-text" onClick={() => deletePlace(place.id)}>Delete</button></div></article>)}</div> : <EmptyState title="No places saved" text="Add a place to keep your errands organized." />}<p className="prototype-disclaimer">Prototype only. No maps, GPS, or browser location APIs are active.</p></>
 }
 
 
@@ -304,7 +395,7 @@ function LoginPage() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const submit = async (event) => { event.preventDefault(); if (!identity.trim() || !password) { setError('Enter your email and password to continue.'); return } setSubmitting(true); try { await login(identity, password); navigate('/app') } catch (requestError) { setError(requestError.message) } finally { setSubmitting(false) } }
-  return <AuthLayout title="Welcome back" description="Pick up where you left off."><GoogleSignInButton /><form className="auth-form" onSubmit={submit}><label>Email or username<input value={identity} onChange={(event) => setIdentity(event.target.value)} placeholder="maya@example.com" /></label><label>Password<div className="password-row"><input aria-label="Password" type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /><button type="button" className="text-button" onClick={() => setShowPassword(!showPassword)} aria-pressed={showPassword}>{showPassword ? 'Hide' : 'Show'}</button></div></label><Link className="text-link auth-help" to="/forgot-password">Forgot password?</Link>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide" disabled={submitting || authLoading}>{submitting ? 'Logging in…' : authLoading ? 'Checking session…' : 'Log in'} <span>↗</span></button></form><p className="auth-switch">New here? <Link to="/register">Create an account</Link></p></AuthLayout>
+  return <AuthLayout title="Welcome back" description="Pick up where you left off."><GoogleSignInButton /><form className="auth-form" onSubmit={submit}><label>Email<input value={identity} onChange={(event) => setIdentity(event.target.value)} placeholder="maya@example.com" /></label><label>Password<div className="password-row"><input aria-label="Password" type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" /><button type="button" className="text-button" onClick={() => setShowPassword(!showPassword)} aria-pressed={showPassword}>{showPassword ? 'Hide' : 'Show'}</button></div></label><Link className="text-link auth-help" to="/forgot-password">Forgot password?</Link>{error && <p className="form-error">{error}</p>}<button className="button button-primary button-wide" disabled={submitting || authLoading}>{submitting ? 'Logging in…' : authLoading ? 'Checking session…' : 'Log in'} <span>↗</span></button></form><p className="auth-switch">New here? <Link to="/register">Create an account</Link></p></AuthLayout>
 }
 
 function RegisterPage() {

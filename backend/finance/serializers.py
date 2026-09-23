@@ -17,6 +17,17 @@ class FinanceTransactionSerializer(serializers.ModelSerializer):
         required=False,
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Scope the linkable items to the caller: foreign or missing ids
+        # then fail identically ("does not exist"), leaking no existence.
+        request = self.context.get('request')
+        user_id = getattr(getattr(request, 'user', None), 'id', None)
+        if user_id is not None:
+            self.fields['note_item'].queryset = NoteItem.objects.filter(
+                note__app_user_id=user_id, is_confirmed=True,
+            )
+
     class Meta:
         model = FinanceTransaction
         fields = (

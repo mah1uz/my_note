@@ -47,7 +47,7 @@ def parse_query(query, *, today=None):
     aggregate = next((name for name in AGGREGATES if re.search(rf'\b{name.lower()}\b|\b{dict(MAX="most", MIN="least", SUM="total", AVG="average", COUNT="count").get(name, "")}', lower)), None)
     if aggregate is None and re.search(r'how much|total|spent this month|income last month', lower):
         aggregate = 'SUM'
-    if 'most' in lower:
+    if re.search(r'\bmost\b', lower):
         aggregate = 'MAX'
     today = today or timezone.localdate()
     date_from = date_to = None

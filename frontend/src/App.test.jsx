@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -169,7 +169,7 @@ describe('Part 2 full-stack UI flows', () => {
     renderApp('/login')
     await user.click(await screen.findByRole('button', { name: /log in/i }))
     expect(screen.getByText(/enter your email and password/i)).toBeInTheDocument()
-    await user.type(screen.getByLabelText(/email or username/i), 'maya@example.com')
+    await user.type(screen.getByLabelText(/^email$/i), 'maya@example.com')
     await user.type(screen.getByLabelText(/^password$/i), 'wrong-password')
     await user.click(screen.getByRole('button', { name: /log in/i }))
     expect(await screen.findByText(/invalid credentials/i)).toBeInTheDocument()
@@ -242,18 +242,23 @@ describe('Part 2 full-stack UI flows', () => {
     expect(state.analyzedNoteIds).toEqual([1])
   })
 
-  it('shows live dashboard counts instead of dummy numbers', async () => {
+  it('shows live dashboard cards instead of dummy numbers', async () => {
     state.authenticated = true
-    state.itemsList = [
-      { id: 1, item_type: 'TASK', title: 'Real task', status: 'PENDING', importance: 'HIGH', domains: ['work'], due_date: '2026-09-24' },
-      { id: 2, item_type: 'TASK', title: 'Done task', status: 'COMPLETED', importance: 'LOW', domains: [] },
-      { id: 3, item_type: 'EVENT', title: 'Real event', status: 'PENDING', importance: 'NORMAL', domains: [], start_date: '2026-09-25' },
+    const freshAt = new Date().toISOString()
+    state.notes = [
+      { id: 1, raw_text: 'Fresh thought from today', created_at: freshAt },
+      { id: 2, raw_text: 'Old thought from weeks ago', created_at: '2026-09-01T08:00:00Z' },
     ]
-    state.txSummary = { currencies: [{ currency: 'BDT', credits: '5000.0000', debits: '1200.0000', balance: '3800.0000' }] }
+    state.itemsList = []
+    state.txSummary = { currencies: [] }
     renderApp('/app')
-    expect(await screen.findByText('Real task')).toBeInTheDocument()
-    expect(screen.getByText('BDT 3800.0000')).toBeInTheDocument()
+    const tasksCard = await screen.findByRole('region', { name: "Today's tasks" })
+    expect(within(tasksCard).getByText('Fresh thought from today')).toBeInTheDocument()
+    expect(tasksCard).toHaveTextContent('Fresh thought from today')
+    expect(tasksCard).not.toHaveTextContent('Old thought from weeks ago')
     expect(screen.queryByText('৳250')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Recent notes' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Processing queue' })).toBeInTheDocument()
   })
 
   it('keeps the grounded Ask page usable', async () => {
@@ -268,7 +273,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/login')
-    await user.type(screen.getByLabelText(/email or username/i), 'bob@example.com')
+    await user.type(screen.getByLabelText(/^email$/i), 'bob@example.com')
     await user.type(screen.getByLabelText(/^password$/i), 'secret123')
     await user.click(screen.getByRole('button', { name: /log in/i }))
     expect(await screen.findByRole('heading', { name: /good morning, bob user/i })).toBeInTheDocument()
@@ -334,6 +339,39 @@ describe('Part 2 full-stack UI flows', () => {
     await user.click(toggle)
     expect(await screen.findByRole('button', { name: 'Close menu' })).toBeInTheDocument()
     expect(document.querySelector('.sidebar.open')).toBeInTheDocument()
+  })
+
+  it('shows Unlock Pro above logout, persists collapse, and offers header search', async () => {
+    state.authenticated = true
+    const store = {}
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key) => (key in store ? store[key] : null),
+        setItem: (key, value) => { store[key] = String(value) },
+        removeItem: (key) => { delete store[key] },
+        clear: () => { for (const key of Object.keys(store)) delete store[key] },
+      },
+    })
+    const user = userEvent.setup()
+    renderApp('/app')
+    const unlock = await screen.findByRole('button', { name: /unlock pro/i })
+    const sidebarBottom = unlock.closest('.sidebar-bottom')
+    expect(sidebarBottom.textContent).toMatch(/Unlock Pro.*Log out/s)
+    expect(document.querySelector('.header-search')).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: /global search/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^notifications$/i })).toBeInTheDocument()
+    expect(document.querySelector('.topbar .theme-toggle[role="switch"]')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Open menu' }))
+    expect(window.localStorage.getItem('rememberly_nav')).toBe('open')
+  })
+
+  it('routes header search to the search page with the query', async () => {
+    state.authenticated = true
+    const user = userEvent.setup()
+    renderApp('/app')
+    await user.type(await screen.findByRole('searchbox', { name: /global search/i }), 'exam time{enter}')
+    expect(await screen.findByPlaceholderText(/what do you want to know|search notes/i)).toBeInTheDocument()
   })
 
   it('renders all protected application pages for an authenticated user', async () => {

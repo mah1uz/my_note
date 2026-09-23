@@ -190,6 +190,16 @@ describe('Part 3 review and confirmed-item integration', () => {
     expect(screen.queryByText('৳4,850')).not.toBeInTheDocument()
   })
 
+  it('hides dateless events while keeping dated ones', async () => {
+    api.items = [
+      exampleItem({ is_confirmed: true, item_type: 'EVENT', title: 'Dated gathering', start_date: '2026-09-23', domains: ['personal'] }),
+      exampleItem({ id: 2, is_confirmed: true, item_type: 'EVENT', title: 'Vague someday', domains: ['personal'] }),
+    ]
+    renderApp('/app/events')
+    expect(await screen.findByRole('heading', { name: 'Dated gathering' })).toBeInTheDocument()
+    expect(screen.queryByText('Vague someday')).not.toBeInTheDocument()
+  })
+
   it('shows pending and completed Shopping tasks with per-item ticks', async () => {
     api.items = [exampleItem({ is_confirmed: true }), exampleItem({ id: 2, title: 'Rice', is_confirmed: true, place_hint: null }), exampleItem({ id: 3, title: 'Already done', is_confirmed: true, status: 'COMPLETED' })]
     renderApp('/app/shopping')

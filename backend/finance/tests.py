@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from decimal import Decimal
 
@@ -118,6 +119,12 @@ class FinanceTransactionApiTests(APITestCase):
             with self.subTest(item=item_id):
                 response = self.client.post(url, transaction_payload(note_item=item_id), format='json')
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # A foreign item id is indistinguishable from a bogus one: the
+        # scoped queryset rejects both before ownership is ever examined.
+        foreign_response = self.client.post(url, transaction_payload(note_item=foreign.pk), format='json')
+        bogus_response = self.client.post(url, transaction_payload(note_item=999999), format='json')
+        self.assertEqual(foreign_response.data.keys(), bogus_response.data.keys())
+        self.assertNotIn('does not belong', json.dumps(foreign_response.data))
 
     def test_source_item_delete_cascades_derived_transaction(self):
         note = Note.objects.create(app_user=self.user, raw_text='Bought books')

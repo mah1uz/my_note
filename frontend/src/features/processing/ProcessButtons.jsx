@@ -48,6 +48,7 @@ export default function ProcessButtons({ compact = false, onDone }) {
               Confirmed {summary.confirmed} · Drafted for review {summary.analyzed} · Failed {summary.failed} · Skipped {summary.skipped}
               {summary.failures.length > 0 && <> ({[...new Set(summary.failures)].join(', ')})</>}
               {summary.stopped === 'trial_exhausted' && '. Stopped: free trial exhausted.'}
+              {summary.stopped === 'provider_unavailable' && '. Stopped: provider unreachable — skipped notes are untouched.'}
             </>
           )}
         </p>

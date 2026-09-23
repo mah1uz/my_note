@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { askNotes, searchNotes } from '../../api/searchApi'
 import { ArrowRightIcon, SearchIcon, SparkleIcon } from '../../components/icons'
 
@@ -11,7 +11,8 @@ function SearchResult({ result }) {
 
 export default function SearchPage() {
   const [tab, setTab] = useState('search')
-  const [query, setQuery] = useState('')
+  const [searchParams] = useSearchParams()
+  const [query, setQuery] = useState(() => searchParams.get('q') || '')
   const [results, setResults] = useState([])
   const [answer, setAnswer] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -19,6 +20,10 @@ export default function SearchPage() {
   const requestId = useRef(0)
 
   useEffect(() => () => { requestId.current += 1 }, [])
+  useEffect(() => {
+    const incoming = searchParams.get('q') || ''
+    if (incoming) setQuery(incoming)
+  }, [searchParams])
   const submit = async (event) => {
     event.preventDefault()
     if (!query.trim()) return

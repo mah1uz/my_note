@@ -13,6 +13,7 @@ urlpatterns = [
     path('api/v1/admin/', include('accounts.admin_urls')),
     path('api/v1/notes/', include('notes.urls')),
     path('api/v1/transactions/', include('finance.urls')),
+    path('api/v1/notifications/', include('notifications.urls')),
     path('api/v1/search/', include('search.urls')),
     path('api/v1/', include(items_router.urls)),
 ]

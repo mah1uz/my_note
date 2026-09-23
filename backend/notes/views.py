@@ -42,9 +42,17 @@ class NoteViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         note = serializer.instance
         text_changed = serializer.validated_data.get('raw_text', note.raw_text) != note.raw_text
+        # Optional optimistic concurrency: clients that send the revision they
+        # edited get a 409 on conflict instead of silent last-writer-wins.
+        # Absent revision keeps the legacy behavior.
+        raw_revision = self.request.data.get('revision', None)
+        try:
+            expected = note.revision if raw_revision is None else int(raw_revision)
+        except (TypeError, ValueError):
+            raise ValidationError({'revision': 'Revision must be an integer.'})
         with transaction.atomic():
             changes = {'processing_status': 'UNPROCESSED', 'analysis_started_at': None} if text_changed else {}
-            services.claim_revision(note, note.revision, **changes)
+            services.claim_revision(note, expected, **changes)
             if text_changed:
                 note.items.filter(is_confirmed=False).delete()
             serializer.save()

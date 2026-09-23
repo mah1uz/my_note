@@ -137,18 +137,19 @@ def analyze(note, revision, user_api_key=None, trial=False):
             'Free trial is not available right now. Enter a personal API key instead.',
             503,
         )
-    if trial and not user_api_key:
-        # Quota is checked before claiming a revision so a rejected trial
-        # burns neither revision nor note state. Consumed quota is not
-        # refunded on later provider failure (documented charge policy).
-        try:
-            consume_trial(note.app_user)
-        except TrialUnavailable as error:
-            raise groq_service.ProviderFailure('trial_exhausted', str(error), 429) from error
     if analysis_is_running(note):
         raise Conflict('Analysis is already running. Wait, then reload the review.')
     with transaction.atomic():
         claim_revision(note, revision, processing_status='PROCESSING', analysis_started_at=timezone.now())
+        # Quota is consumed inside the claim transaction: a rejected trial,
+        # a running analysis, or a stale revision burns neither quota,
+        # revision, nor note state (all roll back together). Consumed quota
+        # is not refunded on later provider failure (documented charge policy).
+        if trial and not user_api_key:
+            try:
+                consume_trial(note.app_user)
+            except TrialUnavailable as error:
+                raise groq_service.ProviderFailure('trial_exhausted', str(error), 429) from error
         # A crashed worker can leave a STARTED attempt. A new lease supersedes it.
         note.ai_logs.filter(status='STARTED').update(status='SUPERSEDED', completed_at=timezone.now())
         log = AIProcessingLog.objects.create(
@@ -209,10 +210,13 @@ def analyze(note, revision, user_api_key=None, trial=False):
                 completed_at=timezone.now(),
             )
             if not failure:
-                # Preserve old drafts on failure, replace them only after full validation.
-                note.items.filter(is_confirmed=False).delete()
-                for data, confidence in validated:
-                    save_item(note, data, analysis_log=log, confidence=confidence)
+                # Replace drafts only with a non-empty validated result. An
+                # EMPTY analysis preserves the existing review queue instead
+                # of wiping it.
+                if validated:
+                    note.items.filter(is_confirmed=False).delete()
+                    for data, confidence in validated:
+                        save_item(note, data, analysis_log=log, confidence=confidence)
     if not changed:
         raise Conflict('The note changed during analysis. The outdated result was discarded.')
     if failure:
@@ -248,6 +252,7 @@ def edit_confirmed(item, revision, changes):
     note = item.note
     if analysis_is_running(note):
         raise Conflict('Wait for analysis to finish before editing structured items.')
+    previous_status = item.status
     with transaction.atomic():
         claim_revision(note, revision)
         changes = dict(changes)
@@ -255,6 +260,14 @@ def edit_confirmed(item, revision, changes):
         changes.pop('metadata', None)
         save_item(note, changes, item=item, confirmed=True)
         record_confirmation(note, item.analysis_log, operation='EDIT')
+    # Completion notifications fire only on a real transition, and never
+    # break the write that just succeeded.
+    if previous_status != 'COMPLETED' and changes.get('status') == 'COMPLETED':
+        try:
+            from notifications.services import notify_task_completed
+            notify_task_completed(note.app_user, item, note.revision)
+        except Exception:
+            pass
     return item
 
 
@@ -345,7 +358,8 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
     ).order_by('created_at', 'id')[:limit])
     results = []
     stopped = None
-    for note in candidates:
+    consecutive_failures = 0
+    for index, note in enumerate(candidates):
         if analysis_is_running(note):
             results.append({'id': note.pk, 'status': 'skipped', 'code': 'running'})
             continue
@@ -356,6 +370,12 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
             if error.code == 'trial_exhausted' or getattr(error, 'status_code', 0) == 429:
                 stopped = 'trial_exhausted'
                 break
+            # Circuit breaker: a dead provider must not burn quota across
+            # the whole backlog. Remaining notes are reported as skipped.
+            consecutive_failures += 1
+            if consecutive_failures >= 3:
+                stopped = 'provider_unavailable'
+                break
             continue
         except Conflict:
             results.append({'id': note.pk, 'status': 'skipped', 'code': 'changed'})
@@ -363,6 +383,7 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
         except ValidationError:
             results.append({'id': note.pk, 'status': 'failed', 'code': 'invalid'})
             continue
+        consecutive_failures = 0
         if mode == 'verify':
             results.append({'id': note.pk, 'status': 'analyzed', 'code': 'ok'})
         else:
@@ -372,4 +393,11 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
                 results.append({'id': note.pk, 'status': 'failed', 'code': 'verify_failed'})
                 continue
             results.append({'id': note.pk, 'status': 'confirmed', 'code': 'ok'})
+    if stopped is not None:
+        # Callers can tell "not attempted" apart from failure: every
+        # unvisited candidate is reported as skipped.
+        attempted = {row['id'] for row in results}
+        for note in candidates:
+            if note.pk not in attempted:
+                results.append({'id': note.pk, 'status': 'skipped', 'code': stopped})
     return {'mode': mode, 'results': results, 'stopped': stopped}

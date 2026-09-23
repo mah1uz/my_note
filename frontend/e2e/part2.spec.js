@@ -40,7 +40,7 @@ test('user can register and complete persistent Notes CRUD', async ({ page }) =>
   await page.goto('/app/notes')
   await expect(page.getByRole('heading', { name: /welcome back/i })).toBeVisible()
 
-  await page.getByLabel('Email or username').fill(email)
+  await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: /log in/i }).click()
   await expect(page.getByRole('heading', { name: /good morning, browser tester/i })).toBeVisible()

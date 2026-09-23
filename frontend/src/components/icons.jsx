@@ -95,6 +95,22 @@ export function SparkleIcon(props) {
   return <Base {...props}><path d="M12 3.5c.7 4.8 3.7 7.8 8.5 8.5-4.8.7-7.8 3.7-8.5 8.5-.7-4.8-3.7-7.8-8.5-8.5 4.8-.7 7.8-3.7 8.5-8.5z" /></Base>
 }
 
+export function SunIcon(props) {
+  return <Base {...props}><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7" /></Base>
+}
+
+export function MoonIcon(props) {
+  return <Base {...props}><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" /></Base>
+}
+
+export function BellIcon(props) {
+  return <Base {...props}><path d="M6 9.5a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13.5 6 9.5" /><path d="M10 19a2.2 2.2 0 0 0 4 0" /></Base>
+}
+
+export function CrownIcon(props) {
+  return <Base {...props}><path d="M4 8l3.5 3L12 5l4.5 6L20 8l-1.6 10H5.6z" /><path d="M6.5 20.5h11" /></Base>
+}
+
 /* Maps a nav label to its thematic icon. Unknown labels fall back to Notes. */
 const navIcons = {
   Dashboard: DashboardIcon,

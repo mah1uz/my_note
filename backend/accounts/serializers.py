@@ -5,7 +5,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import AdminProfile, UserAiEntitlement, UserPreference
+from .models import AdminProfile, ProAccessRequest, UserAiEntitlement, UserPreference
 
 
 class AppUserSerializer(serializers.Serializer):
@@ -155,3 +155,33 @@ class AiEntitlementSerializer(serializers.ModelSerializer):
 
     def get_remaining(self, entitlement):
         return max(entitlement.trial_limit - entitlement.trial_used, 0)
+
+
+class ProRequestCreateSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500, allow_blank=True, default='')
+
+    def validate_reason(self, value):
+        return value.strip()[:500]
+
+
+class ProRequestSerializer(serializers.ModelSerializer):
+    """User projection: code + status, never the database primary key."""
+
+    class Meta:
+        model = ProAccessRequest
+        fields = ('code', 'status', 'reason', 'created_at', 'decided_at')
+        read_only_fields = fields
+
+
+class AdminProRequestSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    display_name = serializers.CharField(source='user.display_name', read_only=True)
+    status = serializers.ChoiceField(choices=ProAccessRequest.Status.choices)
+
+    class Meta:
+        model = ProAccessRequest
+        fields = (
+            'code', 'user_email', 'display_name', 'reason', 'status',
+            'created_at', 'updated_at', 'decided_at',
+        )
+        read_only_fields = ('code', 'user_email', 'display_name', 'reason', 'created_at', 'updated_at', 'decided_at')

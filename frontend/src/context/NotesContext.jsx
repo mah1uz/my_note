@@ -61,10 +61,10 @@ export function NotesProvider({ children }) {
     }
   }
 
-  const updateNote = async (id, text) => {
+  const updateNote = async (id, text, revision) => {
     const accountId = accountIdRef.current
     try {
-      const note = await editNote(id, text.trim())
+      const note = await editNote(id, text.trim(), revision)
       if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
       setNotes((current) => current.map((item) => item.id === id ? note : item))
       setError('')

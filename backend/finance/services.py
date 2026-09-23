@@ -1,7 +1,8 @@
 from datetime import datetime, time
 from decimal import Decimal
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.conf import settings
 from django.db.models import Case, DecimalField, Sum, When
 
 from .models import FinanceTransaction
@@ -9,7 +10,10 @@ from .models import FinanceTransaction
 
 def local_day_bounds(user, day):
     """Resolve a calendar date in the user's timezone to an aware range."""
-    zone = ZoneInfo(user.timezone)
+    try:
+        zone = ZoneInfo(user.timezone)
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        zone = ZoneInfo(settings.TIME_ZONE)
     start = datetime.combine(day, time.min).replace(tzinfo=zone)
     end = datetime.combine(day, time.max).replace(tzinfo=zone)
     return start, end

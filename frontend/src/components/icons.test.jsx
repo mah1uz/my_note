@@ -1,15 +1,16 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import {
-  ArrowLeftIcon, ArrowRightIcon, CheckIcon, CloseIcon, DashboardIcon, EventsIcon,
-  LogoutIcon, MenuIcon, NavIcon, NotesIcon, PlacesIcon, SearchIcon, SettingsIcon,
-  ShoppingIcon, SparkleIcon, StudyIcon, TasksIcon, TransactionsIcon, PlusIcon,
+  ArrowLeftIcon, ArrowRightIcon, BellIcon, CheckIcon, CloseIcon, CrownIcon, DashboardIcon, EventsIcon,
+  LogoutIcon, MenuIcon, MoonIcon, NavIcon, NotesIcon, PlacesIcon, SearchIcon, SettingsIcon,
+  ShoppingIcon, SparkleIcon, StudyIcon, SunIcon, TasksIcon, TransactionsIcon, PlusIcon,
 } from './icons'
 
 const all = [
   DashboardIcon, NotesIcon, TasksIcon, EventsIcon, ShoppingIcon, TransactionsIcon,
   PlacesIcon, SearchIcon, SettingsIcon, StudyIcon, PlusIcon, CloseIcon,
   ArrowRightIcon, ArrowLeftIcon, MenuIcon, LogoutIcon, CheckIcon, SparkleIcon,
+  SunIcon, MoonIcon, BellIcon, CrownIcon,
 ]
 
 describe('thematic icon system', () => {

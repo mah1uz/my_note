@@ -207,3 +207,40 @@ class AdminAuditEvent(models.Model):
             models.Index(fields=('target_user', 'created_at'), name='audit_user_created_idx'),
             models.Index(fields=('action', 'created_at'), name='audit_action_created_idx'),
         ]
+
+
+class ProAccessRequest(models.Model):
+    """User request for Pro access. The code is the opaque request token:
+    generated server-side, unique, carrying no identity or permission."""
+
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        CONTACTED = 'CONTACTED', 'Contacted'
+        APPROVED = 'APPROVED', 'Approved'
+        DECLINED = 'DECLINED', 'Declined'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(AppUser, on_delete=models.CASCADE, related_name='pro_requests')
+    code = models.CharField(max_length=12, unique=True)
+    reason = models.CharField(max_length=500, blank=True, default='')
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'pro_access_requests'
+        ordering = ('-created_at', '-id')
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(status__in=['PENDING', 'CONTACTED', 'APPROVED', 'DECLINED']),
+                name='pro_request_valid_status',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=('user', 'status'), name='pro_request_user_status_idx'),
+            models.Index(fields=('status', 'created_at'), name='pro_request_status_created_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.code} {self.status}'

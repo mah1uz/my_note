@@ -101,3 +101,15 @@ class SearchApiTests(APITestCase):
         response = self.client.post('/api/v1/search/', {'query': 'university'}, format='json')
         titles = [result['title'] for result in response.data['results']]
         self.assertLess(titles.index('University deadline'), titles.index('Unrelated title'))
+
+    def test_finance_question_returns_ledger_rows_lexically(self):
+        response = self.client.post('/api/v1/search/', {'query': 'how much did I spend this month?'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        kinds = [result['kind'] for result in response.data['results']]
+        self.assertIn('TRANSACTION', kinds)
+        self.assertEqual(response.data['results'][0]['title'], 'University books')
+
+    def test_almost_does_not_trigger_max_aggregate(self):
+        parsed = parse_query('I almost bought the dip')
+        self.assertIsNone(parsed['aggregate'])
+        self.assertEqual(parse_query('where did I spend the most?')['aggregate'], 'MAX')

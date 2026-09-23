@@ -24,8 +24,10 @@ export async function createNote(originalText) {
   return normalizeNote(await apiRequest('/notes/', { method: 'POST', body: JSON.stringify({ raw_text: originalText }) }))
 }
 
-export async function editNote(id, originalText) {
-  return normalizeNote(await apiRequest(`/notes/${id}/`, { method: 'PATCH', body: JSON.stringify({ raw_text: originalText }) }))
+export async function editNote(id, originalText, revision) {
+  const body = { raw_text: originalText }
+  if (revision !== undefined && revision !== null) body.revision = revision
+  return normalizeNote(await apiRequest(`/notes/${id}/`, { method: 'PATCH', body: JSON.stringify(body) }))
 }
 
 export async function removeNote(id) {
