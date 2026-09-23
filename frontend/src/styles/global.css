@@ -105,6 +105,22 @@ h1, h2, h3 { letter-spacing: -.032em; line-height: 1.08; text-wrap: balance; }
 .admin-topbar .logout-button { padding: 0; }
 .password-row { display: flex; gap: 8px; align-items: center; }
 .password-row input { flex: 1; min-width: 0; }
+.password-strength { margin: 8px 0 4px; }
+.password-strength-bar { display: flex; gap: 6px; }
+.password-strength-seg { height: 6px; flex: 1; border-radius: 999px; background: var(--line); }
+.password-strength.is-weak .password-strength-seg:nth-child(1) { background: var(--danger); }
+.password-strength.is-medium .password-strength-seg:nth-child(1),
+.password-strength.is-medium .password-strength-seg:nth-child(2) { background: var(--gold); }
+.password-strength.is-strong .password-strength-seg { background: var(--success); }
+.password-strength-label { margin: 6px 0 4px; font-size: 12.5px; color: var(--ink-soft); }
+.password-strength.is-weak .password-strength-label strong { color: var(--danger); }
+.password-strength.is-medium .password-strength-label strong { color: var(--gold-deep); }
+.password-strength.is-strong .password-strength-label strong { color: var(--success); }
+.password-strength-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; color: var(--muted); }
+.password-strength-list li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.password-strength-tick { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); color: var(--faint); font-size: 12px; }
+.password-strength-list li.met { color: var(--ink-soft); }
+.password-strength-list li.met .password-strength-tick { background: var(--success-tint); border-color: var(--success); color: var(--success); }
 
 /* ---------- Admin ---------- */
 .admin-shell { min-height: 100vh; background: var(--paper); }

@@ -78,7 +78,7 @@ class AdminProfileSerializer(serializers.ModelSerializer):
 class AdminCreateSerializer(serializers.Serializer):
     username = serializers.RegexField(regex=r'^[\w.@+-]+$', max_length=150)
     email = serializers.EmailField(required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True, trim_whitespace=False, min_length=8)
+    password = serializers.CharField(write_only=True, trim_whitespace=False, min_length=6)
     role = serializers.ChoiceField(choices=('ADMIN', 'SUPER_ADMIN'), default='ADMIN')
 
     def validate_username(self, value):

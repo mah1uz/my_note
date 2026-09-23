@@ -5,6 +5,7 @@ import {
   patchAdmin, patchAiSettings, patchUser,
 } from '../../api/adminApi'
 import { useAdmin } from '../../context/AdminContext'
+import PasswordStrength from '../../components/PasswordStrength'
 
 function ErrorText({ error }) {
   if (!error) return null
@@ -193,6 +194,7 @@ function AdminsTab() {
   const add = async (event) => {
     event.preventDefault()
     if (busy) return
+    if (form.password.length < 6) { setError('Use at least 6 password characters.'); return }
     setBusy(true)
     setError('')
     try {
@@ -224,13 +226,14 @@ function AdminsTab() {
     <form className="inline-form" onSubmit={add}>
       <input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} placeholder="Username" aria-label="New admin username" required />
       <input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="Email (optional)" aria-label="New admin email" />
-      <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Password (8+ chars)" aria-label="New admin password" required minLength={8} autoComplete="new-password" />
+      <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Password (6+ chars)" aria-label="New admin password" required minLength={6} autoComplete="new-password" />
       <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} aria-label="New admin role">
         <option value="ADMIN">Admin</option>
         <option value="SUPER_ADMIN">Super admin</option>
       </select>
       <button className="button button-primary" disabled={busy}>Add admin</button>
     </form>
+    <PasswordStrength password={form.password} />
     <ErrorText error={error} />
     {loading ? <div className="loading-state">Loading admins…</div> : (
       <table className="admin-table">
