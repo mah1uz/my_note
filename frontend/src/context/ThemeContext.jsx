@@ -7,11 +7,11 @@ function initialTheme() {
     const stored = window.localStorage.getItem(STORAGE_KEY)
     if (stored === 'light' || stored === 'dark') return stored
   } catch {
-    // Private mode: fall through to the system preference without persisting.
+    // Private mode: fall through to the light default without persisting.
   }
-  if (typeof window !== 'undefined' && window.matchMedia) {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-  }
+  // Light is the default. Dark applies only after an explicit toggle,
+  // which is then persisted above. The OS color-scheme preference is
+  // intentionally ignored so dark-OS users still land on light.
   return 'light'
 }
 

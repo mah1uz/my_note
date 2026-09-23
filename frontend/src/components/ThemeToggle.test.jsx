@@ -39,14 +39,14 @@ describe('ThemeToggle', () => {
     expect(document.documentElement.dataset.theme).toBe('light')
   })
 
-  it('starts from the system preference when nothing is stored', async () => {
+  it('defaults to light even when the OS prefers dark and nothing is stored', async () => {
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn(() => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} })),
     })
     render(<ThemeProvider><ThemeToggle /></ThemeProvider>)
-    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
-    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+    expect(document.documentElement.dataset.theme).toBe('light')
   })
 
   it('is keyboard operable', async () => {
