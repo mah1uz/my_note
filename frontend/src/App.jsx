@@ -5,7 +5,7 @@ import { useAuth } from './context/AuthContext'
 import { useNotes } from './context/NotesContext'
 import { confirmPasswordReset, requestPasswordReset } from './api/authApi'
 import { apiRequest } from './api/http'
-import { analyzeNote } from './api/itemsApi'
+import { listItems } from './api/itemsApi'
 import { LogoutIcon, MenuIcon, NavIcon, NotesIcon, PlacesIcon, SearchIcon, SparkleIcon, TasksIcon } from './components/icons'
 import Reveal from './components/Reveal'
 import Tilt from './components/Tilt'
@@ -21,18 +21,19 @@ import { clearSessionGroqKey, useAiKey } from './context/AiKeyContext'
 import { AdminDashboardPage, AdminLoginPage, AdminProtected } from './features/admin/AdminPages'
 import GoogleSignInButton from './components/GoogleSignInButton'
 import PasswordStrength from './components/PasswordStrength'
+import NotePeekModal from './components/NotePeekModal'
 import TransactionsPage from './features/transactions/TransactionsPage'
 import OnboardingPage from './features/onboarding/OnboardingPage'
 import SearchFeaturePage from './features/search/SearchPage'
 import ProcessButtons from './features/processing/ProcessButtons'
 import QueueProgress from './features/processing/QueueProgress'
+import { NOTE_TABS, groupItemsByNote, isDueToday, useConfirmedItems } from './features/notes/noteTaxonomy'
 import { useNotifications } from './features/notifications/useNotifications'
 import { backlogNotes } from './api/processApi'
 
 const navItems = [
-  ['Dashboard', '/app'], ['Notes', '/app/notes'], ['Tasks', '/app/tasks'],
-  ['Events', '/app/events'], ['Shopping', '/app/shopping'], ['Transactions', '/app/transactions'],
-  ['Places', '/app/places'], ['Search', '/app/search'], ['Settings', '/app/settings']
+  ['Dashboard', '/app'], ['Notes', '/app/notes'],
+  ['Transactions', '/app/transactions'], ['Places', '/app/places']
 ]
 
 function Pill({ children, tone = 'neutral' }) { return <span className={`pill pill-${tone.toLowerCase()}`}>{children}</span> }
@@ -45,9 +46,9 @@ function PageHeader({ eyebrow, title, description, action }) {
   return <header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1>{description && <p>{description}</p>}</div>{action}</header>
 }
 
-function Sidebar({ onLogout, open, onToggle, onUnlockPro }) {
-  return <aside className={`sidebar${open ? ' open' : ' closed'}`}>
-    <div className="sidebar-top"><Link className="brand" to="/app"><span className="brand-mark">R</span>{open && <span>rememberly</span>}</Link><button className="menu-button" onClick={onToggle} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}><MenuIcon /></button></div>
+function Sidebar({ onLogout, open, onExpand, onCollapse, onUnlockPro }) {
+  return <aside className={`sidebar${open ? ' open' : ' closed'}`} onMouseEnter={onExpand} onMouseLeave={onCollapse}>
+    <div className="sidebar-top"><Link className="brand" to="/app"><span className="brand-mark">R</span>{open && <span>rememberly</span>}</Link></div>
     <div className="sidebar-label">Your space</div>
     <nav className="sidebar-nav" aria-label="Your space">{navItems.map(([label, path]) => <NavLink key={path} to={path} end={path === '/app'} title={open ? undefined : label} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><span className="nav-icon" aria-hidden="true"><NavIcon label={label} /></span><span className="nav-label">{label}</span></NavLink>)}</nav>
     <div className="sidebar-bottom"><UnlockProCard onOpen={onUnlockPro} /><button className="logout-button" onClick={onLogout} title={open ? undefined : 'Log out'}><span className="logout-text">Log out</span> <LogoutIcon /></button></div>
@@ -102,37 +103,24 @@ function ProfileBlock() {
   const { currentUser } = useAuth()
   const name = currentUser?.name || currentUser?.email || 'there'
   const initial = (name.trim()[0] || '?').toUpperCase()
-  return <div className="profile-block" aria-label={`Signed in as ${name}`}>
+  return <Link to="/app/settings" className="profile-block" aria-label={`Signed in as ${name}. Open settings.`}>
     <span className="profile-avatar" aria-hidden="true">{initial}</span>
     <span className="profile-text"><strong>{name}</strong><small>Free plan</small></span>
-  </div>
+  </Link>
 }
 
 function AppLayout({ children }) {
   const { logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const [navOpen, setNavOpen] = useState(() => {
-    try {
-      return window.localStorage.getItem('rememberly_nav') === 'open'
-    } catch {
-      return false
-    }
-  })
+  const [navOpen, setNavOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [proOpen, setProOpen] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
   const { items: notifications, actionError: notificationError, markRead: markNotificationRead, markAllRead: markAllNotificationsRead } = useNotifications()
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('rememberly_nav', navOpen ? 'open' : 'closed')
-    } catch {
-      // Collapse state is a nicety; the sidebar still works without storage.
-    }
-  }, [navOpen])
   const handleLogout = async () => { try { await logout() } finally { clearSessionGroqKey(); navigate('/login') } }
   return <div className="app-shell">
-    <Sidebar open={navOpen} onToggle={() => setNavOpen(!navOpen)} onLogout={handleLogout} onUnlockPro={() => setProOpen(true)} />
+    <Sidebar open={navOpen} onExpand={() => setNavOpen(true)} onCollapse={() => setNavOpen(false)} onLogout={handleLogout} onUnlockPro={() => setProOpen(true)} />
     <main className="main-content"><div className="topbar"><HeaderSearch /><div className="topbar-actions"><ThemeToggle /><Notifications items={notifications} actionError={notificationError} onMarkRead={markNotificationRead} onMarkAllRead={markAllNotificationsRead} /><ProfileBlock /></div></div><div className="mobile-topbar"><Link className="brand" to="/app"><span className="brand-mark">R</span><span>rememberly</span></Link><div className="mobile-topbar-actions"><ThemeToggle label="Toggle dark mode" /><button className="menu-button" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Toggle menu"><MenuIcon /></button></div></div>{mobileOpen && <div className="mobile-menu">{navItems.map(([label, path]) => <NavLink key={path} to={path} onClick={() => setMobileOpen(false)} className="mobile-menu-link">{label}</NavLink>)}<button onClick={handleLogout}>Log out</button></div>}<AiNotices /><div className="content-wrap" key={location.pathname}>{children}</div></main>
     <MobileNav />
     <AddNoteFab onOpen={() => setNoteOpen(true)} />
@@ -190,13 +178,15 @@ function DashboardPage() {
   const { currentUser } = useAuth()
   const { notes, refresh } = useNotes()
   const backlog = backlogNotes(notes)
-  const freshNotes = [...notes]
-    .filter((note) => {
-      const created = new Date(note.createdAt).getTime()
-      return !Number.isNaN(created) && Date.now() - created < 24 * 60 * 60 * 1000
-    })
-    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
-    .slice(0, 5)
+  const [dueToday, setDueToday] = useState([])
+  useEffect(() => {
+    let active = true
+    listItems('type=TASK').then(
+      (items) => { if (active) setDueToday((Array.isArray(items) ? items : []).filter((item) => isDueToday(item)).slice(0, 5)) },
+      () => { if (active) setDueToday([]) },
+    )
+    return () => { active = false }
+  }, [currentUser?.id, notes.length])
   const recentNotes = [...notes]
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
     .slice(0, 5)
@@ -210,26 +200,35 @@ function DashboardPage() {
     <Tilt><QuickCapture /></Tilt>
     <div className="dash-grid">
       <Reveal delay={0}>
-        <section className="dash-card" aria-label="Recent notes">
-          <div className="dash-card-head"><span className="dash-card-icon"><NotesIcon size={18} /></span><h2>Recent notes</h2><Link className="dash-view-all" to="/app/notes">View all <span aria-hidden="true">→</span></Link></div>
-          {recentNotes.length ? <ul className="dash-list">{recentNotes.map((note) => <li key={note.id}><Link to={`/app/notes/${note.id}`}><span className="dash-row-icon"><NotesIcon size={17} /></span><span className="dash-row-main"><strong>{note.originalText.slice(0, 42) || 'Untitled note'}</strong><small>{note.originalText.slice(0, 60)}</small></span><span className="dash-row-meta">{timeAgo(note.createdAt)}</span></Link></li>)}</ul>
+        <section className="dash-card glow-card" aria-label="Recent notes">
+          <span className="glow-card__border" aria-hidden="true" />
+          <div className="dash-card-head"><span className="dash-card-icon"><NotesIcon size={18} /></span><div><h2>Recent notes</h2><p className="glow-card__sub">Latest captures, newest first</p></div></div>
+          <hr className="glow-line" />
+          {recentNotes.length ? <ul className="dash-list glow-list">{recentNotes.map((note) => <li key={note.id}><Link to={`/app/notes/${note.id}`}><span className="check-badge" aria-hidden="true"><NotesIcon size={13} /></span><span className="dash-row-main"><strong>{note.originalText.slice(0, 42) || 'Untitled note'}</strong><small>{note.originalText.slice(0, 60)}</small></span><span className="dash-row-meta">{timeAgo(note.createdAt)}</span></Link></li>)}</ul>
             : <p className="dash-empty">No notes yet — capture your first thought above.</p>}
+          <Link className="glow-button" to="/app/notes">View all <span aria-hidden="true">→</span></Link>
         </section>
       </Reveal>
       <Reveal delay={110}>
-        <section className="dash-card" aria-label="Today's tasks">
-          <div className="dash-card-head"><span className="dash-card-icon"><TasksIcon size={18} /></span><h2>Today&apos;s tasks</h2><Link className="dash-view-all" to="/app/tasks">View all <span aria-hidden="true">→</span></Link></div>
-          {freshNotes.length ? <ul className="dash-list">{freshNotes.map((note) => <li key={note.id}><Link to={`/app/notes/${note.id}`}><span className="dash-row-icon"><NotesIcon size={17} /></span><span className="dash-row-main"><strong>{note.originalText.slice(0, 42) || 'Untitled note'}</strong><small>{note.processingStatus === 'FAILED' ? 'Needs a retry' : 'Captured today'}</small></span><span className="dash-row-meta">{timeAgo(note.createdAt)}</span></Link></li>)}</ul>
-            : <p className="dash-empty">Nothing fresh — enjoy the calm.</p>}
-          <div className="dash-foot"><span className="dash-foot-icon" aria-hidden="true">☀</span><div><strong>Stay on track</strong><small>{freshNotes.length ? `${freshNotes.length} fresh note${freshNotes.length === 1 ? '' : 's'} from the last 24 hours.` : 'Small steps today, a clearer tomorrow.'}</small></div></div>
+        <section className="dash-card glow-card" aria-label="Today's tasks">
+          <span className="glow-card__border" aria-hidden="true" />
+          <div className="dash-card-head"><span className="dash-card-icon"><TasksIcon size={18} /></span><div><h2>Today&apos;s tasks</h2><p className="glow-card__sub">Due today, not just captured today</p></div></div>
+          <hr className="glow-line" />
+          {dueToday.length ? <ul className="dash-list glow-list">{dueToday.map((item) => <li key={item.id}><Link to={`/app/notes/${item.note}`}><span className="check-badge" aria-hidden="true">✓</span><span className="dash-row-main"><strong>{item.title}</strong><small>{item.due_datetime || item.due_date || 'Due today'}</small></span><span className="dash-row-meta">{(item.domains || []).join(' · ')}</span></Link></li>)}</ul>
+            : <p className="dash-empty">Nothing due today — enjoy the calm.</p>}
+          <div className="dash-foot"><span className="dash-foot-icon" aria-hidden="true">☀</span><div><strong>Stay on track</strong><small>{dueToday.length ? `${dueToday.length} task${dueToday.length === 1 ? '' : 's'} due today.` : 'Small steps today, a clearer tomorrow.'}</small></div></div>
+          <Link className="glow-button" to="/app/tasks">View all <span aria-hidden="true">→</span></Link>
         </section>
       </Reveal>
       <Reveal delay={220}>
-        <section className="dash-card" aria-label="Processing queue">
-          <div className="dash-card-head"><span className="dash-card-icon"><SparkleIcon size={18} /></span><h2>Processing queue</h2><Link className="dash-view-all" to="/app/notes">View all <span aria-hidden="true">→</span></Link></div>
-          {backlog.length ? <ul className="dash-list">{backlog.slice(0, 5).map((note) => <li key={note.id}><Link to={`/app/notes/${note.id}`}><span className="dash-row-icon"><NotesIcon size={17} /></span><span className="dash-row-main"><strong>{note.originalText.slice(0, 42) || 'Untitled note'}</strong><small>{note.processingStatus === 'FAILED' ? 'Needs a retry' : 'Waiting to be organized'}</small></span><QueueProgress status={note.processingStatus} /></Link></li>)}</ul>
+        <section className="dash-card glow-card" aria-label="Processing queue">
+          <span className="glow-card__border" aria-hidden="true" />
+          <div className="dash-card-head"><span className="dash-card-icon"><SparkleIcon size={18} /></span><div><h2>Processing queue</h2><p className="glow-card__sub">Waiting to be organized</p></div></div>
+          <hr className="glow-line" />
+          {backlog.length ? <ul className="dash-list glow-list">{backlog.slice(0, 5).map((note) => <li key={note.id}><Link to={`/app/notes/${note.id}`}><span className="check-badge" aria-hidden="true"><NotesIcon size={13} /></span><span className="dash-row-main"><strong>{note.originalText.slice(0, 42) || 'Untitled note'}</strong><small>{note.processingStatus === 'FAILED' ? 'Needs a retry' : 'Waiting to be organized'}</small></span><QueueProgress status={note.processingStatus} /></Link></li>)}</ul>
             : <p className="dash-empty">Every note is processed and ready.</p>}
           <div className="dash-foot dash-foot-ai"><span className="dash-foot-icon" aria-hidden="true"><SparkleIcon size={16} /></span><div><strong>AI is working for you</strong><small>{backlog.length ? `${backlog.length} note${backlog.length === 1 ? '' : 's'} in the queue.` : 'Every note is processed and ready.'}</small></div></div>
+          <Link className="glow-button" to="/app/notes">View all <span aria-hidden="true">→</span></Link>
         </section>
       </Reveal>
     </div>
@@ -237,32 +236,41 @@ function DashboardPage() {
   </>
 }
 
-function NoteCard({ note, onDelete }) {
-  const navigate = useNavigate()
-  const { groqApiKey, trialActive } = useAiKey()
-  const [deleting, setDeleting] = useState(false)
-  const [analyzing, setAnalyzing] = useState(false)
-  const remove = async () => { if (deleting) return; setDeleting(true); try { await onDelete(note.id) } catch { setDeleting(false) } }
-  // On-spot single-note analysis: run it here, then land on the detail page
-  // where drafts (or the failure with retry) are shown.
-  const analyze = async () => {
-    if (analyzing) return
-    setAnalyzing(true)
-    try {
-      await analyzeNote(note.id, note.revision, groqApiKey, trialActive)
-    } catch {
-      // The detail page reloads the saved review and shows the error.
-    } finally {
-      setAnalyzing(false)
-    }
-    navigate(`/app/notes/${note.id}`)
+function NoteCard({ note, onPeek }) {
+  const open = (event) => {
+    if (event.target.closest('a,button')) return
+    onPeek(note)
   }
-  return <article className="note-card"><div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div><Link to={`/app/notes/${note.id}`} className="note-title">{note.originalText}</Link><div className="note-card-items"><span>Original saved · open to review or organize</span></div><div className="note-card-bottom"><div className="domain-list" /><div className="card-actions"><Link to={`/app/notes/${note.id}`} aria-label={`View ${note.originalText}`}>View</Link><button onClick={analyze} disabled={analyzing || deleting} aria-label={`Analyze ${note.originalText}`}>{analyzing ? 'Analyzing…' : 'Analyze'}</button><button onClick={remove} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></article>
+  const onKey = (event) => {
+    if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) {
+      event.preventDefault()
+      onPeek(note)
+    }
+  }
+  return <article className="note-card glow-note" onClick={open} onKeyDown={onKey} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`}>
+    <span className="glow-card__border" aria-hidden="true" />
+    <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill></div>
+    <p className="note-title note-clamp">{note.originalText}</p>
+    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div>
+  </article>
 }
 
 function NotesPage() {
   const { notes, loading, error, deleteNote } = useNotes()
-  return <><PageHeader eyebrow="Your memory" title="Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />{loading ? <div className="loading-state">Loading your notes…</div> : error ? <div className="form-error">{error}</div> : notes.length ? <div className="notes-list">{notes.map((note) => <NoteCard key={note.id} note={note} onDelete={deleteNote} />)}</div> : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}</>
+  const [tab, setTab] = useState('all')
+  const [peekId, setPeekId] = useState(null)
+  const { items, loading: catsLoading } = useConfirmedItems()
+  const groups = groupItemsByNote(items)
+  const visible = tab === 'all' ? notes : notes.filter((note) => groups[String(note.id)]?.[tab])
+  const peekNote = peekId == null ? null : notes.find((note) => String(note.id) === String(peekId)) || null
+  return <><PageHeader eyebrow="Your memory" title="Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
+    <div className="notes-tabs" role="tablist" aria-label="Filter notes by category">
+      {NOTE_TABS.map((entry) => <button key={entry.key} role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'notes-tab active' : 'notes-tab'} onClick={() => setTab(entry.key)}>{entry.label}</button>)}
+    </div>
+    {catsLoading && tab !== 'all' && <p role="status" className="field-help">Loading categories…</p>}
+    {loading ? <div className="loading-state">Loading your notes…</div> : error ? <div className="form-error">{error}</div> : visible.length ? <div className="notes-list notes-grid">{visible.map((note) => <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} />)}</div> : notes.length ? <EmptyState title={`No ${tab} notes`} text="Notes appear here once they have confirmed items in this category." /> : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}
+    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} />}
+  </>
 }
 
 function NewNotePage() {

@@ -233,32 +233,58 @@ describe('Part 2 full-stack UI flows', () => {
     expect(screen.getByText('Buy eggs.')).toBeInTheDocument()
   })
 
-  it('analyzes a note on the spot from the note card', async () => {
+  it('analyzes a note on the spot from the note peek popup', async () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /open note: buy eggs\./i }))
     await user.click(await screen.findByRole('button', { name: /analyze buy eggs\./i }))
     expect(await screen.findByRole('heading', { name: /captured thought/i })).toBeInTheDocument()
     expect(state.analyzedNoteIds).toEqual([1])
   })
 
-  it('shows live dashboard cards instead of dummy numbers', async () => {
+  it('shows due-today tasks on the dashboard instead of recently captured notes', async () => {
     state.authenticated = true
-    const freshAt = new Date().toISOString()
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     state.notes = [
-      { id: 1, raw_text: 'Fresh thought from today', created_at: freshAt },
+      { id: 1, raw_text: 'Fresh thought from today', created_at: now.toISOString() },
       { id: 2, raw_text: 'Old thought from weeks ago', created_at: '2026-09-01T08:00:00Z' },
     ]
-    state.itemsList = []
+    state.itemsList = [
+      { id: 11, item_type: 'TASK', title: 'Submit the report', status: 'PENDING', due_date: today, domains: ['work'], note: 2, revision: 0 },
+    ]
     state.txSummary = { currencies: [] }
     renderApp('/app')
     const tasksCard = await screen.findByRole('region', { name: "Today's tasks" })
-    expect(within(tasksCard).getByText('Fresh thought from today')).toBeInTheDocument()
-    expect(tasksCard).toHaveTextContent('Fresh thought from today')
+    expect(within(tasksCard).getByText('Submit the report')).toBeInTheDocument()
+    expect(tasksCard).not.toHaveTextContent('Fresh thought from today')
     expect(tasksCard).not.toHaveTextContent('Old thought from weeks ago')
     expect(screen.queryByText('৳250')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Recent notes' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Processing queue' })).toBeInTheDocument()
+  })
+
+  it('filters notes by category tabs', async () => {
+    state.authenticated = true
+    state.notes = [
+      { id: 1, raw_text: 'Buy eggs from Agora', created_at: '2026-09-21T08:00:00Z' },
+      { id: 2, raw_text: 'Team standup at ten', created_at: '2026-09-20T08:00:00Z' },
+    ]
+    state.itemsList = [
+      { id: 11, item_type: 'TASK', title: 'Buy eggs', status: 'PENDING', domains: ['shopping'], note: 1, revision: 0 },
+    ]
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    expect(await screen.findByRole('button', { name: /open note: buy eggs from agora/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Events' }))
+    expect(screen.queryByRole('button', { name: /open note: buy eggs from agora/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Shopping' }))
+    expect(screen.getByRole('button', { name: /open note: buy eggs from agora/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'All' }))
+    expect(screen.getByRole('button', { name: /open note: team standup at ten/i })).toBeInTheDocument()
   })
 
   it('keeps the grounded Ask page usable', async () => {
@@ -330,29 +356,22 @@ describe('Part 2 full-stack UI flows', () => {
     expect(screen.getByLabelText(/^password$/i)).toHaveAttribute('type', 'password')
   })
 
-  it('starts with a folded menu that opens only when toggled', async () => {
+  it('opens the sidebar on hover without a menu button', async () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app')
-    const toggle = await screen.findByRole('button', { name: 'Open menu' })
+    await screen.findByRole('heading', { name: /good morning/i })
+    const sidebar = document.querySelector('.sidebar')
     expect(document.querySelector('.sidebar.closed')).toBeInTheDocument()
-    await user.click(toggle)
-    expect(await screen.findByRole('button', { name: 'Close menu' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /open menu|close menu/i })).not.toBeInTheDocument()
+    await user.hover(sidebar)
     expect(document.querySelector('.sidebar.open')).toBeInTheDocument()
+    await user.unhover(sidebar)
+    expect(document.querySelector('.sidebar.closed')).toBeInTheDocument()
   })
 
-  it('shows Unlock Pro above logout, persists collapse, and offers header search', async () => {
+  it('sends the profile block to settings and offers header search', async () => {
     state.authenticated = true
-    const store = {}
-    Object.defineProperty(window, 'localStorage', {
-      configurable: true,
-      value: {
-        getItem: (key) => (key in store ? store[key] : null),
-        setItem: (key, value) => { store[key] = String(value) },
-        removeItem: (key) => { delete store[key] },
-        clear: () => { for (const key of Object.keys(store)) delete store[key] },
-      },
-    })
     const user = userEvent.setup()
     renderApp('/app')
     const unlock = await screen.findByRole('button', { name: /unlock pro/i })
@@ -362,8 +381,8 @@ describe('Part 2 full-stack UI flows', () => {
     expect(screen.getByRole('searchbox', { name: /global search/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^notifications$/i })).toBeInTheDocument()
     expect(document.querySelector('.topbar .theme-toggle[role="switch"]')).toBeInTheDocument()
-    await user.click(await screen.findByRole('button', { name: 'Open menu' }))
-    expect(window.localStorage.getItem('rememberly_nav')).toBe('open')
+    await user.click(screen.getByRole('link', { name: /signed in as/i }))
+    expect(await screen.findByRole('heading', { name: /^settings$/i })).toBeInTheDocument()
   })
 
   it('routes header search to the search page with the query', async () => {
