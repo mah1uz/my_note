@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { analyzeNote } from '../api/itemsApi'
 import { useAiKey } from '../context/AiKeyContext'
@@ -52,8 +53,11 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
   }
   const stamped = new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 
-  return <div className="modal-backdrop note-peek-backdrop" onClick={onClose}>
-    <div className="modal-card note-peek" role="dialog" aria-modal="true" aria-labelledby="note-peek-title" onClick={(event) => event.stopPropagation()}>
+  // Portal to document.body: escapes every ancestor stacking context
+  // (animations, sticky, overflow, will-change) so fixed centering is
+  // always viewport-relative, never scroll-dependent.
+  return createPortal(<div className="modal-backdrop note-peek-backdrop" onClick={onClose}>
+    <div className="modal-card note-peek note-peek-pop" role="dialog" aria-modal="true" aria-labelledby="note-peek-title" onClick={(event) => event.stopPropagation()}>
       <span className="glow-card__border" aria-hidden="true" />
       <p className="eyebrow">Note · {Number.isNaN(new Date(note.createdAt).getTime()) ? '' : stamped}</p>
       <h2 id="note-peek-title" ref={headingRef} tabIndex={-1}>{note.originalText || 'Untitled note'}</h2>
@@ -72,5 +76,5 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
         <button className="button button-ghost" onClick={onClose}>Close</button>
       </div>
     </div>
-  </div>
+  </div>, document.body)
 }

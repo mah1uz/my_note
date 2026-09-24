@@ -367,8 +367,8 @@ function NotesPage() {
       setAutoId(null)
     }
   }
-  return <><PageHeader eyebrow="Your memory" title="Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
-    <section className="notes-box" aria-label="Notes by category">
+  return <><PageHeader eyebrow="Your memory" title="All Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
+    <section className="notes-box" aria-label="All Notes by category">
       <div className="notes-tabs" role="tablist" aria-label="Filter notes by category">
         {NOTE_TABS.map((entry) => <button key={entry.key} role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'notes-tab active' : 'notes-tab'} onClick={() => setTab(entry.key)}>{entry.label} ({countFor(entry.key)})</button>)}
       </div>

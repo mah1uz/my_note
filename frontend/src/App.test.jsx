@@ -288,7 +288,7 @@ describe('Part 2 full-stack UI flows', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }))
     expect(await screen.findByText('Buy coffee tomorrow')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(await screen.findByRole('heading', { name: /^notes$/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /all notes/i })).toBeInTheDocument()
     expect(screen.queryByText('Buy coffee tomorrow')).not.toBeInTheDocument()
   })
 
@@ -381,7 +381,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.authenticated = true
     state.transactions = [{ id: 'tx-9', note_item: 21, direction: 'DEBIT', amount: '100.00', currency: 'BDT', label: 'Buy shampoo' }]
     renderApp('/app/notes')
-    await screen.findByRole('heading', { name: /^notes$/i })
+    await screen.findByRole('heading', { name: /all notes/i })
     await expect(resolveLinkedTransaction({ id: 21 })).resolves.toBe('tx-9')
     await expect(resolveLinkedTransaction({ id: 999 })).resolves.toBeNull()
   })
@@ -499,6 +499,7 @@ describe('Part 2 full-stack UI flows', () => {
     await user.click(await screen.findByRole('button', { name: /choose items to tick in trip prep/i }))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('Tick items in this note')).toBeInTheDocument()
+    expect(dialog.parentElement?.parentElement).toBe(document.body)
     expect(document.body.style.overflow).toBe('hidden')
     await user.click(within(dialog).getByRole('button', { name: 'Mark Book tickets complete' }))
     expect(await within(dialog).findByRole('button', { name: 'Mark Book tickets incomplete' })).toBeInTheDocument()
@@ -643,7 +644,7 @@ describe('Part 2 full-stack UI flows', () => {
   it('renders all protected application pages for an authenticated user', async () => {
     state.authenticated = true
     const routes = [
-      ['/app', /good morning/i], ['/app/notes', /^notes$/i], ['/app/notes/new', /^new note$/i],
+      ['/app', /good morning/i], ['/app/notes', /all notes/i], ['/app/notes/new', /^new note$/i],
       ['/app/tasks', /^tasks$/i], ['/app/events', /^events$/i], ['/app/shopping', /^shopping$/i],
       ['/app/expenses', /^expenses$/i], ['/app/places', /^places$/i], ['/app/search', /^search$/i], ['/app/settings', /^settings$/i]
     ]
