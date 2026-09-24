@@ -75,6 +75,13 @@ function installApiMock() {
       const type = url.searchParams.get('type')
       return jsonResponse((state.itemsList || []).filter((item) => !type || item.item_type === type))
     }
+    const itemMatch = path.match(/\/items\/(\d+)\/$/)
+    if (itemMatch && method === 'PATCH') {
+      const item = (state.itemsList || []).find((entry) => String(entry.id) === itemMatch[1])
+      if (!item) return jsonResponse({ detail: 'Not found.' }, 404)
+      Object.assign(item, JSON.parse(options.body))
+      return jsonResponse(item)
+    }
     if (path.endsWith('/transactions/summary/')) return jsonResponse(state.txSummary || { currencies: [] })
     if (path.endsWith('/review/')) {
       const note = state.notes.find((item) => item.id === Number(path.split('/').at(-3)))
@@ -277,14 +284,28 @@ describe('Part 2 full-stack UI flows', () => {
     const user = userEvent.setup()
     renderApp('/app/notes')
     expect(await screen.findByRole('button', { name: /open note: buy eggs from agora/i })).toBeInTheDocument()
-    await user.click(screen.getByRole('tab', { name: 'Events' }))
+    await user.click(screen.getByRole('tab', { name: /events/i }))
     expect(screen.queryByRole('button', { name: /open note: buy eggs from agora/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('tab', { name: 'Shopping' }))
+    await user.click(screen.getByRole('tab', { name: /shopping/i }))
     expect(screen.getByRole('button', { name: /open note: buy eggs from agora/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('tab', { name: 'All' }))
+    await user.click(screen.getByRole('tab', { name: /^all/i }))
     expect(screen.getByRole('button', { name: /open note: team standup at ten/i })).toBeInTheDocument()
+  })
+
+  it('ticks a task row inside the notes Tasks tab', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'File taxes Friday', created_at: '2026-09-21T08:00:00Z' }]
+    state.itemsList = [
+      { id: 21, item_type: 'TASK', title: 'File taxes', status: 'PENDING', due_date: '2026-09-26', domains: ['finance'], note: 1, revision: 0 },
+    ]
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    await user.click(await screen.findByRole('tab', { name: /tasks/i }))
+    await user.click(await screen.findByRole('button', { name: 'Mark File taxes complete' }))
+    expect(await screen.findByRole('button', { name: 'Mark File taxes incomplete' })).toBeInTheDocument()
+    expect(state.itemsList[0].status).toBe('COMPLETED')
   })
 
   it('keeps the grounded Ask page usable', async () => {
@@ -365,9 +386,9 @@ describe('Part 2 full-stack UI flows', () => {
     expect(document.querySelector('.sidebar.closed')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /open menu|close menu/i })).not.toBeInTheDocument()
     await user.hover(sidebar)
-    expect(document.querySelector('.sidebar.open')).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('.sidebar.open')).toBeInTheDocument())
     await user.unhover(sidebar)
-    expect(document.querySelector('.sidebar.closed')).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('.sidebar.closed')).toBeInTheDocument())
   })
 
   it('sends the profile block to settings and offers header search', async () => {

@@ -863,6 +863,19 @@ button:disabled { cursor: wait; opacity: .65; }
 a.profile-block:hover { background: var(--hover); border-radius: 12px; }
 a.profile-block:hover .profile-text strong { color: var(--accent-deep); }
 
+.dash-grid .tilt { height: 100%; border-radius: 20px; }
+.dash-grid .tilt:hover { box-shadow: none; }
+.structured-card.completed { opacity: .62; }
+.structured-card.completed h2 { text-decoration: line-through; }
+.tab-item-list { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); display: grid; gap: 4px; }
+.tab-item-row { display: flex; align-items: center; gap: 10px; padding: 7px 6px; border-radius: 10px; }
+.tab-item-row:hover { background: var(--hover); }
+.tab-item-row.completed { opacity: .62; }
+.tab-item-row.completed strong { text-decoration: line-through; }
+.tab-item-main { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.tab-item-main strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-item-main small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ---------- Reveal + tilt ---------- */
 .reveal { opacity: 0; transform: translateY(30px) scale(.97); transition: opacity .6s ease, transform .7s cubic-bezier(.2, .9, .25, 1.12); transition-delay: var(--reveal-delay, 0ms); }
 .reveal.in { opacity: 1; transform: none; }

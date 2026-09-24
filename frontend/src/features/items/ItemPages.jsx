@@ -33,7 +33,7 @@ function useItems(query) {
  * to that completion, so reopening voids it. Recorded state is always
  * re-read from the ledger, never trusted from local memory alone.
  */
-function useTaskCompletion(item, onChanged) {
+export function useTaskCompletion(item, onChanged) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const recordable = item.item_type === 'TASK'
@@ -171,6 +171,24 @@ function ShoppingRow({ item, onChanged }) {
   </li>
 }
 
+function EventCard({ item, onChanged }) {
+  const completion = useTaskCompletion(item, onChanged)
+  const done = item.status === 'COMPLETED'
+  const toggle = async () => {
+    if (completion.busy) return
+    await completion.save({ status: done ? 'PENDING' : 'COMPLETED' })
+  }
+  return <article className={`structured-card${done ? ' completed' : ''}`}>
+    <div className="task-row event-row">
+      <button className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={toggle}>{done ? '✓' : ''}</button>
+      <div className="task-main"><h2>{item.title}</h2><p>{itemDate(item)}</p><p>{item.domains.join(' · ')}</p></div><span className="pill">{item.importance}</span>
+    </div>
+    {completion.error && <p role="alert" className="form-error">{completion.error} <button onClick={onChanged}>Reload items</button></p>}
+    {item.summary && <p>{item.summary}</p>}
+    <Link className="text-link" to={`/app/notes/${item.note}`}>Source note →</Link>
+  </article>
+}
+
 function ItemPage({ title, type, empty, shopping = false }) {
   const query = new URLSearchParams({ type, ...(shopping ? { domain: 'shopping' } : {}) }).toString()
   const { items, loading, error, refresh } = useItems(query)
@@ -212,7 +230,7 @@ function ItemPage({ title, type, empty, shopping = false }) {
   return <>
     <header className="page-header"><div><span className="eyebrow">Your confirmed items</span><h1>{title}</h1><p>{shopping ? 'Shopping tasks grouped by text hints. No maps or location tracking.' : 'Only items you have reviewed and confirmed appear here.'}</p></div><div className="page-actions"><button className="button button-ghost" onClick={() => (formOpen ? setFormOpen(false) : openForm())}>{formOpen ? 'Cancel' : `Add ${title.toLowerCase()} manually`}</button><Link className="button button-primary" to="/app/notes">Organize a note</Link></div></header>
     {formOpen && <form className="manual-create" onSubmit={submit}><h2>Add {title.toLowerCase()} manually</h2><p className="field-help">Saved directly without AI. It appears here immediately after creation.</p><ItemFields value={form} onChange={setForm} />{createError && <p role="alert" className="form-error">{createError}</p>}<button className="button button-primary" type="submit" disabled={creating}>{creating ? 'Saving…' : `Save ${title.toLowerCase().replace(/s$/, '')}`}</button></form>}
-    {loading ? <p role="status">Loading {title.toLowerCase()}…</p> : error ? <p role="alert" className="form-error">{error} <button onClick={refresh}>Try again</button></p> : items.length === 0 ? <div className="empty-state"><h2>{empty}</h2><p>Save and organize a note to get started.</p></div> : shopping ? <div className="shopping-grid">{Object.entries(groups).map(([name, group]) => <article className="shopping-card" key={name}><h2>{name}</h2><p>{group.length} items</p><ul>{group.map((item) => <ShoppingRow key={`${item.id}-${item.revision}`} item={item} onChanged={refresh} />)}</ul></article>)}</div> : visible.length === 0 ? <div className="empty-state"><h2>{empty}</h2><p>Items without dates stay on Search and their source notes.</p></div> : <div className="structured-list">{visible.map((item) => type === 'TASK' ? <TaskCard key={`${item.id}-${item.revision}`} item={item} onChanged={refresh} /> : <article className="structured-card" key={item.id}>
+    {loading ? <p role="status">Loading {title.toLowerCase()}…</p> : error ? <p role="alert" className="form-error">{error} <button onClick={refresh}>Try again</button></p> : items.length === 0 ? <div className="empty-state"><h2>{empty}</h2><p>Save and organize a note to get started.</p></div> : shopping ? <div className="shopping-grid">{Object.entries(groups).map(([name, group]) => <article className="shopping-card" key={name}><h2>{name}</h2><p>{group.length} items</p><ul>{group.map((item) => <ShoppingRow key={`${item.id}-${item.revision}`} item={item} onChanged={refresh} />)}</ul></article>)}</div> : visible.length === 0 ? <div className="empty-state"><h2>{empty}</h2><p>Items without dates stay on Search and their source notes.</p></div> : <div className="structured-list">{visible.map((item) => type === 'TASK' ? <TaskCard key={`${item.id}-${item.revision}`} item={item} onChanged={refresh} /> : type === 'EVENT' ? <EventCard key={`${item.id}-${item.revision}`} item={item} onChanged={refresh} /> : <article className="structured-card" key={item.id}>
       <div className="domain-list">{item.domains.map((domain) => <span className="pill" key={domain}>{domain}</span>)}</div><h2>{item.title}</h2><p>{item.summary}</p><p>{itemDate(item)}</p>
       {type === 'EXPENSE' && <><strong>{item.amount == null ? 'Amount not specified' : `${item.currency || 'Currency unknown'} ${item.amount}`}</strong>{item.quantity != null && <p>{item.quantity} {item.unit || 'unit unknown'}</p>}</>}
       <Link className="text-link" to={`/app/notes/${item.note}`}>Source note →</Link>

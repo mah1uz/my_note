@@ -166,6 +166,18 @@ describe('Part 3 review and confirmed-item integration', () => {
     expect(api.items[0].title).toBe('Buy bread')
   })
 
+  it('toggles event completion with a darkened done state', async () => {
+    api.items = [exampleItem({ id: 7, item_type: 'EVENT', title: 'Dentist', domains: ['health'], start_date: '2026-09-24', is_confirmed: true })]
+    const user = userEvent.setup()
+    renderApp('/app/events')
+    await user.click(await screen.findByRole('button', { name: 'Mark Dentist complete' }))
+    expect(await screen.findByRole('button', { name: 'Mark Dentist incomplete' })).toBeInTheDocument()
+    expect(api.items[0].status).toBe('COMPLETED')
+    await user.click(screen.getByRole('button', { name: 'Mark Dentist incomplete' }))
+    expect(await screen.findByRole('button', { name: 'Mark Dentist complete' })).toBeInTheDocument()
+    expect(api.items[0].status).toBe('PENDING')
+  })
+
   it('reports task edit conflicts and reloads current server data', async () => {
     api.items = [exampleItem({ is_confirmed: true })]
     api.failPatch = true

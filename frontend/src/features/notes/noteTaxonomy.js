@@ -71,6 +71,7 @@ export function isDueToday(item, now = new Date()) {
 export function useConfirmedItems() {
   const { currentUser } = useAuth()
   const [state, setState] = useState({ loading: true, items: [], error: '' })
+  const [epoch, setEpoch] = useState(0)
   useEffect(() => {
     const controller = new AbortController()
     const owner = currentUser?.id
@@ -80,6 +81,6 @@ export function useConfirmedItems() {
       () => { if (!controller.signal.aborted) setState({ loading: false, items: [], error: 'Categories are unavailable right now.' }) },
     )
     return () => controller.abort()
-  }, [currentUser?.id])
-  return state
+  }, [currentUser?.id, epoch])
+  return { ...state, refresh: () => setEpoch((value) => value + 1) }
 }
