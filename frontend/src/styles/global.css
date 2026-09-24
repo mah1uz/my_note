@@ -191,7 +191,7 @@ h1, h2, h3 { letter-spacing: -.032em; line-height: 1.08; text-wrap: balance; }
 .section-heading h2 { margin-top: 6px; color: var(--ink); font-size: 22px; }
 .matter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .matter-card { min-height: 170px; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); transition: transform .2s, box-shadow .2s; }
-.matter-card:hover, .note-card:hover, .place-card:hover, .shopping-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); }
+.matter-card:hover, .note-card:hover, .place-card:hover, .shopping-card:hover { transform: translateY(-3.6px); box-shadow: var(--shadow-lift); }
 .matter-top, .note-card-top, .place-card-top { display: flex; justify-content: space-between; align-items: center; }
 .matter-card h3 { margin-top: 24px; font-size: 17px; }
 .matter-card p { margin-top: 6px; color: var(--muted); font-size: 13px; }
@@ -839,7 +839,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .notes-tab.active { background: var(--accent); border-color: var(--accent-deep); color: #fff; }
 .notes-list.notes-grid { grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); }
 .note-card.glow-note { height: 11rem; padding: 18px 20px; display: flex; flex-direction: column; gap: 0; overflow: hidden; cursor: pointer; box-shadow: var(--shadow), 0 12px 30px -20px var(--glow-blue); }
-.note-card.glow-note:hover, .note-card.glow-note:focus-visible { transform: translateY(-3px); box-shadow: var(--shadow-lift); }
+.note-card.glow-note:hover, .note-card.glow-note:focus-visible { transform: translateY(-3.6px); box-shadow: var(--shadow-lift), 0 0 26px -6px var(--glow-blue); }
+.dash-card.glow-card:hover { transform: translateY(-3.6px); box-shadow: var(--shadow-lift), 0 0 26px -6px var(--glow-blue); }
 .note-card.glow-note .note-card-top { margin-bottom: 10px; }
 .note-title.note-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 0; font-size: 16px; max-width: none; }
 .note-card.glow-note .note-card-bottom { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
