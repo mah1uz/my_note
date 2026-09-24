@@ -722,10 +722,10 @@ button:disabled { cursor: wait; opacity: .65; }
 .retro-ring-a::before { transform: translate(-50%, -50%) rotate(82deg); background-image: conic-gradient(transparent, var(--faint), transparent 10%, transparent 50%, var(--danger), transparent 60%); }
 .retro-ring-b::before { transform: translate(-50%, -50%) rotate(70deg); filter: brightness(1.2); background-image: conic-gradient(var(--ink-soft), var(--gold) 5%, var(--ink-soft) 14%, var(--ink-soft) 50%, var(--danger) 60%, var(--ink-soft) 64%); }
 .retro-ring-c::before { transform: translate(-50%, -50%) rotate(83deg); filter: brightness(1.15); background-image: conic-gradient(transparent 0%, var(--gold), transparent 8%, transparent 50%, var(--danger), transparent 58%); }
-.retro-search:hover .retro-ring-a::before, .header-search:focus-within .retro-ring-a::before { transform: translate(-50%, -50%) rotate(262deg); transition: transform 4s ease; }
-.retro-search:hover .retro-glow::before, .header-search:focus-within .retro-glow::before { transform: translate(-50%, -50%) rotate(240deg); transition: transform 4s ease; }
-.retro-search:hover .retro-ring-b::before, .header-search:focus-within .retro-ring-b::before { transform: translate(-50%, -50%) rotate(250deg); transition: transform 4s ease; }
-.retro-search:hover .retro-ring-c::before, .header-search:focus-within .retro-ring-c::before { transform: translate(-50%, -50%) rotate(263deg); transition: transform 4s ease; }
+.retro-search:hover .retro-ring-a::before, .retro-search:focus-within .retro-ring-a::before { transform: translate(-50%, -50%) rotate(262deg); transition: transform 4s ease; }
+.retro-search:hover .retro-glow::before, .retro-search:focus-within .retro-glow::before { transform: translate(-50%, -50%) rotate(240deg); transition: transform 4s ease; }
+.retro-search:hover .retro-ring-b::before, .retro-search:focus-within .retro-ring-b::before { transform: translate(-50%, -50%) rotate(250deg); transition: transform 4s ease; }
+.retro-search:hover .retro-ring-c::before, .retro-search:focus-within .retro-ring-c::before { transform: translate(-50%, -50%) rotate(263deg); transition: transform 4s ease; }
 .retro-bloom { z-index: 3; width: 30px; height: 20px; top: 8px; left: 44px; background: var(--danger); filter: blur(16px); opacity: .5; transition: opacity 2s ease; }
 .retro-search:hover .retro-bloom { opacity: 0; }
 .retro-search-icon { position: absolute; left: 16px; z-index: 2; display: grid; place-items: center; color: var(--gold-deep); pointer-events: none; }
@@ -740,12 +740,13 @@ button:disabled { cursor: wait; opacity: .65; }
 [data-theme="dark"] .retro-kbd { border-color: #4d4030; background: #241d13; color: #a89576; }
 @media (prefers-reduced-motion: reduce) {
   .retro-glow::before, .retro-ring-a::before, .retro-ring-b::before, .retro-ring-c::before { transition: none; }
-  .retro-search:hover .retro-glow::before, .header-search:focus-within .retro-glow::before,
-  .retro-search:hover .retro-ring-a::before, .header-search:focus-within .retro-ring-a::before,
-  .retro-search:hover .retro-ring-b::before, .header-search:focus-within .retro-ring-b::before,
-  .retro-search:hover .retro-ring-c::before, .header-search:focus-within .retro-ring-c::before { transform: translate(-50%, -50%) rotate(82deg); transition: none; }
+  .retro-search:hover .retro-glow::before, .retro-search:focus-within .retro-glow::before,
+  .retro-search:hover .retro-ring-a::before, .retro-search:focus-within .retro-ring-a::before,
+  .retro-search:hover .retro-ring-b::before, .retro-search:focus-within .retro-ring-b::before,
+  .retro-search:hover .retro-ring-c::before, .retro-search:focus-within .retro-ring-c::before { transform: translate(-50%, -50%) rotate(82deg); transition: none; }
 }
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
+.search-page-form { display: grid; gap: 12px; margin-bottom: 18px; }
 .profile-block { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 4px; }
 .profile-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); color: #fff; font-weight: 700; font-size: 14px; }
 .profile-text { display: grid; line-height: 1.25; }

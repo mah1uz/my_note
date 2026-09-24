@@ -20,6 +20,7 @@ import AiProviderCard from './features/notes/AiProviderCard'
 import { clearSessionGroqKey, useAiKey } from './context/AiKeyContext'
 import { AdminDashboardPage, AdminLoginPage, AdminProtected } from './features/admin/AdminPages'
 import GoogleSignInButton from './components/GoogleSignInButton'
+import RetroSearchBox from './components/RetroSearchBox'
 import PasswordStrength from './components/PasswordStrength'
 import NotePeekModal from './components/NotePeekModal'
 import TransactionsPage from './features/transactions/TransactionsPage'
@@ -95,16 +96,14 @@ function HeaderSearch() {
     navigate(`/app/search?q=${encodeURIComponent(value.trim())}`)
   }
   return <form className="header-search" role="search" onSubmit={submit}>
-    <div className="retro-search" id="retro-search">
-      <span className="retro-glow" aria-hidden="true" />
-      <span className="retro-ring retro-ring-a" aria-hidden="true" />
-      <span className="retro-ring retro-ring-b" aria-hidden="true" />
-      <span className="retro-ring retro-ring-c" aria-hidden="true" />
-      <span className="retro-bloom" aria-hidden="true" />
-      <span className="retro-search-icon" aria-hidden="true"><SearchIcon size={17} /></span>
-      <input ref={inputRef} className="retro-input" type="search" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Search your notes, tasks, places…" aria-label="Global search" />
-      <kbd className="retro-kbd" aria-hidden="true">⌘K</kbd>
-    </div>
+    <RetroSearchBox
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      placeholder="Search your notes, tasks, places…"
+      ariaLabel="Global search"
+      inputRef={inputRef}
+      showKbd
+    />
   </form>
 }
 

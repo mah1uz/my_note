@@ -99,6 +99,27 @@ function installApiMock() {
       state.transactions = (state.transactions || []).filter((row) => String(row.id) !== txMatch[1])
       return jsonResponse(null, 204)
     }
+    if (path.endsWith('/search/answer/') && method === 'POST') {
+      const body = JSON.parse(options.body)
+      return jsonResponse({
+        query: body.query, mode: 'grounded', answer: `Grounded answer for ${body.query}.`,
+        sources: ['7'], results: [{
+          kind: 'NOTE_ITEM', id: 7, title: 'Mocked lecture notes',
+          excerpt: 'Mocked excerpt about the query.', source_note_id: '1',
+          relevance: 5, metadata: { item_type: 'TASK', domains: ['education'], status: 'PENDING' },
+        }],
+      })
+    }
+    if (path.endsWith('/search/') && method === 'POST') {
+      const body = JSON.parse(options.body)
+      return jsonResponse({
+        query: body.query, mode: 'lexical', parsed: {}, results: [{
+          kind: 'NOTE_ITEM', id: 7, title: 'Mocked lecture notes',
+          excerpt: 'Mocked excerpt about the query.', source_note_id: '1',
+          relevance: 5, metadata: { item_type: 'TASK', domains: ['education'], status: 'PENDING' },
+        }],
+      })
+    }
     if (path.endsWith('/review/')) {
       const note = state.notes.find((item) => item.id === Number(path.split('/').at(-3)))
       return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: [], domains: [], analysis_running: false })
@@ -586,7 +607,7 @@ describe('Part 2 full-stack UI flows', () => {
     expect(await screen.findByRole('heading', { name: /^settings$/i })).toBeInTheDocument()
   })
 
-  it('routes header search to the search page with the query', async () => {
+  it('routes header search to the search page and executes it', async () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app')
@@ -594,7 +615,23 @@ describe('Part 2 full-stack UI flows', () => {
     expect(box.closest('.retro-search')).toBeInTheDocument()
     expect(screen.getByText('⌘K')).toBeInTheDocument()
     await user.type(box, 'exam time{enter}')
-    expect(await screen.findByPlaceholderText(/what do you want to know|search notes/i)).toBeInTheDocument()
+    expect(await screen.findByText('Mocked lecture notes')).toBeInTheDocument()
+    expect(screen.getByText('Lexical matches')).toBeInTheDocument()
+  })
+
+  it('auto-runs a shared ?q= link without another click', async () => {
+    state.authenticated = true
+    renderApp('/app/search?q=university')
+    expect(await screen.findByText('Mocked lecture notes')).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: /search your notes/i })).toHaveValue('university')
+  })
+
+  it('auto-asks on the Ask tab when a query is present', async () => {
+    state.authenticated = true
+    const user = userEvent.setup()
+    renderApp('/app/search?q=fees')
+    await user.click(await screen.findByRole('button', { name: /ask my notes/i }))
+    expect(await screen.findByText('Grounded answer for fees.')).toBeInTheDocument()
   })
 
   it('renders all protected application pages for an authenticated user', async () => {
