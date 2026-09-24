@@ -287,7 +287,7 @@ function NoteCategoryCard({ note, tab, items, onChanged, onPeek }) {
     <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
       {single
         ? <SingleTick item={single} onChanged={onChanged} />
-        : items.length > 1 && <button className="check-button card-tick" aria-label={`Choose items to tick in ${note.originalText || 'this note'}`} onClick={() => onPeek(note)} />}
+        : items.length > 1 && <button type="button" className="check-button card-tick" aria-label={`Choose items to tick in ${note.originalText || 'this note'}`} onClick={() => onPeek(note)} />}
     </div>
     <p className="note-title note-clamp">{note.originalText}</p>
     <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}</div>

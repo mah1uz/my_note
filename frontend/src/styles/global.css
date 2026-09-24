@@ -767,7 +767,7 @@ button:disabled { cursor: wait; opacity: .65; }
 
 /* ---------- Modal base + Pro modal ---------- */
 .modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; background: #10141acc; backdrop-filter: blur(6px); animation: page-in .22s ease both; }
-.modal-card { width: min(440px, 100%); max-height: calc(100vh - 60px); overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 28px; box-shadow: var(--shadow-lift); }
+.modal-card { width: min(440px, 100%); max-height: calc(100vh - 60px); max-height: calc(100dvh - 60px); overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 28px; box-shadow: var(--shadow-lift); }
 .modal-heading { display: flex; align-items: center; gap: 12px; }
 .modal-heading h2 { font-size: 21px; }
 .modal-lede { margin-top: 10px; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
@@ -852,7 +852,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .note-peek h2 { font-size: 22px; line-height: 1.4; outline: none; overflow-wrap: anywhere; }
 .note-peek-actions { justify-content: flex-start; flex-wrap: wrap; margin-top: 22px; }
 .note-peek-actions .button { white-space: nowrap; }
-.modal-item-list { border-top: 0; margin-top: 8px; padding-top: 0; }
+.modal-item-list { border-top: 0; margin-top: 8px; padding-top: 0; max-height: 32dvh; overflow-y: auto; overscroll-behavior: contain; }
+.note-peek-actions { position: sticky; bottom: -28px; margin-left: -28px; margin-right: -28px; padding: 14px 28px 0; background: linear-gradient(transparent, var(--surface) 40%); }
 .card-tick { flex-shrink: 0; }
 
 /* ---------- Brutalist universal search (toned) ---------- */

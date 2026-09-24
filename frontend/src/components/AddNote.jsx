@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NOTE_MAX_LENGTH } from '../features/notes/noteTaxonomy'
 import { PlusIcon } from './icons'
 import { useNotes } from '../context/NotesContext'
+import useBodyScrollLock from './useBodyScrollLock'
 
 export function AddNoteFab({ onOpen }) {
   return (
@@ -35,6 +36,7 @@ export function AddNotePopup({ open, onClose }) {
   const [saved, setSaved] = useState(false)
   const dialogRef = useRef(null)
   const previousFocus = useRef(null)
+  useBodyScrollLock(open)
 
   useEffect(() => {
     if (!open) return undefined

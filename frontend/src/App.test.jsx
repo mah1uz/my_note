@@ -333,10 +333,14 @@ describe('Part 2 full-stack UI flows', () => {
     await user.click(await screen.findByRole('button', { name: /choose items to tick in trip prep/i }))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('Tick items in this note')).toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('hidden')
     await user.click(within(dialog).getByRole('button', { name: 'Mark Book tickets complete' }))
     expect(await within(dialog).findByRole('button', { name: 'Mark Book tickets incomplete' })).toBeInTheDocument()
     expect(state.itemsList[0].status).toBe('COMPLETED')
     expect(state.itemsList[1].status).toBe('PENDING')
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
   })
 
   it('keeps the grounded Ask page usable', async () => {

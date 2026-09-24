@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { analyzeNote } from '../api/itemsApi'
 import { useAiKey } from '../context/AiKeyContext'
 import TabItemRow from '../features/notes/TabItemRow'
+import useBodyScrollLock from './useBodyScrollLock'
 
 /**
  * Tap-a-card popup: shows the full note text that the grid card clamps.
@@ -16,6 +17,7 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
   const [deleting, setDeleting] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const headingRef = useRef(null)
+  useBodyScrollLock(note != null)
 
   useEffect(() => {
     headingRef.current?.focus()

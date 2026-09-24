@@ -126,7 +126,7 @@ function TaskCard({ item, onChanged }) {
 
   return <article className="structured-card">
     <div className={`task-row ${item.status === 'COMPLETED' ? 'completed' : ''}`}>
-      <button className="check-button" disabled={busy} aria-label={`Mark ${item.title} ${item.status === 'COMPLETED' ? 'incomplete' : 'complete'}`} onClick={toggle}>{item.status === 'COMPLETED' ? '✓' : ''}</button>
+      <button type="button" className="check-button" disabled={busy} aria-label={`Mark ${item.title} ${item.status === 'COMPLETED' ? 'incomplete' : 'complete'}`} onClick={toggle}>{item.status === 'COMPLETED' ? '✓' : ''}</button>
       <div className="task-main"><h2>{item.title}</h2><p>{itemDate(item, 'due')}</p><p>{item.domains.join(' · ')}</p></div><span className="pill">{item.importance}</span>
     </div>
     {error && <p role="alert" className="form-error">{error} <button onClick={onChanged}>Reload items</button></p>}
@@ -160,7 +160,7 @@ function ShoppingRow({ item, onChanged }) {
     if (ok && linked) await completion.voidRecorded(linked)
   }
   return <li className={`shopping-row${done ? ' completed' : ''}`}>
-    <button className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={done ? reopen : completeAndRecord}>{done ? '✓' : ''}</button>
+    <button type="button" className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={done ? reopen : completeAndRecord}>{done ? '✓' : ''}</button>
     <Link to={`/app/notes/${item.note}`}>{item.title}</Link>
     {item.amount != null && <span className="shopping-price">{item.currency || ''} {item.amount}</span>}
     {completion.recordable && done && (completion.recordedId
@@ -180,7 +180,7 @@ function EventCard({ item, onChanged }) {
   }
   return <article className={`structured-card${done ? ' completed' : ''}`}>
     <div className="task-row event-row">
-      <button className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={toggle}>{done ? '✓' : ''}</button>
+      <button type="button" className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={toggle}>{done ? '✓' : ''}</button>
       <div className="task-main"><h2>{item.title}</h2><p>{itemDate(item)}</p><p>{item.domains.join(' · ')}</p></div><span className="pill">{item.importance}</span>
     </div>
     {completion.error && <p role="alert" className="form-error">{completion.error} <button onClick={onChanged}>Reload items</button></p>}
