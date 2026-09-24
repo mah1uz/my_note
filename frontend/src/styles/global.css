@@ -800,8 +800,8 @@ button:disabled { cursor: wait; opacity: .65; }
 }
 
 /* ---------- Modal base + Pro modal ---------- */
-.modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; background: #10141acc; backdrop-filter: blur(6px); animation: page-in .22s ease both; }
-.modal-card { width: min(440px, 100%); max-height: calc(100vh - 60px); max-height: calc(100dvh - 60px); overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 28px; box-shadow: var(--shadow-lift); }
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; align-items: start; justify-items: center; overflow-y: auto; padding: 20px; background: #10141acc; backdrop-filter: blur(6px); animation: page-in .22s ease both; }
+.modal-card { width: min(440px, 100%); margin: auto; max-height: calc(100vh - 60px); max-height: calc(100dvh - 60px); overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 28px; box-shadow: var(--shadow-lift); }
 .modal-heading { display: flex; align-items: center; gap: 12px; }
 .modal-heading h2 { font-size: 21px; }
 .modal-lede { margin-top: 10px; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
@@ -900,13 +900,12 @@ button:disabled { cursor: wait; opacity: .65; }
 .note-card.glow-note .note-card-top { margin-bottom: 10px; }
 .note-title.note-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 0; font-size: 16px; max-width: none; }
 .note-card.glow-note .note-card-bottom { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
-.note-peek { width: min(560px, calc(100vw - 40px)); height: auto; max-height: calc(100dvh - 60px); overflow-y: auto; overscroll-behavior: contain; }
+.note-peek { width: min(560px, calc(100vw - 40px)); height: auto; max-height: calc(100vh - 60px); max-height: calc(100dvh - 60px); overflow-y: auto; overscroll-behavior: contain; }
 .note-peek .eyebrow { display: block; margin-bottom: 10px; }
 .note-peek h2 { font-size: 22px; line-height: 1.4; outline: none; overflow-wrap: anywhere; }
 .note-peek-actions { justify-content: flex-start; flex-wrap: wrap; margin-top: 22px; }
 .note-peek-actions .button { white-space: nowrap; }
 .modal-item-list { border-top: 0; margin-top: 8px; padding-top: 0; }
-.note-peek-actions { justify-content: flex-start; flex-wrap: wrap; margin-top: 22px; }
 .card-tick { flex-shrink: 0; }
 
 /* ---------- Profile link ---------- */
