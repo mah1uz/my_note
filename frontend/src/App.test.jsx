@@ -507,7 +507,10 @@ describe('Part 2 full-stack UI flows', () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app')
-    await user.type(await screen.findByRole('searchbox', { name: /global search/i }), 'exam time{enter}')
+    const box = await screen.findByRole('searchbox', { name: /global search/i })
+    expect(box.closest('.retro-search')).toBeInTheDocument()
+    expect(screen.getByText('⌘K')).toBeInTheDocument()
+    await user.type(box, 'exam time{enter}')
     expect(await screen.findByPlaceholderText(/what do you want to know|search notes/i)).toBeInTheDocument()
   })
 

@@ -706,11 +706,45 @@ button:disabled { cursor: wait; opacity: .65; }
 
 /* ---------- Header: search, bell, profile ---------- */
 .topbar { justify-content: space-between; }
-.header-search { display: flex; align-items: center; gap: 10px; flex: 1; max-width: 560px; padding: 9px 12px 9px 16px; border: 1px solid var(--field-border); border-radius: 999px; background: var(--field); color: var(--faint); transition: border-color .15s, box-shadow .15s; }
-.header-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
-.header-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font-size: 13.5px; outline: none; padding: 0; }
+.header-search { flex: 1; max-width: 560px; min-width: 0; }
 .header-search input::-webkit-search-cancel-button { display: none; }
-.header-search kbd { padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--pill-neutral); color: var(--muted); font: 500 10.5px 'DM Mono', monospace; }
+
+/* Retro glow search: layered conic rings + coral bloom + filter badge.
+ * Light-first palette via theme vars; warm original glow under dark mode.
+ * Decorative layers only — form behavior (role, kbd, submit) is untouched. */
+.retro-search { position: relative; display: flex; align-items: center; isolation: isolate; font-family: 'Courier New', Courier, monospace; }
+.retro-glow, .retro-ring-a, .retro-ring-b, .retro-ring-c, .retro-bloom { position: absolute; inset: 0; overflow: hidden; border-radius: 12px; pointer-events: none; }
+.retro-glow { z-index: 0; filter: blur(18px); opacity: .45; }
+.retro-glow::before { content: ""; position: absolute; top: 50%; left: 50%; width: 160%; aspect-ratio: 1; transform: translate(-50%, -50%) rotate(60deg); background-image: conic-gradient(var(--accent), var(--gold) 12%, transparent 38%, transparent 50%, var(--danger) 62%, transparent 87%); transition: transform 2s ease; }
+.retro-ring-a, .retro-ring-b, .retro-ring-c { z-index: 0; filter: blur(2px); opacity: .8; }
+.retro-ring-a::before, .retro-ring-b::before, .retro-ring-c::before { content: ""; position: absolute; top: 50%; left: 50%; width: 170%; aspect-ratio: 1; background-repeat: no-repeat; transition: transform 2s ease; }
+.retro-ring-a::before { transform: translate(-50%, -50%) rotate(82deg); background-image: conic-gradient(transparent, var(--faint), transparent 10%, transparent 50%, var(--danger), transparent 60%); }
+.retro-ring-b::before { transform: translate(-50%, -50%) rotate(70deg); filter: brightness(1.2); background-image: conic-gradient(var(--ink-soft), var(--gold) 5%, var(--ink-soft) 14%, var(--ink-soft) 50%, var(--danger) 60%, var(--ink-soft) 64%); }
+.retro-ring-c::before { transform: translate(-50%, -50%) rotate(83deg); filter: brightness(1.15); background-image: conic-gradient(transparent 0%, var(--gold), transparent 8%, transparent 50%, var(--danger), transparent 58%); }
+.retro-search:hover .retro-ring-a::before, .header-search:focus-within .retro-ring-a::before { transform: translate(-50%, -50%) rotate(262deg); transition: transform 4s ease; }
+.retro-search:hover .retro-glow::before, .header-search:focus-within .retro-glow::before { transform: translate(-50%, -50%) rotate(240deg); transition: transform 4s ease; }
+.retro-search:hover .retro-ring-b::before, .header-search:focus-within .retro-ring-b::before { transform: translate(-50%, -50%) rotate(250deg); transition: transform 4s ease; }
+.retro-search:hover .retro-ring-c::before, .header-search:focus-within .retro-ring-c::before { transform: translate(-50%, -50%) rotate(263deg); transition: transform 4s ease; }
+.retro-bloom { z-index: 3; width: 30px; height: 20px; top: 8px; left: 44px; background: var(--danger); filter: blur(16px); opacity: .5; transition: opacity 2s ease; }
+.retro-search:hover .retro-bloom { opacity: 0; }
+.retro-search-icon { position: absolute; left: 16px; z-index: 2; display: grid; place-items: center; color: var(--gold-deep); pointer-events: none; }
+.retro-input { position: relative; z-index: 2; flex: 1; min-width: 0; height: 52px; border: 0; border-radius: 10px; background: var(--field); color: var(--ink); font: inherit; font-size: 16px; font-weight: 700; letter-spacing: .01em; padding-inline: 46px 96px; outline: none; box-shadow: inset 0 0 0 1px var(--field-border); transition: box-shadow .2s ease; }
+.retro-input::placeholder { color: var(--muted); font-weight: 400; }
+.retro-input:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+.retro-kbd { position: absolute; right: 52px; z-index: 2; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--pill-neutral); color: var(--muted); font: 500 10.5px 'DM Mono', monospace; pointer-events: none; }
+.retro-filter { position: absolute; right: 6px; z-index: 2; width: 34px; height: 38px; display: grid; place-items: center; border-radius: 9px; background: linear-gradient(180deg, var(--gold), var(--gold-deep)); pointer-events: none; }
+[data-theme="dark"] .retro-glow { opacity: .5; }
+[data-theme="dark"] .retro-input { background: #1a1611; color: #f2e2c4; box-shadow: inset 0 0 0 1px #4d4030; }
+[data-theme="dark"] .retro-input::placeholder { color: #857754; }
+[data-theme="dark"] .retro-search-icon { color: #c98f65; }
+[data-theme="dark"] .retro-kbd { border-color: #4d4030; background: #241d13; color: #a89576; }
+@media (prefers-reduced-motion: reduce) {
+  .retro-glow::before, .retro-ring-a::before, .retro-ring-b::before, .retro-ring-c::before { transition: none; }
+  .retro-search:hover .retro-glow::before, .header-search:focus-within .retro-glow::before,
+  .retro-search:hover .retro-ring-a::before, .header-search:focus-within .retro-ring-a::before,
+  .retro-search:hover .retro-ring-b::before, .header-search:focus-within .retro-ring-b::before,
+  .retro-search:hover .retro-ring-c::before, .header-search:focus-within .retro-ring-c::before { transform: translate(-50%, -50%) rotate(82deg); transition: none; }
+}
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
 .profile-block { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 4px; }
 .profile-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); color: #fff; font-weight: 700; font-size: 14px; }
@@ -858,16 +892,6 @@ button:disabled { cursor: wait; opacity: .65; }
 .modal-item-list { border-top: 0; margin-top: 8px; padding-top: 0; }
 .note-peek-actions { justify-content: flex-start; flex-wrap: wrap; margin-top: 22px; }
 .card-tick { flex-shrink: 0; }
-
-/* ---------- Brutalist universal search (toned) ---------- */
-.header-search { border: 3px solid var(--ink); border-radius: 12px; box-shadow: 5px 5px 0 var(--ink); transition: transform .18s ease, box-shadow .18s ease, background .18s ease, color .18s ease; }
-.header-search:hover { transform: translate(-2px, -2px); box-shadow: 7px 7px 0 var(--ink); }
-.header-search:focus-within { border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink); background: var(--ink); color: var(--paper); }
-.header-search input { font-family: 'Courier New', Courier, monospace; font-weight: 700; letter-spacing: .01em; }
-.header-search:focus-within input { color: var(--paper); }
-.header-search:focus-within input::placeholder { color: var(--paper); opacity: .7; }
-.header-search:focus-within svg { color: var(--paper); }
-.header-search:focus-within kbd { border-color: var(--paper); background: transparent; color: var(--paper); }
 
 /* ---------- Profile link ---------- */
 a.profile-block:hover { background: var(--hover); border-radius: 12px; }
