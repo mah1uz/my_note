@@ -15,7 +15,7 @@ from rest_framework.authtoken.models import Token
 
 from notes.models import Note, NoteItem
 
-from .models import AdminProfile, AppUser, ProAccessRequest
+from .models import AdminProfile, AppUser, GroqServerKey, ProAccessRequest
 from .permissions import IsActiveAdmin, IsSuperAdmin
 from .serializers import (
     AdminCreateSerializer,
@@ -24,9 +24,13 @@ from .serializers import (
     AdminUserSerializer,
     AdminProRequestSerializer,
     AISettingsSerializer,
+    TrialKeyCreateSerializer,
+    TrialKeyUpdateSerializer,
+    trial_key_representation,
 )
 from .services.ai_config import get_server_ai_enabled, set_server_ai_enabled
 from .services.audit import log_admin_action
+from .services.trial_keys import KeyMisconfigured, add_key
 
 User = get_user_model()
 
@@ -277,6 +281,81 @@ class AISettingsView(APIView):
             metadata={'server_ai_enabled': enabled},
         )
         return Response({'server_ai_enabled': enabled})
+
+
+class TrialKeyListCreateView(APIView):
+    """Super-admin-only pool of server Groq keys. Full values are never returned."""
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        keys = GroqServerKey.objects.order_by('created_at', 'id')
+        return Response([trial_key_representation(key) for key in keys])
+
+    def post(self, request):
+        serializer = TrialKeyCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            key = add_key(
+                serializer.validated_data.get('label', ''),
+                serializer.validated_data['key'],
+                admin_profile=_actor(request),
+            )
+        except KeyMisconfigured as error:
+            return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except ValueError as error:
+            return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        log_admin_action(
+            'trial_key.added', request=request, actor=_actor(request),
+            metadata={'key_id': str(key.id), 'label': key.label},
+        )
+        return Response(trial_key_representation(key), status=status.HTTP_201_CREATED)
+
+
+class TrialKeyDetailView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsSuperAdmin]
+
+    def _get_key(self, pk):
+        try:
+            return GroqServerKey.objects.get(pk=pk)
+        except (GroqServerKey.DoesNotExist, ValueError, TypeError):
+            return None
+
+    def patch(self, request, pk):
+        key = self._get_key(pk)
+        if key is None:
+            return Response({'detail': 'Trial key not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = TrialKeyUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        changed = {}
+        if 'label' in serializer.validated_data:
+            key.label = serializer.validated_data['label'] or key.label
+            changed['label'] = key.label
+        if 'is_active' in serializer.validated_data:
+            key.is_active = serializer.validated_data['is_active']
+            if key.is_active:
+                key.consecutive_failures = 0
+                key.disabled_reason = ''
+            changed['is_active'] = key.is_active
+        key.save()
+        log_admin_action(
+            'trial_key.updated', request=request, actor=_actor(request),
+            metadata={'key_id': str(key.id), 'changed': sorted(changed)},
+        )
+        return Response(trial_key_representation(key))
+
+    def delete(self, request, pk):
+        key = self._get_key(pk)
+        if key is None:
+            return Response({'detail': 'Trial key not found.'}, status=status.HTTP_404_NOT_FOUND)
+        log_admin_action(
+            'trial_key.removed', request=request, actor=_actor(request),
+            metadata={'key_id': str(key.id), 'label': key.label},
+        )
+        key.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ProRequestListView(generics.ListAPIView):

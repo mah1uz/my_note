@@ -11,6 +11,8 @@ from .admin_views import (
     AISettingsView,
     ProRequestDetailView,
     ProRequestListView,
+    TrialKeyDetailView,
+    TrialKeyListCreateView,
 )
 
 urlpatterns = [
@@ -22,6 +24,8 @@ urlpatterns = [
     path('admins/', AdminListCreateView.as_view(), name='admin-admins'),
     path('admins/<uuid:pk>/', AdminDetailView.as_view(), name='admin-admin-detail'),
     path('ai-settings/', AISettingsView.as_view(), name='admin-ai-settings'),
+    path('trial-keys/', TrialKeyListCreateView.as_view(), name='admin-trial-keys'),
+    path('trial-keys/<uuid:pk>/', TrialKeyDetailView.as_view(), name='admin-trial-key-detail'),
     path('pro-requests/', ProRequestListView.as_view(), name='admin-pro-requests'),
     path('pro-requests/<str:code>/', ProRequestDetailView.as_view(), name='admin-pro-request-detail'),
 ]

@@ -143,6 +143,11 @@ DEFAULT_FROM_EMAIL = 'Rememberly <no-reply@rememberly.local>'
 
 # AI is optional: ordinary Notes CRUD and manual organization need no key.
 GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
+# Fernet key (urlsafe base64, 44 chars) encrypting admin-managed trial keys
+# in the database. Generate once and back it up: losing it orphans stored
+# keys (re-add them). Without it, key CRUD is disabled with a clear error
+# while the .env GROQ_API_KEY fallback keeps working.
+SERVER_KEY_SECRET = os.getenv('SERVER_KEY_SECRET', '')
 # Groq retired llama-3.3-70b-versatile on 2026-08-16; gpt-oss-120b is their
 # recommended replacement. Override per environment with GROQ_MODEL.
 GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')

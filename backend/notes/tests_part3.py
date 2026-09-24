@@ -61,7 +61,8 @@ class SchemaTests(SimpleTestCase):
 
 
 @override_settings(GROQ_API_KEY='synthetic-test-key')
-class ProviderAdapterTests(SimpleTestCase):
+class ProviderAdapterTests(TestCase):
+    """TestCase (not SimpleTestCase): server-key resolution reads the pool table."""
     @patch('ai.services.groq_service.Groq')
     def test_sdk_contract_separates_untrusted_note_and_server_context(self, sdk):
         client = sdk.return_value.__enter__.return_value

@@ -58,12 +58,9 @@ def redact(text, extra_key=''):
     return re.sub(r'gsk_[A-Za-z0-9_-]+', '[REDACTED]', text)
 
 
-def analyze_note(raw_text, now, api_key=None):
-    selected_key = api_key or settings.GROQ_API_KEY
-    if not selected_key:
-        raise ProviderFailure('not_configured', 'A Groq API key is required to use AI organization.', 503)
+def _call_provider(raw_text, now, candidate_key):
     try:
-        with Groq(api_key=selected_key, timeout=settings.GROQ_TIMEOUT_SECONDS, max_retries=0) as client:
+        with Groq(api_key=candidate_key, timeout=settings.GROQ_TIMEOUT_SECONDS, max_retries=0) as client:
             response = client.chat.completions.create(
                 model=settings.GROQ_MODEL,
                 temperature=0,
@@ -97,3 +94,54 @@ def analyze_note(raw_text, now, api_key=None):
     if not response.choices or response.choices[0].finish_reason != 'stop':
         raise ProviderFailure('incomplete', 'The AI response was incomplete. Try a shorter note.')
     return response.choices[0].message.content
+
+
+def _pool_candidates():
+    """Decrypted active pool keys in round-robin order.
+
+    A missing/invalid SERVER_KEY_SECRET simply yields no pool keys; the
+    .env fallback below keeps working. Corrupt rows are skipped.
+    """
+    try:
+        from accounts.services import trial_keys
+    except ImportError:
+        return []
+    try:
+        pool = trial_keys.active_keys()
+    except trial_keys.KeyMisconfigured:
+        return []
+    candidates = []
+    for key in pool:
+        try:
+            candidates.append((key, trial_keys.decrypt_key(key)))
+        except trial_keys.KeyMisconfigured:
+            continue
+    return candidates
+
+
+def analyze_note(raw_text, now, api_key=None):
+    if api_key:
+        return _call_provider(raw_text, now, api_key)
+    from accounts.services import trial_keys
+    candidates = _pool_candidates()
+    if settings.GROQ_API_KEY:
+        candidates.append((None, settings.GROQ_API_KEY))
+    if not candidates:
+        raise ProviderFailure('not_configured', 'A Groq API key is required to use AI organization.', 503)
+    last_error = None
+    for key, candidate in candidates:
+        try:
+            content = _call_provider(raw_text, now, candidate)
+        except ProviderFailure as error:
+            # Only key-attributable failures rotate: a dead model, timeout,
+            # or network blip hits every key equally, so fail fast instead.
+            if error.code in ('rate_limit', 'invalid_key') and key is not None:
+                trial_keys.record_failure(key, error.code)
+                last_error = last_error or error
+                continue
+            raise
+        if key is not None:
+            trial_keys.record_use(key)
+            trial_keys.record_success(key)
+        return content
+    raise last_error or ProviderFailure('not_configured', 'A Groq API key is required to use AI organization.', 503)

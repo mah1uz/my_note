@@ -187,6 +187,38 @@ class SystemSetting(models.Model):
         return self.key
 
 
+class GroqServerKey(models.Model):
+    """Pool of server-owned Groq keys for the free trial.
+
+    Values are Fernet-encrypted with SERVER_KEY_SECRET; the plaintext is
+    never stored, logged, or returned by any API. Round-robin selection
+    spreads per-key rate limits; repeated provider failures auto-disable.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    label = models.CharField(max_length=80)
+    key_encrypted = models.TextField()
+    key_hint = models.CharField(max_length=12, blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    use_count = models.PositiveIntegerField(default=0)
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    disabled_reason = models.CharField(max_length=40, blank=True, default='')
+    created_by_admin = models.ForeignKey(
+        AdminProfile, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='created_trial_keys',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'groq_server_keys'
+        ordering = ('created_at', 'id')
+
+    def __str__(self):
+        return f'{self.label} (••••{self.key_hint})'
+
+
 class AdminAuditEvent(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     actor_admin = models.ForeignKey(AdminProfile, null=True, blank=True, on_delete=models.SET_NULL, related_name='audit_events')

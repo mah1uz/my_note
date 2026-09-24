@@ -13,6 +13,7 @@ from ai.schema import InvalidAnalysis, parse_analysis
 from ai.services import groq_service
 from accounts.services.ai_config import get_server_ai_enabled
 from accounts.services.entitlement import TrialUnavailable, consume_trial
+from accounts.services.trial_keys import has_usable_server_key
 from .item_serializers import ItemInputSerializer, NoteItemSerializer
 from .models import AIProcessingLog, Note, NoteItem
 from .preparser import parse_note_evidence
@@ -131,7 +132,7 @@ def analyze(note, revision, user_api_key=None, trial=False):
             'detail': 'Start the free trial or enter a personal API key to use AI organization.',
             'code': 'credential_required',
         })
-    if trial and not user_api_key and (not get_server_ai_enabled() or not settings.GROQ_API_KEY):
+    if trial and not user_api_key and (not get_server_ai_enabled() or not has_usable_server_key()):
         raise groq_service.ProviderFailure(
             'trial_unavailable',
             'Free trial is not available right now. Enter a personal API key instead.',
@@ -347,7 +348,7 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
             'detail': 'Start the free trial or enter a personal API key to use AI organization.',
             'code': 'credential_required',
         })
-    if trial and not user_api_key and (not get_server_ai_enabled() or not settings.GROQ_API_KEY):
+    if trial and not user_api_key and (not get_server_ai_enabled() or not has_usable_server_key()):
         raise groq_service.ProviderFailure(
             'trial_unavailable',
             'Free trial is not available right now. Enter a personal API key instead.',

@@ -27,9 +27,8 @@ import OnboardingPage from './features/onboarding/OnboardingPage'
 import SearchFeaturePage from './features/search/SearchPage'
 import ProcessButtons from './features/processing/ProcessButtons'
 import QueueProgress from './features/processing/QueueProgress'
-import { useTaskCompletion } from './features/items/ItemPages'
-import { itemDate } from './features/items/itemForm'
 import { NOTE_TABS, groupItemsByNote, isDueToday, useConfirmedItems } from './features/notes/noteTaxonomy'
+import { SingleTick } from './features/notes/TabItemRow'
 import { useNotifications } from './features/notifications/useNotifications'
 import { backlogNotes } from './api/processApi'
 
@@ -127,7 +126,7 @@ function AppLayout({ children }) {
   const expandSidebar = () => {
     clearTimeout(hoverTimers.current.close)
     clearTimeout(hoverTimers.current.open)
-    hoverTimers.current.open = setTimeout(() => setNavOpen(true), 300)
+    hoverTimers.current.open = setTimeout(() => setNavOpen(true), 180)
   }
   const collapseSidebar = () => {
     clearTimeout(hoverTimers.current.open)
@@ -274,49 +273,23 @@ function NoteCard({ note, onPeek }) {
   </article>
 }
 
-function TabItemRow({ item, onChanged }) {
-  const completion = useTaskCompletion(item, onChanged)
-  const done = item.status === 'COMPLETED'
-  const shopping = (item.domains || []).includes('shopping')
-  // Same contract as the Shopping page: ticking a priced shopping item
-  // completes it and records the expense; reopening voids the row.
-  // Plain tasks and events just flip status.
-  const act = async () => {
-    if (completion.busy) return
-    if (!done) {
-      const linked = completion.recordedId
-      const ok = await completion.save({ status: 'COMPLETED' })
-      if (ok && shopping && completion.recordable && !linked) await completion.record()
-    } else {
-      const linked = completion.recordedId
-      const ok = await completion.save({ status: 'PENDING' })
-      if (ok && linked) await completion.voidRecorded(linked)
-    }
-  }
-  return <li className={`tab-item-row${done ? ' completed' : ''}`}>
-    <button className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={act}>{done ? '✓' : ''}</button>
-    <span className="tab-item-main"><strong>{item.title}</strong><small>{item.item_type === 'EVENT' ? itemDate(item) : itemDate(item, 'due')}</small></span>
-    {shopping && item.amount != null && <span className="shopping-price">{item.currency || ''} {item.amount}</span>}
-    {completion.recordMsg && <span className="record-message" role="status">{completion.recordMsg}</span>}
-    {completion.error && <span className="form-error" role="alert">{completion.error}</span>}
-  </li>
-}
-
 function NoteCategoryCard({ note, tab, items, onChanged, onPeek }) {
   const open = (event) => {
     if (event.target.closest('a,button')) return
     onPeek(note)
   }
+  const single = items.length === 1 ? items[0] : null
   return <article className="note-card glow-note" onClick={open} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`} onKeyDown={(event) => {
     if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) { event.preventDefault(); onPeek(note) }
   }}>
     <span className="glow-card__border" aria-hidden="true" />
-    <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill></div>
+    <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
+      {single
+        ? <SingleTick item={single} onChanged={onChanged} />
+        : items.length > 1 && <button className="check-button card-tick" aria-label={`Choose items to tick in ${note.originalText || 'this note'}`} onClick={() => onPeek(note)} />}
+    </div>
     <p className="note-title note-clamp">{note.originalText}</p>
-    <ul className="tab-item-list" aria-label={`${tab} items in this note`}>
-      {items.map((item) => <TabItemRow key={`${item.id}-${item.revision}`} item={item} onChanged={onChanged} />)}
-    </ul>
-    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div>
+    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}</div>
   </article>
 }
 
@@ -345,7 +318,7 @@ function NotesPage() {
           : <NoteCategoryCard key={note.id} note={note} tab={tab} items={itemsFor(note)} onChanged={refreshCats} onPeek={(item) => setPeekId(item.id)} />)}</div>
           : notes.length ? <EmptyState title={`No ${tab} notes`} text={`Notes appear here once they hold confirmed ${tabHint} items. Drafts stay on their source note until confirmed; other categories live under their own tabs.`} />
             : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}
-    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} />}
+    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} items={tab === 'all' ? [] : itemsFor(peekNote)} onItemsChanged={refreshCats} />}
   </>
 }
 

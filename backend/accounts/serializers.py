@@ -130,6 +130,42 @@ class AISettingsSerializer(serializers.Serializer):
     server_ai_enabled = serializers.BooleanField()
 
 
+class TrialKeyCreateSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=80, required=False, allow_blank=True, default='')
+    key = serializers.CharField(write_only=True, trim_whitespace=False, min_length=20, max_length=200)
+
+    def validate_label(self, value):
+        return value.strip()[:80]
+
+    def validate_key(self, value):
+        value = value.strip()
+        if not value.startswith('gsk_'):
+            raise serializers.ValidationError('That does not look like a Groq API key.')
+        return value
+
+
+class TrialKeyUpdateSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    is_active = serializers.BooleanField(required=False)
+
+    def validate_label(self, value):
+        return value.strip()[:80]
+
+
+def trial_key_representation(key):
+    return {
+        'id': str(key.id),
+        'label': key.label,
+        'masked': f'••••{key.key_hint}' if key.key_hint else '••••',
+        'is_active': key.is_active,
+        'use_count': key.use_count,
+        'consecutive_failures': key.consecutive_failures,
+        'disabled_reason': key.disabled_reason,
+        'created_at': key.created_at.isoformat() if key.created_at else None,
+        'last_used_at': key.last_used_at.isoformat() if key.last_used_at else None,
+    }
+
+
 class PreferenceSerializer(serializers.ModelSerializer):
     week_starts_on = serializers.IntegerField(min_value=0, max_value=6, required=False)
     onboarding_completed_at = serializers.DateTimeField(read_only=True)

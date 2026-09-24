@@ -112,3 +112,15 @@ export const getAiSettings = () => adminRequest('/admin/ai-settings/')
 export const patchAiSettings = (enabled) => adminRequest('/admin/ai-settings/', {
   method: 'PATCH', body: JSON.stringify({ server_ai_enabled: enabled }),
 })
+
+export const listTrialKeys = () => adminRequest('/admin/trial-keys/')
+
+export const createTrialKey = (payload) => adminRequest('/admin/trial-keys/', {
+  method: 'POST', body: JSON.stringify(payload),
+})
+
+export const patchTrialKey = (id, changes) => adminRequest(`/admin/trial-keys/${id}/`, {
+  method: 'PATCH', body: JSON.stringify(changes),
+})
+
+export const deleteTrialKey = (id) => adminRequest(`/admin/trial-keys/${id}/`, { method: 'DELETE' })

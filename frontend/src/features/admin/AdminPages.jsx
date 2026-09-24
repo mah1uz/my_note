@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import {
-  createAdmin, deleteUser, getAiSettings, listAdmins, listUsers,
-  patchAdmin, patchAiSettings, patchUser,
+  createAdmin, createTrialKey, deleteTrialKey, deleteUser, getAiSettings, listAdmins, listTrialKeys, listUsers,
+  patchAdmin, patchAiSettings, patchTrialKey, patchUser,
 } from '../../api/adminApi'
 import { useAdmin } from '../../context/AdminContext'
 import PasswordStrength from '../../components/PasswordStrength'
@@ -259,6 +259,98 @@ function AdminsTab() {
   </section>
 }
 
+function TrialKeysManager() {
+  const { canManageAdmins } = useAdmin()
+  const [keys, setKeys] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [form, setForm] = useState({ label: '', key: '' })
+
+  useEffect(() => {
+    if (!canManageAdmins) { setLoading(false); return }
+    listTrialKeys().then(setKeys).catch((requestError) => setError(requestError.message)).finally(() => setLoading(false))
+  }, [canManageAdmins])
+
+  if (!canManageAdmins) return null
+
+  const add = async (event) => {
+    event.preventDefault()
+    if (busy || !form.key.trim()) return
+    setBusy(true)
+    setError('')
+    try {
+      const created = await createTrialKey({ label: form.label.trim(), key: form.key.trim() })
+      setKeys((rows) => [...rows, created])
+      setForm({ label: '', key: '' })
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggle = async (key) => {
+    setBusy(true)
+    setError('')
+    try {
+      const updated = await patchTrialKey(key.id, { is_active: !key.is_active })
+      setKeys((rows) => rows.map((row) => (row.id === updated.id ? updated : row)))
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (id) => {
+    setBusy(true)
+    setError('')
+    try {
+      await deleteTrialKey(id)
+      setKeys((rows) => rows.filter((row) => row.id !== id))
+      setConfirmDelete(null)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <section aria-label="Trial key pool">
+    <h2>Trial key pool</h2>
+    <p className="field-help">Server keys for the Free trial, used least-recently-used first. When one hits its limit, add the next here — no redeploy. Values are encrypted and never shown again after saving.</p>
+    <form className="inline-form" onSubmit={add}>
+      <input value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} placeholder="Label (e.g. key-2)" aria-label="New trial key label" maxLength={80} />
+      <input type="password" value={form.key} onChange={(event) => setForm({ ...form, key: event.target.value })} placeholder="gsk_…" aria-label="New trial key value" required autoComplete="new-password" />
+      <button className="button button-primary" disabled={busy}>Add key</button>
+    </form>
+    <ErrorText error={error} />
+    {loading ? <div className="loading-state">Loading trial keys…</div> : keys.length === 0 ? <p className="field-help">No pool keys yet — trials fall back to the server .env key.</p> : (
+      <table className="admin-table">
+        <thead><tr><th>Label</th><th>Key</th><th>Active</th><th>Uses</th><th>Failures</th><th>Last used</th><th>Actions</th></tr></thead>
+        <tbody>
+          {keys.map((key) => <tr key={key.id}>
+            <td>{key.label}{key.disabled_reason && <small> · auto-disabled: {key.disabled_reason}</small>}</td>
+            <td><span className="mono">{key.masked}</span></td>
+            <td>{key.is_active ? 'Yes' : 'No'}</td>
+            <td>{key.use_count}</td>
+            <td>{key.consecutive_failures}</td>
+            <td>{key.last_used_at ? new Date(key.last_used_at).toLocaleString() : '—'}</td>
+            <td className="admin-actions">
+              <button className="text-button" disabled={busy} onClick={() => toggle(key)}>{key.is_active ? 'Deactivate' : 'Activate'}</button>
+              {confirmDelete === key.id
+                ? <><button className="text-button danger-text" disabled={busy} onClick={() => remove(key.id)}>Confirm delete</button><button className="text-button" onClick={() => setConfirmDelete(null)}>Keep</button></>
+                : <button className="text-button danger-text" onClick={() => setConfirmDelete(key.id)}>Delete</button>}
+            </td>
+          </tr>)}
+        </tbody>
+      </table>
+    )}
+  </section>
+}
+
 function AiTab() {
   const [enabled, setEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -295,6 +387,7 @@ function AiTab() {
       </label>
     )}
     {saved && <p className="form-success">AI setting saved</p>}
+    <TrialKeysManager />
   </section>
 }
 

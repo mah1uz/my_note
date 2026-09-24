@@ -308,6 +308,26 @@ describe('Part 2 full-stack UI flows', () => {
     expect(state.itemsList[0].status).toBe('COMPLETED')
   })
 
+  it('opens a tick popup for multi-item cards and ticks each element inside', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'Trip prep', created_at: '2026-09-21T08:00:00Z' }]
+    state.itemsList = [
+      { id: 21, item_type: 'TASK', title: 'Book tickets', status: 'PENDING', due_date: '2026-09-26', domains: ['travel'], note: 1, revision: 0 },
+      { id: 22, item_type: 'TASK', title: 'Pack bags', status: 'PENDING', due_date: '2026-09-26', domains: ['travel'], note: 1, revision: 0 },
+    ]
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    await user.click(await screen.findByRole('tab', { name: /tasks/i }))
+    expect(screen.queryByRole('button', { name: 'Mark Book tickets complete' })).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /choose items to tick in trip prep/i }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Tick items in this note')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Mark Book tickets complete' }))
+    expect(await within(dialog).findByRole('button', { name: 'Mark Book tickets incomplete' })).toBeInTheDocument()
+    expect(state.itemsList[0].status).toBe('COMPLETED')
+    expect(state.itemsList[1].status).toBe('PENDING')
+  })
+
   it('keeps the grounded Ask page usable', async () => {
     state.authenticated = true
     const user = userEvent.setup()

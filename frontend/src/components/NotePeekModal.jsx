@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { analyzeNote } from '../api/itemsApi'
 import { useAiKey } from '../context/AiKeyContext'
+import TabItemRow from '../features/notes/TabItemRow'
 
 /**
  * Tap-a-card popup: shows the full note text that the grid card clamps.
  * Full organization still lives on the detail page ("Open full note").
+ * When opened from a category tab with several items, it also lists each
+ * element with its own tick for manual ticking.
  */
-export default function NotePeekModal({ note, onClose, onDelete }) {
+export default function NotePeekModal({ note, onClose, onDelete, items = [], onItemsChanged = () => {} }) {
   const navigate = useNavigate()
   const { groqApiKey, trialActive } = useAiKey()
   const [deleting, setDeleting] = useState(false)
@@ -53,6 +56,13 @@ export default function NotePeekModal({ note, onClose, onDelete }) {
       <p className="eyebrow">Note · {Number.isNaN(new Date(note.createdAt).getTime()) ? '' : stamped}</p>
       <h2 id="note-peek-title" ref={headingRef} tabIndex={-1}>{note.originalText || 'Untitled note'}</h2>
       <p className="field-help">Status: {note.processingStatus}</p>
+      {items.length > 0 && <>
+        <hr className="glow-line" />
+        <p className="eyebrow">Tick items in this note</p>
+        <ul className="tab-item-list modal-item-list" aria-label="Items in this note">
+          {items.map((item) => <TabItemRow key={`${item.id}-${item.revision}`} item={item} onChanged={onItemsChanged} />)}
+        </ul>
+      </>}
       <div className="modal-actions note-peek-actions">
         <Link className="button button-primary" to={`/app/notes/${note.id}`}>Open full note</Link>
         <button className="button button-ghost" onClick={analyze} disabled={analyzing || deleting} aria-label={`Analyze ${note.originalText}`}>{analyzing ? 'Analyzing…' : 'Analyze'}</button>
