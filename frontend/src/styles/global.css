@@ -728,11 +728,10 @@ button:disabled { cursor: wait; opacity: .65; }
 .retro-bloom { z-index: 3; width: 30px; height: 20px; top: 8px; left: 44px; background: var(--danger); filter: blur(16px); opacity: .5; transition: opacity 2s ease; }
 .retro-search:hover .retro-bloom { opacity: 0; }
 .retro-search-icon { position: absolute; left: 16px; z-index: 2; display: grid; place-items: center; color: var(--gold-deep); pointer-events: none; }
-.retro-input { position: relative; z-index: 2; flex: 1; min-width: 0; height: 52px; border: 0; border-radius: 10px; background: var(--field); color: var(--ink); font: inherit; font-size: 16px; font-weight: 700; letter-spacing: .01em; padding-inline: 46px 96px; outline: none; box-shadow: inset 0 0 0 1px var(--field-border); transition: box-shadow .2s ease; }
+.retro-input { position: relative; z-index: 2; flex: 1; min-width: 0; height: 52px; border: 0; border-radius: 10px; background: var(--field); color: var(--ink); font: inherit; font-size: 16px; font-weight: 700; letter-spacing: .01em; padding-inline: 46px 58px; outline: none; box-shadow: inset 0 0 0 1px var(--field-border); transition: box-shadow .2s ease; }
 .retro-input::placeholder { color: var(--muted); font-weight: 400; }
 .retro-input:focus { box-shadow: inset 0 0 0 2px var(--accent); }
-.retro-kbd { position: absolute; right: 52px; z-index: 2; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--pill-neutral); color: var(--muted); font: 500 10.5px 'DM Mono', monospace; pointer-events: none; }
-.retro-filter { position: absolute; right: 6px; z-index: 2; width: 34px; height: 38px; display: grid; place-items: center; border-radius: 9px; background: linear-gradient(180deg, var(--gold), var(--gold-deep)); pointer-events: none; }
+.retro-kbd { position: absolute; right: 12px; z-index: 2; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--pill-neutral); color: var(--muted); font: 500 10.5px 'DM Mono', monospace; pointer-events: none; }
 [data-theme="dark"] .retro-glow { opacity: .5; }
 [data-theme="dark"] .retro-input { background: #1a1611; color: #f2e2c4; box-shadow: inset 0 0 0 1px #4d4030; }
 [data-theme="dark"] .retro-input::placeholder { color: #857754; }
