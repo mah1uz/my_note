@@ -75,16 +75,7 @@ function installApiMock() {
     }
     if (path.endsWith('/items/')) {
       const type = url.searchParams.get('type')
-      const rows = (state.itemsList || []).filter((item) => !type || item.item_type === type)
-      if (state.itemsPaged) {
-        const page = Number(url.searchParams.get('page') || 1)
-        const slice = rows.slice(page - 1, page)
-        return jsonResponse({
-          count: rows.length, results: slice,
-          next: rows.length > page ? `/api/v1/items/?page=${page + 1}` : null, previous: null,
-        })
-      }
-      return jsonResponse(rows)
+      return jsonResponse((state.itemsList || []).filter((item) => !type || item.item_type === type))
     }
     const itemMatch = path.match(/\/items\/(\d+)\/$/)
     if (itemMatch && method === 'PATCH') {
@@ -94,14 +85,6 @@ function installApiMock() {
       return jsonResponse(item)
     }
     if (path.endsWith('/transactions/summary/')) return jsonResponse(state.txSummary || { currencies: [] })
-    if (path.endsWith('/transactions/linked/')) {
-      const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean)
-      const map = {}
-      for (const row of (state.transactions || [])) {
-        if (ids.includes(String(row.note_item))) map[String(row.note_item)] = row.id
-      }
-      return jsonResponse(map)
-    }
     if (path.endsWith('/transactions/')) {
       if (method === 'POST') {
         const created = { id: `tx-${(state.transactions || []).length + 1}`, ...JSON.parse(options.body) }
@@ -145,14 +128,6 @@ function installApiMock() {
     if (path.endsWith('/notes/') && method === 'GET') {
       if (state.delayNotes) await new Promise((resolve) => setTimeout(resolve, 50))
       if (state.failNotes) return jsonResponse({ detail: 'Notes are temporarily unavailable.' }, 503)
-      if (state.notesPaged) {
-        const page = Number(url.searchParams.get('page') || 1)
-        const slice = state.notes.slice(page - 1, page).map(notePayload)
-        return jsonResponse({
-          count: state.notes.length, results: slice,
-          next: state.notes.length > page ? `/api/v1/notes/?page=${page + 1}` : null, previous: null,
-        })
-      }
       return jsonResponse(state.notes.map(notePayload))
     }
     if (path.endsWith('/notes/') && method === 'POST') {
@@ -251,8 +226,6 @@ describe('Part 2 full-stack UI flows', () => {
     state.delayNotes = false
     state.failNoteDetail = 0
     state.itemsList = []
-    state.itemsPaged = false
-    state.notesPaged = false
     state.analyzeItems = []
     state.confirmedPayload = null
     state.transactions = []
@@ -328,38 +301,6 @@ describe('Part 2 full-stack UI flows', () => {
     await user.type(editor, 'x'.repeat(120))
     expect(editor.value.length).toBeLessThanOrEqual(100)
     expect(screen.getByText('100/100 characters')).toBeInTheDocument()
-  })
-
-  it('pages notes with Load more instead of one giant fetch', async () => {
-    state.authenticated = true
-    state.notesPaged = true
-    state.notes = [
-      { id: 1, raw_text: 'First note', created_at: '2026-09-21T08:00:00Z' },
-      { id: 2, raw_text: 'Second note', created_at: '2026-09-20T08:00:00Z' },
-    ]
-    const user = userEvent.setup()
-    renderApp('/app/notes')
-    expect(await screen.findByText('First note')).toBeInTheDocument()
-    expect(screen.queryByText('Second note')).not.toBeInTheDocument()
-    expect(screen.getByText('2 thoughts saved to your account.')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /load more notes/i }))
-    expect(await screen.findByText('Second note')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /load more notes/i })).not.toBeInTheDocument()
-  })
-
-  it('pages item lists with Load more', async () => {
-    state.authenticated = true
-    state.itemsPaged = true
-    state.itemsList = [
-      { id: 21, item_type: 'TASK', title: 'Alpha task', status: 'PENDING', domains: ['work'], note: 1, revision: 0 },
-      { id: 22, item_type: 'TASK', title: 'Beta task', status: 'PENDING', domains: ['work'], note: 1, revision: 0 },
-    ]
-    const user = userEvent.setup()
-    renderApp('/app/tasks')
-    expect(await screen.findByText('Alpha task')).toBeInTheDocument()
-    expect(screen.queryByText('Beta task')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /load more/i }))
-    expect(await screen.findByText('Beta task')).toBeInTheDocument()
   })
 
   it('shows Notes API loading and error states', async () => {
@@ -528,26 +469,6 @@ describe('Part 2 full-stack UI flows', () => {
     expect(await screen.findByRole('button', { name: 'Mark Buy shampoo complete' })).toBeInTheDocument()
     await waitFor(() => expect(state.transactions).toHaveLength(0))
     await waitFor(() => expect(card.closest('article')).not.toHaveClass('done'))
-  })
-
-  it('batches ledger linkage into one linked request, never per-row lookups', async () => {
-    state.authenticated = true
-    state.notes = [{ id: 1, raw_text: 'Trip shopping', created_at: '2026-09-21T08:00:00Z' }]
-    state.itemsList = [
-      { id: 21, item_type: 'TASK', title: 'Buy shampoo', status: 'PENDING', domains: ['shopping'], amount: '100.00', currency: 'BDT', note: 1, revision: 0 },
-      { id: 22, item_type: 'TASK', title: 'Buy soap', status: 'PENDING', domains: ['shopping'], amount: '50.00', currency: 'BDT', note: 1, revision: 0 },
-    ]
-    const user = userEvent.setup()
-    renderApp('/app/notes')
-    await user.click(await screen.findByRole('tab', { name: /shopping/i }))
-    await waitFor(() => expect(
-      fetch.mock.calls.some(([url]) => new URL(url).pathname.endsWith('/transactions/linked/')),
-    ).toBe(true))
-    const singleLookups = fetch.mock.calls.filter(([url]) => {
-      const parsed = new URL(url)
-      return parsed.pathname.endsWith('/transactions/') && parsed.searchParams.has('note_item')
-    })
-    expect(singleLookups).toHaveLength(0)
   })
 
   it('ticks a task row inside the notes Tasks tab', async () => {

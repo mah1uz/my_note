@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createTransaction, deleteTransaction, getTransactionSummary, listTransactions, updateTransaction } from '../../api/transactionsApi'
 
@@ -10,8 +10,6 @@ function money(value, currency) {
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([])
-  const [hasMore, setHasMore] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
   const [summary, setSummary] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editing, setEditing] = useState(null)
@@ -19,37 +17,23 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const pageRef = useRef(1)
 
-  const load = async (page = 1, append = false) => {
-    if (page > 1) setLoadingMore(true)
-    else setLoading(true)
+  const load = async () => {
+    setLoading(true)
     try {
       const params = filter === 'ALL' ? {} : { direction: filter }
-      const [{ transactions: rows, hasMore }, totals] = await Promise.all([
-        listTransactions(params, { page }),
-        page === 1 ? getTransactionSummary(params) : Promise.resolve(null),
-      ])
-      setTransactions((current) => (append ? [...current, ...rows] : rows))
-      setHasMore(hasMore)
-      if (totals) setSummary(totals.currencies || [])
+      const [rows, totals] = await Promise.all([listTransactions(params), getTransactionSummary(params)])
+      setTransactions(rows)
+      setSummary(totals.currencies || [])
       setError('')
-      return true
     } catch (requestError) {
       setError(requestError.message)
-      return false
     } finally {
       setLoading(false)
-      setLoadingMore(false)
     }
   }
 
-  const loadMore = () => {
-    if (loadingMore || !hasMore) return
-    load(pageRef.current + 1, true).then((ok) => { if (ok) pageRef.current += 1 })
-  }
-
-  useEffect(() => { pageRef.current = 1; load() }, [filter])
+  useEffect(() => { load() }, [filter])
 
   const submit = async (event) => {
     event.preventDefault()
@@ -61,7 +45,6 @@ export default function TransactionsPage() {
       else await createTransaction(payload)
       setForm(emptyForm)
       setEditing(null)
-      pageRef.current = 1
       await load()
     } catch (requestError) {
       setError(requestError.message)
@@ -78,7 +61,7 @@ export default function TransactionsPage() {
 
   const remove = async (id) => {
     if (!window.confirm('Delete this transaction?')) return
-    try { await deleteTransaction(id); pageRef.current = 1; await load() } catch (requestError) { setError(requestError.message) }
+    try { await deleteTransaction(id); await load() } catch (requestError) { setError(requestError.message) }
   }
 
   return <>
@@ -101,7 +84,7 @@ export default function TransactionsPage() {
       </form>
       <section className="surface-card transaction-list-card">
         <div className="card-heading"><div><span className="eyebrow">Confirmed entries</span><h2>Ledger activity</h2></div><div className="segmented-control compact"><button className={filter === 'ALL' ? 'selected' : ''} onClick={() => setFilter('ALL')}>All</button><button className={filter === 'DEBIT' ? 'selected' : ''} onClick={() => setFilter('DEBIT')}>Out</button><button className={filter === 'CREDIT' ? 'selected' : ''} onClick={() => setFilter('CREDIT')}>In</button></div></div>
-        {loading ? <div className="loading-state">Loading your ledger…</div> : transactions.length ? <><div className="transaction-list">{transactions.map((transaction) => <article className="transaction-row" key={transaction.id}><div className={`transaction-symbol ${transaction.direction.toLowerCase()}`}>{transaction.direction === 'CREDIT' ? '↑' : '↓'}</div><div className="transaction-main"><strong>{transaction.label}</strong><span>{new Date(transaction.transaction_at).toLocaleDateString(undefined, { dateStyle: 'medium' })} · {transaction.source_kind === 'AI_NOTE' ? 'From note' : 'Manual'}</span></div><strong className={`transaction-amount ${transaction.direction.toLowerCase()}`}>{transaction.direction === 'CREDIT' ? '+' : '-'}{money(transaction.amount, transaction.currency)}</strong><div className="transaction-actions"><button className="text-button" onClick={() => edit(transaction)}>Edit</button><button className="text-button danger-text" onClick={() => remove(transaction.id)}>Delete</button></div></article>)}</div>{hasMore && !loading && <div className="load-more-row"><button className="button button-ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</button></div>}</> : <div className="empty-state compact-empty"><div className="empty-icon">+</div><h3>No matching entries</h3><p>Use the form to make your first confirmed ledger entry.</p></div>}
+        {loading ? <div className="loading-state">Loading your ledger…</div> : transactions.length ? <div className="transaction-list">{transactions.map((transaction) => <article className="transaction-row" key={transaction.id}><div className={`transaction-symbol ${transaction.direction.toLowerCase()}`}>{transaction.direction === 'CREDIT' ? '↑' : '↓'}</div><div className="transaction-main"><strong>{transaction.label}</strong><span>{new Date(transaction.transaction_at).toLocaleDateString(undefined, { dateStyle: 'medium' })} · {transaction.source_kind === 'AI_NOTE' ? 'From note' : 'Manual'}</span></div><strong className={`transaction-amount ${transaction.direction.toLowerCase()}`}>{transaction.direction === 'CREDIT' ? '+' : '-'}{money(transaction.amount, transaction.currency)}</strong><div className="transaction-actions"><button className="text-button" onClick={() => edit(transaction)}>Edit</button><button className="text-button danger-text" onClick={() => remove(transaction.id)}>Delete</button></div></article>)}</div> : <div className="empty-state compact-empty"><div className="empty-icon">+</div><h3>No matching entries</h3><p>Use the form to make your first confirmed ledger entry.</p></div>}
       </section>
     </section>
   </>

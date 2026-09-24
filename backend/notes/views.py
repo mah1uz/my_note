@@ -6,7 +6,6 @@ from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
 from ai.services.groq_service import ProviderFailure
-from config.pagination import StandardPagination
 from . import services
 from .constants import DOMAINS, ITEM_STATUSES, ITEM_TYPES
 from .item_serializers import ConfirmationSerializer, ItemInputSerializer, ItemUpdateSerializer, NoteItemSerializer, RevisionSerializer
@@ -33,7 +32,6 @@ def review_data(note):
 
 class NoteViewSet(viewsets.ModelViewSet):
     serializer_class = NoteSerializer
-    pagination_class = StandardPagination
 
     def get_queryset(self):
         return Note.objects.filter(app_user=self.request.user)
@@ -120,8 +118,6 @@ class NoteViewSet(viewsets.ModelViewSet):
 
 
 class NoteItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
-    serializer_class = NoteItemSerializer
-    pagination_class = StandardPagination
     serializer_class = NoteItemSerializer
 
     def get_queryset(self):

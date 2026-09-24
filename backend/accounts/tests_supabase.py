@@ -49,23 +49,6 @@ class SupabaseProvisioningTests(TestCase):
         with self.assertRaises(PermissionError):
             provision_from_claims(self.claims())
 
-    def test_presence_writes_are_cached_within_staleness_window(self):
-        from django.utils import timezone
-
-        from .services.provisioning import provision_from_claims
-        from .models import UserAuthIdentity
-
-        user = provision_from_claims(self.claims())
-        first_seen = UserAuthIdentity.objects.get(user=user).last_seen_at
-        # Immediate second call: no write, stamp unchanged.
-        provision_from_claims(self.claims())
-        self.assertEqual(UserAuthIdentity.objects.get(user=user).last_seen_at, first_seen)
-        # Stale stamp: rewritten.
-        UserAuthIdentity.objects.filter(user=user).update(
-            last_seen_at=timezone.now() - timedelta(minutes=30))
-        provision_from_claims(self.claims())
-        self.assertGreater(UserAuthIdentity.objects.get(user=user).last_seen_at, first_seen)
-
 
 @override_settings(
     SUPABASE_URL='https://project.supabase.co',

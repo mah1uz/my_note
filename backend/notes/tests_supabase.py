@@ -14,7 +14,7 @@ class SupabaseNoteOwnershipTests(APITestCase):
     def test_list_and_create_are_scoped_to_authenticated_app_user(self):
         response = self.client.get('/api/v1/notes/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data['results'], [])
+        self.assertEqual(response.data, [])
 
         response = self.client.post('/api/v1/notes/', {'raw_text': '  Private A note  '}, format='json')
         self.assertEqual(response.status_code, 201)

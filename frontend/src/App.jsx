@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState, Suspense, lazy } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useAppState } from './context/AppStateContext'
 import { useAuth } from './context/AuthContext'
 import { useNotes } from './context/NotesContext'
 import { confirmPasswordReset, requestPasswordReset } from './api/authApi'
 import { apiRequest } from './api/http'
-import { listAllItems, analyzeNote, confirmAnalysis } from './api/itemsApi'
+import { listItems, analyzeNote, confirmAnalysis } from './api/itemsApi'
 import { LogoutIcon, MenuIcon, NavIcon, NotesIcon, PlacesIcon, SearchIcon, SparkleIcon, TasksIcon } from './components/icons'
 import Reveal from './components/Reveal'
 import Tilt from './components/Tilt'
@@ -15,28 +15,21 @@ import NotificationToast from './components/NotificationToast'
 import { AddNoteFab, AddNotePopup } from './components/AddNote'
 import { UnlockProCard, UnlockProModal } from './components/UnlockPro'
 import AIReviewPanel from './features/notes/AIReviewPanel'
+import { EventsPage, ExpensesPage, ShoppingPage, TasksPage } from './features/items/ItemPages'
 import AiProviderCard from './features/notes/AiProviderCard'
 import { clearSessionGroqKey, useAiKey } from './context/AiKeyContext'
-import { AdminLoginPage, AdminProtected } from './features/admin/AdminPages'
+import { AdminDashboardPage, AdminLoginPage, AdminProtected } from './features/admin/AdminPages'
 import GoogleSignInButton from './components/GoogleSignInButton'
 import RetroSearchBox from './components/RetroSearchBox'
-// Route-split below-the-fold pages: the login bundle stays lean while
-// secondary chunks load on first navigation (Suspense fallback in App).
-const TransactionsPage = lazy(() => import('./features/transactions/TransactionsPage'))
-const OnboardingPage = lazy(() => import('./features/onboarding/OnboardingPage'))
-const SearchFeaturePage = lazy(() => import('./features/search/SearchPage'))
-const AdminDashboardPage = lazy(() => import('./features/admin/AdminPages').then((module) => ({ default: module.AdminDashboardPage })))
-const TasksPage = lazy(() => import('./features/items/ItemPages').then((module) => ({ default: module.TasksPage })))
-const EventsPage = lazy(() => import('./features/items/ItemPages').then((module) => ({ default: module.EventsPage })))
-const ShoppingPage = lazy(() => import('./features/items/ItemPages').then((module) => ({ default: module.ShoppingPage })))
-const ExpensesPage = lazy(() => import('./features/items/ItemPages').then((module) => ({ default: module.ExpensesPage })))
 import PasswordStrength from './components/PasswordStrength'
 import NotePeekModal from './components/NotePeekModal'
+import TransactionsPage from './features/transactions/TransactionsPage'
+import OnboardingPage from './features/onboarding/OnboardingPage'
+import SearchFeaturePage from './features/search/SearchPage'
 import ProcessButtons from './features/processing/ProcessButtons'
 import QueueProgress from './features/processing/QueueProgress'
 import { NOTE_TABS, NOTE_MAX_LENGTH, groupItemsByNote, isDueToday, useConfirmedItems } from './features/notes/noteTaxonomy'
 import { SingleTick } from './features/notes/TabItemRow'
-import { useLinkedTransactions } from './features/items/ItemPages'
 import { itemForm, itemPayload } from './features/items/itemForm'
 import { useNotifications } from './features/notifications/useNotifications'
 import { backlogNotes } from './api/processApi'
@@ -214,7 +207,7 @@ function DashboardPage() {
   const [dueToday, setDueToday] = useState([])
   useEffect(() => {
     let active = true
-    listAllItems('type=TASK').then(
+    listItems('type=TASK').then(
       (items) => { if (active) setDueToday((Array.isArray(items) ? items : []).filter((item) => isDueToday(item)).slice(0, 5)) },
       () => { if (active) setDueToday([]) },
     )
@@ -269,7 +262,7 @@ function DashboardPage() {
   </>
 }
 
-function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = () => {}, linkedMap, auto = null }) {
+function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = () => {}, auto = null }) {
   const open = (event) => {
     if (event.target.closest('a,button')) return
     onPeek(note)
@@ -285,7 +278,7 @@ function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = (
   return <article className={`note-card glow-note${allDone ? ' done' : ''}`} onClick={open} onKeyDown={onKey} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`}>
     <span className="glow-card__border" aria-hidden="true" />
     <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
-      <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} linkedMap={linkedMap} auto={auto} onPeek={onPeek} />
+      <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} auto={auto} onPeek={onPeek} />
     </div>
     <p className="note-title note-clamp">{note.originalText}</p>
     <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
@@ -297,14 +290,14 @@ function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = (
  * chooser popup, and backlog notes with nothing confirmed offer an
  * automatic analyze+confirm run instead.
  */
-function CardTick({ note, items, single, onChanged, onTicked, linkedMap, auto, onPeek }) {
-  if (single) return <SingleTick item={single} onChanged={onChanged} onTicked={onTicked} linkedMap={linkedMap} />
+function CardTick({ note, items, single, onChanged, onTicked, auto, onPeek }) {
+  if (single) return <SingleTick item={single} onChanged={onChanged} onTicked={onTicked} />
   if (items.length > 1) return <button type="button" className="check-button card-tick" aria-label={`Choose items to tick in ${note.originalText || 'this note'}`} onClick={() => onPeek(note)} />
   if (auto?.can) return <button type="button" className="check-button card-tick card-auto" disabled={auto.running} aria-label={`Analyze and confirm ${note.originalText || 'this note'} automatically`} title="Analyze and confirm automatically" onClick={() => auto.run(note)} />
   return null
 }
 
-function NoteCategoryCard({ note, tab, items, onChanged, onTicked, linkedMap, auto, onPeek }) {
+function NoteCategoryCard({ note, tab, items, onChanged, onTicked, auto, onPeek }) {
   const open = (event) => {
     if (event.target.closest('a,button')) return
     onPeek(note)
@@ -316,7 +309,7 @@ function NoteCategoryCard({ note, tab, items, onChanged, onTicked, linkedMap, au
   }}>
     <span className="glow-card__border" aria-hidden="true" />
     <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
-      <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} linkedMap={linkedMap} auto={auto} onPeek={onPeek} />
+      <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} auto={auto} onPeek={onPeek} />
     </div>
     <p className="note-title note-clamp">{note.originalText}</p>
     <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
@@ -324,14 +317,12 @@ function NoteCategoryCard({ note, tab, items, onChanged, onTicked, linkedMap, au
 }
 
 function NotesPage() {
-  const { notes, total, hasMore, loadingMore, loading, error, deleteNote, loadMore, refresh: refreshNotes } = useNotes()
+  const { notes, loading, error, deleteNote, refresh: refreshNotes } = useNotes()
   const { groqApiKey, trialActive } = useAiKey()
   const [tab, setTab] = useState('all')
   const [peekId, setPeekId] = useState(null)
   const [autoId, setAutoId] = useState(null)
   const { items, loading: catsLoading, refresh: refreshCats, patchLocal } = useConfirmedItems()
-  const { map: linkedMap, refreshLinked } = useLinkedTransactions(items)
-  const refreshCatsAndLinks = () => { refreshCats(); refreshLinked() }
   const groups = groupItemsByNote(items)
   const totalByNote = useMemo(() => {
     const map = new Map()
@@ -376,20 +367,20 @@ function NotesPage() {
       setAutoId(null)
     }
   }
-  return <><PageHeader eyebrow="Your memory" title="Notes" description={`${total} thought${total === 1 ? '' : 's'} saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
+  return <><PageHeader eyebrow="Your memory" title="Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
     <section className="notes-box" aria-label="Notes by category">
       <div className="notes-tabs" role="tablist" aria-label="Filter notes by category">
         {NOTE_TABS.map((entry) => <button key={entry.key} role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'notes-tab active' : 'notes-tab'} onClick={() => setTab(entry.key)}>{entry.label} ({countFor(entry.key)})</button>)}
       </div>
       {loading ? <div className="loading-state">Loading your notes…</div> : error ? <div className="form-error">{error}</div>
         : tab !== 'all' && catsLoading ? <><p role="status" className="sr-only">Loading categories…</p><div className="notes-list notes-grid" aria-hidden="true">{[0, 1, 2, 3, 4, 5].map((index) => <div key={index} className="note-card glow-note note-skeleton"><div className="skeleton-line" /><div className="skeleton-line short" /></div>)}</div></>
-          : visible.length ? <><div key={tab} className="notes-list notes-grid notes-enter">{visible.map((note) => tab === 'all'
-            ? <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} items={itemsForAll(note)} onChanged={refreshCatsAndLinks} onTicked={onTicked} linkedMap={linkedMap} auto={autoFor(note)} />
-            : <NoteCategoryCard key={note.id} note={note} tab={tab} items={itemsFor(note)} onChanged={refreshCatsAndLinks} onTicked={onTicked} linkedMap={linkedMap} auto={autoFor(note)} onPeek={(item) => setPeekId(item.id)} />)}</div>{hasMore && <div className="load-more-row"><button className="button button-ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more notes'}</button></div>}</>
+          : visible.length ? <div key={tab} className="notes-list notes-grid notes-enter">{visible.map((note) => tab === 'all'
+            ? <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} items={itemsForAll(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} />
+            : <NoteCategoryCard key={note.id} note={note} tab={tab} items={itemsFor(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} onPeek={(item) => setPeekId(item.id)} />)}</div>
             : notes.length ? <EmptyState title={`No ${tab} notes`} text={`Notes appear here once they hold confirmed ${tabHint} items. Drafts stay on their source note until confirmed; other categories live under their own tabs.`} />
               : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}
     </section>
-    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} items={tab === 'all' ? itemsForAll(peekNote) : itemsFor(peekNote)} onItemsChanged={refreshCatsAndLinks} onTicked={onTicked} linkedMap={linkedMap} />}
+    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} items={tab === 'all' ? itemsForAll(peekNote) : itemsFor(peekNote)} onItemsChanged={refreshCats} onTicked={onTicked} />}
   </>
 }
 
@@ -578,7 +569,7 @@ function AuthLayout({ title, description, children }) {
 }
 
  function App() {
-  return <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Suspense fallback={<div className="route-loading">Loading…</div>}><Routes><Route path="/" element={<LoginPage />} /><Route path="/login" element={<LoginPage />} /><Route path="/register" element={<RegisterPage />} /><Route path="/auth/callback" element={<AuthCallbackPage />} /><Route path="/forgot-password" element={<ForgotPasswordPage />} /><Route path="/reset-password" element={<ResetPasswordPage />} /><Route path="/admin/login" element={<AdminLoginPage />} /><Route path="/admin/*" element={<AdminProtected><AdminDashboardPage /></AdminProtected>} /><Route path="/app" element={<ProtectedPage><DashboardPage /></ProtectedPage>} /><Route path="/app/notes" element={<ProtectedPage><NotesPage /></ProtectedPage>} /><Route path="/app/notes/new" element={<ProtectedPage><NewNotePage /></ProtectedPage>} /><Route path="/app/notes/:id" element={<ProtectedPage><NoteDetailPage /></ProtectedPage>} /><Route path="/app/tasks" element={<ProtectedPage><TasksPage /></ProtectedPage>} /><Route path="/app/events" element={<ProtectedPage><EventsPage /></ProtectedPage>} /><Route path="/app/shopping" element={<ProtectedPage><ShoppingPage /></ProtectedPage>} /><Route path="/app/expenses" element={<ProtectedPage><ExpensesPage /></ProtectedPage>} /><Route path="/app/transactions" element={<ProtectedPage><TransactionsPage /></ProtectedPage>} /><Route path="/app/places" element={<ProtectedPage><PlacesPage /></ProtectedPage>} /><Route path="/app/search" element={<ProtectedPage><SearchFeaturePage /></ProtectedPage>} /><Route path="/app/onboarding" element={<ProtectedPage><OnboardingPage /></ProtectedPage>} /><Route path="/app/settings" element={<ProtectedPage><SettingsPage /></ProtectedPage>} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes></Suspense></BrowserRouter>
+  return <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path="/" element={<LoginPage />} /><Route path="/login" element={<LoginPage />} /><Route path="/register" element={<RegisterPage />} /><Route path="/auth/callback" element={<AuthCallbackPage />} /><Route path="/forgot-password" element={<ForgotPasswordPage />} /><Route path="/reset-password" element={<ResetPasswordPage />} /><Route path="/admin/login" element={<AdminLoginPage />} /><Route path="/admin/*" element={<AdminProtected><AdminDashboardPage /></AdminProtected>} /><Route path="/app" element={<ProtectedPage><DashboardPage /></ProtectedPage>} /><Route path="/app/notes" element={<ProtectedPage><NotesPage /></ProtectedPage>} /><Route path="/app/notes/new" element={<ProtectedPage><NewNotePage /></ProtectedPage>} /><Route path="/app/notes/:id" element={<ProtectedPage><NoteDetailPage /></ProtectedPage>} /><Route path="/app/tasks" element={<ProtectedPage><TasksPage /></ProtectedPage>} /><Route path="/app/events" element={<ProtectedPage><EventsPage /></ProtectedPage>} /><Route path="/app/shopping" element={<ProtectedPage><ShoppingPage /></ProtectedPage>} /><Route path="/app/expenses" element={<ProtectedPage><ExpensesPage /></ProtectedPage>} /><Route path="/app/transactions" element={<ProtectedPage><TransactionsPage /></ProtectedPage>} /><Route path="/app/places" element={<ProtectedPage><PlacesPage /></ProtectedPage>} /><Route path="/app/search" element={<ProtectedPage><SearchFeaturePage /></ProtectedPage>} /><Route path="/app/onboarding" element={<ProtectedPage><OnboardingPage /></ProtectedPage>} /><Route path="/app/settings" element={<ProtectedPage><SettingsPage /></ProtectedPage>} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes></BrowserRouter>
 }
 
 export default App

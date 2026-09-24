@@ -1,4 +1,4 @@
-/* Fonts load via <link> in index.html (preconnected); never @import here. */
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
 
 /* Rememberly theme: paper + ink + one vivid blue.
  * Light surfaces, hairline borders, generous radius and whitespace,
@@ -923,8 +923,6 @@ a.profile-block:hover .profile-text strong { color: var(--accent-deep); }
 .tab-item-main { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .tab-item-main strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-item-main small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.load-more-row { display: flex; justify-content: center; margin-top: 16px; }
 
 /* ---------- Reveal + tilt ---------- */
 .reveal { opacity: 0; transform: translateY(30px) scale(.97); transition: opacity .6s ease, transform .7s cubic-bezier(.2, .9, .25, 1.12); transition-delay: var(--reveal-delay, 0ms); }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { listAllItems } from '../../api/itemsApi'
+import { listItems } from '../../api/itemsApi'
 import { useAuth } from '../../context/AuthContext'
 
 export const NOTE_TABS = [
@@ -85,8 +85,7 @@ export function useConfirmedItems() {
     const controller = new AbortController()
     const first = !initialized.current
     if (first) setState({ loading: true, items: [], error: '' })
-    // Completeness-needing caller (tab grouping): loop bounded pages.
-    listAllItems('', { signal: controller.signal }).then(
+    listItems('', { signal: controller.signal }).then(
       (items) => {
         if (controller.signal.aborted) return
         initialized.current = true

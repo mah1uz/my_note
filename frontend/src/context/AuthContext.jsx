@@ -9,11 +9,7 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  // Guards the boot restore against explicit auth actions: whichever started
-  // last wins, so a slow restore can never clobber a fresh login/logout.
-  // This removes the old login gate that serialized every submit behind the
-  // boot fetch even when it had nothing to contribute.
-  const generationRef = useRef(0)
+  const restorePromiseRef = useRef(Promise.resolve())
 
   useEffect(() => {
     setUnauthorizedHandler(() => { clearSessionGroqKey(); setCurrentUser(null) })
@@ -31,49 +27,39 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let active = true
-    const generation = generationRef.current
     const restorePromise = restoreSession()
+    restorePromiseRef.current = restorePromise
     restorePromise.then((user) => {
-      if (active && generation === generationRef.current) setCurrentUser(user)
+      if (active) setCurrentUser(user)
     }).catch(() => {
-      if (active && generation === generationRef.current) setCurrentUser(null)
+      if (active) setCurrentUser(null)
     }).finally(() => {
-      if (active && generation === generationRef.current) setLoading(false)
+      if (active) setLoading(false)
     })
     return () => { active = false }
   }, [])
 
   const login = async (identity, password) => {
-    generationRef.current += 1
-    try {
-      const user = await loginAccount(identity, password)
-      setCurrentUser(user)
-      return user
-    } finally {
-      // The boot restore was invalidated above; it must not leave loading stuck.
-      setLoading(false)
-    }
+    await restorePromiseRef.current.catch(() => {})
+    const user = await loginAccount(identity, password)
+    setCurrentUser(user)
+    return user
   }
 
   const register = async (details) => {
-    generationRef.current += 1
-    try {
-      const user = await registerAccount(details)
-      setCurrentUser(user)
-      return user
-    } finally {
-      setLoading(false)
-    }
+    await restorePromiseRef.current.catch(() => {})
+    const user = await registerAccount(details)
+    setCurrentUser(user)
+    return user
   }
 
   const logout = async () => {
-    generationRef.current += 1
+    await restorePromiseRef.current.catch(() => {})
     try {
       await logoutAccount()
     } finally {
       clearSessionGroqKey()
       setCurrentUser(null)
-      setLoading(false)
     }
   }
 

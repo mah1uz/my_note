@@ -43,22 +43,6 @@ function installMock() {
       Object.assign(taskState, JSON.parse(options.body), { revision: taskState.revision + 1 })
       return jsonResponse({ ...taskState })
     }
-    if (path.endsWith('/transactions/linked/') && method === 'GET') {
-      const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean)
-      const map = {}
-      for (const row of recorded) {
-        if (ids.includes(String(row.note_item))) map[String(row.note_item)] = row.id
-      }
-      return jsonResponse(map)
-    }
-    if (path.endsWith('/transactions/linked/') && method === 'GET') {
-      const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean)
-      const map = {}
-      for (const row of recorded) {
-        if (ids.includes(String(row.note_item))) map[String(row.note_item)] = row.id
-      }
-      return jsonResponse(map)
-    }
     if (path.endsWith('/transactions/') && method === 'GET') {
       if (url.searchParams.get('note_item') === '7') return jsonResponse([...recorded])
       return jsonResponse([])
@@ -107,7 +91,7 @@ describe('tick-done expense recording', () => {
   })
 
   it('reopening a recorded task voids the linked expense', async () => {
-    recorded = [{ id: 'tx-9', note_item: 7 }]
+    recorded = [{ id: 'tx-9' }]
     const user = userEvent.setup()
     renderTasks()
     expect(await screen.findByText(/recorded as expense/i)).toBeInTheDocument()

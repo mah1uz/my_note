@@ -37,7 +37,7 @@ class FinanceTransactionApiTests(APITestCase):
         self.assertEqual(response.data['label'], 'Books')
         self.assertEqual(response.data['source_kind'], 'MANUAL')
         self.client.force_authenticate(self.other)
-        self.assertEqual(self.client.get('/api/v1/transactions/').data['results'], [])
+        self.assertEqual(self.client.get('/api/v1/transactions/').data, [])
         self.assertEqual(
             self.client.get(f"/api/v1/transactions/{response.data['id']}/").status_code,
             status.HTTP_404_NOT_FOUND,
@@ -150,9 +150,9 @@ class FinanceTransactionApiTests(APITestCase):
         self.client.post('/api/v1/transactions/', transaction_payload(primary_domain='shopping'), format='json')
         self.client.post('/api/v1/transactions/', transaction_payload(
             direction='CREDIT', amount='50', label='Refund'), format='json')
-        self.assertEqual(len(self.client.get('/api/v1/transactions/?direction=DEBIT').data['results']), 1)
-        self.assertEqual(len(self.client.get('/api/v1/transactions/?primary_domain=shopping').data['results']), 1)
-        self.assertEqual(len(self.client.get('/api/v1/transactions/?currency=BDT').data['results']), 2)
+        self.assertEqual(len(self.client.get('/api/v1/transactions/?direction=DEBIT').data), 1)
+        self.assertEqual(len(self.client.get('/api/v1/transactions/?primary_domain=shopping').data), 1)
+        self.assertEqual(len(self.client.get('/api/v1/transactions/?currency=BDT').data), 2)
 
     def test_note_item_filter_finds_only_the_linked_row(self):
         note = Note.objects.create(app_user=self.user, raw_text='Bought books')
@@ -162,33 +162,10 @@ class FinanceTransactionApiTests(APITestCase):
         )
         linked = self.client.post('/api/v1/transactions/', transaction_payload(note_item=item.pk), format='json')
         self.client.post('/api/v1/transactions/', transaction_payload(label='Unrelated'), format='json')
-        rows = self.client.get(f'/api/v1/transactions/?note_item={item.pk}').data['results']
+        rows = self.client.get(f'/api/v1/transactions/?note_item={item.pk}').data
         self.assertEqual([row['id'] for row in rows], [linked.data['id']])
-        self.assertEqual(self.client.get('/api/v1/transactions/?note_item=999999').data['results'], [])
-        self.assertEqual(self.client.get('/api/v1/transactions/?note_item=nope').data['results'], [])
-
-    def test_linked_batch_returns_owner_scoped_id_map(self):
-        note = Note.objects.create(app_user=self.user, raw_text='Bought books')
-        item = NoteItem.objects.create(
-            note=note, item_type='TASK', title='Books',
-            amount=Decimal('250'), currency='BDT', is_confirmed=True,
-        )
-        linked = self.client.post('/api/v1/transactions/', transaction_payload(note_item=item.pk), format='json')
-        other_note = Note.objects.create(app_user=self.other, raw_text='Foreign')
-        foreign = NoteItem.objects.create(
-            note=other_note, item_type='TASK', title='Foreign',
-            amount=Decimal('10'), currency='BDT', is_confirmed=True,
-        )
-        foreign_row = FinanceTransaction.objects.create(
-            user=self.other, note_item=foreign, direction='DEBIT',
-            amount=Decimal('10'), currency='BDT', label='Foreign',
-            transaction_at='2026-09-20T10:00:00+06:00',
-        )
-        response = self.client.get(f'/api/v1/transactions/linked/?ids={item.pk},{foreign.pk},999999')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, {str(item.pk): str(linked.data['id'])})
-        self.assertEqual(self.client.get('/api/v1/transactions/linked/').data, {})
-        self.assertEqual(self.client.get('/api/v1/transactions/linked/?ids=nope').data, {})
+        self.assertEqual(self.client.get('/api/v1/transactions/?note_item=999999').data, [])
+        self.assertEqual(self.client.get('/api/v1/transactions/?note_item=nope').data, [])
 
 
 class FinanceServiceTests(TestCase):

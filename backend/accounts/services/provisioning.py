@@ -1,14 +1,7 @@
-from datetime import timedelta
-
 from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import AppUser, UserAiEntitlement, UserAuthIdentity, UserPreference
-
-# Presence writes are cached: per-request last_seen_at UPDATEs cost a
-# row-locked write transaction on every API call (brutal under N+1
-# fan-out), while nothing reads the stamp fresher than minutes.
-LAST_SEEN_STALENESS = timedelta(minutes=5)
 
 
 def _claim_email(claims):
@@ -38,13 +31,12 @@ def provision_from_claims(claims):
     ).first()
     if identity:
         user = identity.user
+        identity.last_seen_at = now
+        identity.save(update_fields=('last_seen_at',))
         if user.status != AppUser.Status.ACTIVE:
             raise PermissionError('This application account is not active.')
-        if identity.last_seen_at is None or now - identity.last_seen_at >= LAST_SEEN_STALENESS:
-            identity.last_seen_at = now
-            identity.save(update_fields=('last_seen_at',))
-            user.last_seen_at = now
-            user.save(update_fields=('last_seen_at', 'updated_at'))
+        user.last_seen_at = now
+        user.save(update_fields=('last_seen_at', 'updated_at'))
         return user
 
     email = _claim_email(claims)

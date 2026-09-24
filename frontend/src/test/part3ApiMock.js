@@ -68,14 +68,6 @@ export function installPart3Mock() {
       state.note.revision++
       return response(item)
     }
-    if (path.endsWith('/transactions/linked/')) {
-      const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean)
-      const map = {}
-      for (const row of state.transactions) {
-        if (ids.includes(String(row.note_item))) map[String(row.note_item)] = row.id
-      }
-      return response(map)
-    }
     if (path.endsWith('/transactions/')) {
       if (options.method === 'POST') {
         const created = { id: `tx-${state.transactions.length + 1}`, ...body }

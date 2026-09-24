@@ -48,19 +48,6 @@ async function parseResponse(response) {
   return data
 }
 
-/**
- * Normalize list responses across shapes: legacy/test arrays pass through,
- * DRF paginated pages unwrap to {items, count, hasMore}. Every list caller
- * goes through here so backend pagination never breaks the UI.
- */
-export function unwrapPage(data) {
-  if (Array.isArray(data)) return { items: data, count: data.length, hasMore: false }
-  if (data && Array.isArray(data.results)) {
-    return { items: data.results, count: data.count ?? data.results.length, hasMore: Boolean(data.next) }
-  }
-  return { items: [], count: 0, hasMore: false }
-}
-
 export async function apiRequest(path, options = {}, retry = true) {
   const { timeout = DEFAULT_TIMEOUT_MS, signal: callerSignal, ...fetchOptions } = options
   const headers = { ...fetchOptions.headers }

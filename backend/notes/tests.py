@@ -39,7 +39,7 @@ class NoteApiTests(APITestCase):
         Note.objects.create(app_user=self.user_a, raw_text='Newest A note')
         self.authenticate(self.user_a)
         response = self.client.get('/api/v1/notes/')
-        self.assertEqual([item['raw_text'] for item in response.data['results']], ['Newest A note', 'User A private note'])
+        self.assertEqual([item['raw_text'] for item in response.data], ['Newest A note', 'User A private note'])
 
     def test_create_trims_text_sets_owner_and_unprocessed_status(self):
         self.authenticate(self.user_a)
@@ -72,18 +72,6 @@ class NoteApiTests(APITestCase):
         self.assertEqual(self.client.delete(detail).status_code, status.HTTP_404_NOT_FOUND)
         self.note_a.refresh_from_db()
         self.assertEqual(self.note_a.raw_text, 'User A private note')
-
-    def test_list_paginates_at_fifty_with_total_count(self):
-        self.authenticate(self.user_a)
-        for index in range(53):
-            Note.objects.create(app_user=self.user_a, raw_text=f'Paginated note {index}')
-        first = self.client.get('/api/v1/notes/')
-        self.assertEqual(first.data['count'], 54)
-        self.assertEqual(len(first.data['results']), 50)
-        self.assertIsNotNone(first.data['next'])
-        second = self.client.get('/api/v1/notes/?page=2')
-        self.assertEqual(len(second.data['results']), 4)
-        self.assertIsNone(second.data['next'])
 
 
 class AdminAccessTests(TestCase):
