@@ -83,6 +83,20 @@ function installApiMock() {
       return jsonResponse(item)
     }
     if (path.endsWith('/transactions/summary/')) return jsonResponse(state.txSummary || { currencies: [] })
+    if (path.endsWith('/transactions/')) {
+      if (method === 'POST') {
+        const created = { id: `tx-${(state.transactions || []).length + 1}`, ...JSON.parse(options.body) }
+        state.transactions = [...(state.transactions || []), created]
+        return jsonResponse(created, 201)
+      }
+      const noteItem = url.searchParams.get('note_item')
+      return jsonResponse((state.transactions || []).filter((row) => !noteItem || String(row.note_item) === String(noteItem)))
+    }
+    const txMatch = path.match(/\/transactions\/(.+)\/$/)
+    if (txMatch && method === 'DELETE' && !path.endsWith('/transactions/summary/')) {
+      state.transactions = (state.transactions || []).filter((row) => String(row.id) !== txMatch[1])
+      return jsonResponse(null, 204)
+    }
     if (path.endsWith('/review/')) {
       const note = state.notes.find((item) => item.id === Number(path.split('/').at(-3)))
       return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: [], domains: [], analysis_running: false })
@@ -157,6 +171,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.delayNotes = false
     state.failNoteDetail = 0
     state.itemsList = []
+    state.transactions = []
     state.txSummary = null
     state.failLogin = false
     setAccessToken(null)
@@ -303,6 +318,43 @@ describe('Part 2 full-stack UI flows', () => {
     expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: /^all/i }))
     expect(screen.getByRole('button', { name: /open note: team standup at ten/i })).toBeInTheDocument()
+  })
+
+  it('grays out a card when its item is ticked and restores on untick', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'File taxes Friday', created_at: '2026-09-21T08:00:00Z' }]
+    state.itemsList = [
+      { id: 21, item_type: 'TASK', title: 'File taxes', status: 'PENDING', due_date: '2026-09-26', domains: ['finance'], note: 1, revision: 0 },
+    ]
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    await user.click(await screen.findByRole('tab', { name: /tasks/i }))
+    const card = await screen.findByRole('button', { name: /open note: file taxes friday/i })
+    expect(card.closest('article')).not.toHaveClass('done')
+    await user.click(await screen.findByRole('button', { name: 'Mark File taxes complete' }))
+    await waitFor(() => expect(card.closest('article')).toHaveClass('done'))
+    await user.click(await screen.findByRole('button', { name: 'Mark File taxes incomplete' }))
+    await waitFor(() => expect(card.closest('article')).not.toHaveClass('done'))
+  })
+
+  it('ticks a single-item All card and records shopping expenses symmetrically', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'Bought shampoo', created_at: '2026-09-21T08:00:00Z' }]
+    state.itemsList = [
+      { id: 21, item_type: 'TASK', title: 'Buy shampoo', status: 'PENDING', domains: ['shopping'], amount: '100.00', currency: 'BDT', note: 1, revision: 0 },
+    ]
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    const card = await screen.findByRole('button', { name: /open note: bought shampoo/i })
+    await user.click(await screen.findByRole('button', { name: 'Mark Buy shampoo complete' }))
+    expect(await screen.findByRole('button', { name: 'Mark Buy shampoo incomplete' })).toBeInTheDocument()
+    await waitFor(() => expect(card.closest('article')).toHaveClass('done'))
+    expect(state.transactions).toHaveLength(1)
+    expect(state.transactions[0]).toMatchObject({ note_item: 21, direction: 'DEBIT' })
+    await user.click(screen.getByRole('button', { name: 'Mark Buy shampoo incomplete' }))
+    expect(await screen.findByRole('button', { name: 'Mark Buy shampoo complete' })).toBeInTheDocument()
+    await waitFor(() => expect(state.transactions).toHaveLength(0))
+    await waitFor(() => expect(card.closest('article')).not.toHaveClass('done'))
   })
 
   it('ticks a task row inside the notes Tasks tab', async () => {

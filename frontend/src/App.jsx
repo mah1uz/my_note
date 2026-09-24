@@ -255,7 +255,7 @@ function DashboardPage() {
   </>
 }
 
-function NoteCard({ note, onPeek }) {
+function NoteCard({ note, onPeek, items = [], onChanged = () => {} }) {
   const open = (event) => {
     if (event.target.closest('a,button')) return
     onPeek(note)
@@ -266,11 +266,17 @@ function NoteCard({ note, onPeek }) {
       onPeek(note)
     }
   }
-  return <article className="note-card glow-note" onClick={open} onKeyDown={onKey} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`}>
+  const single = items.length === 1 ? items[0] : null
+  const allDone = items.length > 0 && items.every((item) => item.status === 'COMPLETED')
+  return <article className={`note-card glow-note${allDone ? ' done' : ''}`} onClick={open} onKeyDown={onKey} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`}>
     <span className="glow-card__border" aria-hidden="true" />
-    <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill></div>
+    <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
+      {single
+        ? <SingleTick item={single} onChanged={onChanged} />
+        : items.length > 1 && <button type="button" className="check-button card-tick" aria-label={`Choose items to tick in ${note.originalText || 'this note'}`} onClick={() => onPeek(note)} />}
+    </div>
     <p className="note-title note-clamp">{note.originalText}</p>
-    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div>
+    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}</div>
   </article>
 }
 
@@ -280,7 +286,8 @@ function NoteCategoryCard({ note, tab, items, onChanged, onPeek }) {
     onPeek(note)
   }
   const single = items.length === 1 ? items[0] : null
-  return <article className="note-card glow-note" onClick={open} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`} onKeyDown={(event) => {
+  const allDone = items.length > 0 && items.every((item) => item.status === 'COMPLETED')
+  return <article className={`note-card glow-note${allDone ? ' done' : ''}`} onClick={open} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`} onKeyDown={(event) => {
     if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) { event.preventDefault(); onPeek(note) }
   }}>
     <span className="glow-card__border" aria-hidden="true" />
@@ -301,6 +308,7 @@ function NotesPage() {
   const { items, loading: catsLoading, refresh: refreshCats } = useConfirmedItems()
   const groups = groupItemsByNote(items)
   const countFor = (key) => key === 'all' ? notes.length : notes.filter((note) => groups[String(note.id)]?.[key]).length
+  const itemsForAll = (note) => items.filter((item) => String(item.note) === String(note.id))
   const itemsFor = (note) => items.filter((item) => String(item.note) === String(note.id)
     && (tab === 'tasks' ? (item.item_type === 'TASK' && !(item.domains || []).includes('shopping'))
       : tab === 'events' ? item.item_type === 'EVENT'
@@ -315,11 +323,11 @@ function NotesPage() {
     {loading ? <div className="loading-state">Loading your notes…</div> : error ? <div className="form-error">{error}</div>
       : tab !== 'all' && catsLoading ? <div className="loading-state">Loading categories…</div>
         : visible.length ? <div className="notes-list notes-grid">{visible.map((note) => tab === 'all'
-          ? <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} />
+          ? <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} items={itemsForAll(note)} onChanged={refreshCats} />
           : <NoteCategoryCard key={note.id} note={note} tab={tab} items={itemsFor(note)} onChanged={refreshCats} onPeek={(item) => setPeekId(item.id)} />)}</div>
           : notes.length ? <EmptyState title={`No ${tab} notes`} text={`Notes appear here once they hold confirmed ${tabHint} items. Drafts stay on their source note until confirmed; other categories live under their own tabs.`} />
             : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}
-    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} items={tab === 'all' ? [] : itemsFor(peekNote)} onItemsChanged={refreshCats} />}
+    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} items={tab === 'all' ? itemsForAll(peekNote) : itemsFor(peekNote)} onItemsChanged={refreshCats} />}
   </>
 }
 
