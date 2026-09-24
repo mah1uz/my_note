@@ -9,6 +9,9 @@ export const NOTE_TABS = [
   { key: 'shopping', label: 'Shopping' },
 ]
 
+/** Abuse barrier: notes are capped at 100 characters in every input. */
+export const NOTE_MAX_LENGTH = 100
+
 function localDayString(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }

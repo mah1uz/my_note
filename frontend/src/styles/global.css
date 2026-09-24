@@ -106,6 +106,9 @@ h1, h2, h3 { letter-spacing: -.032em; line-height: 1.08; text-wrap: balance; }
 .password-row { display: flex; gap: 8px; align-items: center; }
 .password-row input { flex: 1; min-width: 0; }
 .password-strength { margin: 8px 0 4px; }
+.char-count { color: var(--faint); font: 10px 'DM Mono', monospace; white-space: nowrap; }
+.capture-footer .char-count { margin-left: auto; }
+.editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .password-strength-bar { display: flex; gap: 6px; }
 .password-strength-seg { height: 6px; flex: 1; border-radius: 999px; background: var(--line); }
 .password-strength.is-weak .password-strength-seg:nth-child(1) { background: var(--danger); }
@@ -844,7 +847,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .note-card.glow-note .note-card-top { margin-bottom: 10px; }
 .note-title.note-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 0; font-size: 16px; max-width: none; }
 .note-card.glow-note .note-card-bottom { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
-.note-peek { width: min(560px, 100%); overflow: hidden; }
+.note-peek { width: min(560px, calc(100vw - 40px)); height: auto; max-height: calc(100dvh - 60px); overflow-y: auto; overscroll-behavior: contain; }
 .note-peek .eyebrow { display: block; margin-bottom: 10px; }
 .note-peek h2 { font-size: 22px; line-height: 1.4; outline: none; overflow-wrap: anywhere; }
 .note-peek-actions { justify-content: flex-start; flex-wrap: wrap; margin-top: 22px; }

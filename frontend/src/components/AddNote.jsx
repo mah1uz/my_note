@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { NOTE_MAX_LENGTH } from '../features/notes/noteTaxonomy'
 import { PlusIcon } from './icons'
 import { useNotes } from '../context/NotesContext'
 
@@ -76,6 +77,7 @@ export function AddNotePopup({ open, onClose }) {
   const save = async (event) => {
     event.preventDefault()
     if (!text.trim() || saving) return
+    if (text.trim().length > NOTE_MAX_LENGTH) { setError(`Keep notes to ${NOTE_MAX_LENGTH} characters or fewer.`); return }
     setSaving(true)
     setError('')
     try {
@@ -136,8 +138,11 @@ export function AddNotePopup({ open, onClose }) {
             value={text}
             onChange={(event) => setText(event.target.value)}
             placeholder="What do you want to remember?"
+            maxLength={NOTE_MAX_LENGTH}
+            aria-describedby="popup-note-count"
             className={`popup-textarea${bold ? ' is-bold' : ''}${heading ? ' is-heading' : ''}`}
           />
+          <p id="popup-note-count" className="char-count">{text.length}/{NOTE_MAX_LENGTH}</p>
           {error && <p className="form-error" role="alert">{error}</p>}
           {saved && <p className="form-success" role="status">Note saved.</p>}
           <div className="modal-actions">

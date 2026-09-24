@@ -220,6 +220,17 @@ describe('Part 2 full-stack UI flows', () => {
     expect(screen.queryByText('Buy coffee tomorrow')).not.toBeInTheDocument()
   })
 
+  it('caps new notes at 100 characters', async () => {
+    state.authenticated = true
+    const user = userEvent.setup()
+    renderApp('/app/notes/new')
+    const editor = await screen.findByLabelText(/your thought/i)
+    expect(editor).toHaveAttribute('maxLength', '100')
+    await user.type(editor, 'x'.repeat(120))
+    expect(editor.value.length).toBeLessThanOrEqual(100)
+    expect(screen.getByText('100/100 characters')).toBeInTheDocument()
+  })
+
   it('shows Notes API loading and error states', async () => {
     state.authenticated = true
     state.failNotes = true
