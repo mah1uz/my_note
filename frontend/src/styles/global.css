@@ -380,7 +380,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .source-list { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 22px; }
 .source-list .eyebrow { margin-right: 5px; }
 .source { padding: 6px 10px; color: var(--accent-deep); border: 1px solid var(--info-border); border-radius: 999px; background: var(--field); font: 10px 'DM Mono', monospace; }
-.answer-matches { display: grid; gap: 8px; margin-top: 22px; }
+a.source:hover { border-color: var(--accent); color: var(--accent); }
 .search-placeholder { display: grid; justify-items: center; min-height: 240px; padding: 54px 20px; text-align: center; }
 .placeholder-icon { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 16px; color: var(--accent-deep); background: var(--accent-tint); border: 1px solid var(--info-border); }
 .search-placeholder h2 { margin-top: 18px; color: var(--ink); font-size: 20px; }
@@ -496,8 +496,6 @@ button:disabled { cursor: wait; opacity: .65; }
 .search-placeholder h2 { margin-top: 18px; color: var(--ink); font-size: 20px; }
 .search-placeholder p { margin-top: 8px; color: var(--muted); font-size: 13px; }
 .material-answer { border-color: var(--info-border); background: var(--info-bg); }
-.answer-matches { display: grid; gap: 8px; margin-top: 22px; }
-.answer-matches .search-result { background: var(--surface); }
 
 /* ---------- Onboarding ---------- */
 .onboarding-page { position: relative; display: grid; min-height: 680px; place-items: center; overflow: hidden; margin: -56px 0 -100px; padding: 70px 20px; background: radial-gradient(90% 60% at 80% 10%, #1f6feb14 0%, transparent 60%), var(--paper); }

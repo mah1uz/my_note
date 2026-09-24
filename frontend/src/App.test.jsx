@@ -617,6 +617,8 @@ describe('Part 2 full-stack UI flows', () => {
     await user.type(box, 'exam time{enter}')
     expect(await screen.findByText('Mocked lecture notes')).toBeInTheDocument()
     expect(screen.getByText('Lexical matches')).toBeInTheDocument()
+    const answerCalls = fetch.mock.calls.filter(([url, options]) => new URL(url).pathname.endsWith('/search/answer/') && options?.method === 'POST')
+    expect(answerCalls).toHaveLength(0)
   })
 
   it('auto-runs a shared ?q= link without another click', async () => {
@@ -632,6 +634,10 @@ describe('Part 2 full-stack UI flows', () => {
     renderApp('/app/search?q=fees')
     await user.click(await screen.findByRole('button', { name: /ask my notes/i }))
     expect(await screen.findByText('Grounded answer for fees.')).toBeInTheDocument()
+    const sourceLink = await screen.findByRole('link', { name: 'Mocked lecture notes' })
+    expect(sourceLink).toHaveAttribute('href', '/app/notes/1')
+    expect(screen.queryByText(/#\d+/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Matching context')).not.toBeInTheDocument()
   })
 
   it('renders all protected application pages for an authenticated user', async () => {

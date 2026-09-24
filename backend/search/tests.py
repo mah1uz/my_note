@@ -1,16 +1,20 @@
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import patch
+import json
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import AppUser
+from ai.services.groq_service import ProviderFailure
 from finance.models import FinanceTransaction
 from notes.models import Note, NoteItem
 
 from .parser import parse_query
+from .services import generate_grounded_answer
 
 
 class SearchParserTests(SimpleTestCase):
@@ -113,3 +117,56 @@ class SearchApiTests(APITestCase):
         parsed = parse_query('I almost bought the dip')
         self.assertIsNone(parsed['aggregate'])
         self.assertEqual(parse_query('where did I spend the most?')['aggregate'], 'MAX')
+
+
+def _result(id, title='Cake run', note_id='1'):
+    return {
+        'kind': 'NOTE_ITEM', 'id': id, 'title': title,
+        'excerpt': f'Excerpt for {title}.', 'source_note_id': note_id,
+        'relevance': 5,
+        'metadata': {'item_type': 'TASK', 'domains': ['shopping'], 'status': 'PENDING'},
+    }
+
+
+def _groq_response(answer, sources):
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+        content=json.dumps({'answer': answer, 'sources': sources}),
+    ))])
+
+
+@override_settings(GROQ_API_KEY='synthetic-test-key')
+class GroundedAnswerRefTests(TestCase):
+    """Evidence uses opaque refs so numeric ids can never leak into prose."""
+
+    def setUp(self):
+        self.user = AppUser.objects.create(email='refs@example.com')
+
+    def _ask(self, results, answer='Yes, a cake run is pending.', sources=('E1',)):
+        with patch('groq.Groq') as sdk:
+            client = sdk.return_value.__enter__.return_value
+            client.chat.completions.create.return_value = _groq_response(answer, list(sources))
+            outcome = generate_grounded_answer(self.user, 'Any cake runs?', results)
+            sent = json.loads(client.chat.completions.create.call_args.kwargs['messages'][1]['content'])
+        return outcome, sent
+
+    def test_evidence_hides_database_ids_and_maps_refs_back(self):
+        outcome, sent = self._ask([_result(30), _result(53)])
+        refs = [item['ref'] for item in sent['evidence']]
+        self.assertEqual(refs, ['E1', 'E2'])
+        self.assertNotIn('id', sent['evidence'][0])
+        self.assertNotIn('"id": 30', json.dumps(sent))
+        self.assertTrue(any('Never print ids or refs' in rule for rule in sent['rules']))
+        self.assertEqual(outcome, {'answer': 'Yes, a cake run is pending.', 'sources': ['30'], 'mode': 'grounded'})
+
+    def test_prose_passes_through_untouched_including_amounts(self):
+        outcome, _ = self._ask(
+            [_result(31, title='Claude subscription')],
+            answer='Claude costs 2500 BDT.', sources=('E1',),
+        )
+        self.assertEqual(outcome['answer'], 'Claude costs 2500 BDT.')
+        self.assertEqual(outcome['sources'], ['31'])
+
+    def test_unknown_ref_abstains_through_validation(self):
+        with self.assertRaises(ProviderFailure) as raised:
+            self._ask([_result(30)], sources=('E9',))
+        self.assertEqual(raised.exception.code, 'invalid_output')
