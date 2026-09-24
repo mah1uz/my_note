@@ -416,6 +416,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .auth-switch { margin-top: 22px; color: var(--muted); text-align: center; font-size: 12px; }
 .auth-switch a { color: var(--accent-deep); font-weight: 700; }
 .google-auth { margin-top: 24px; }
+.google-auth .button svg.google-logo { flex-shrink: 0; }
 .google-auth .form-error { margin-top: 10px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
