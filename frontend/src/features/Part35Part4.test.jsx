@@ -25,6 +25,7 @@ describe('Part 3.5 and Part 4 product flows', () => {
       if (url.pathname.endsWith('/auth/settings/')) return jsonResponse({ user: {}, preferences: { profession: '', priority_profile: 'BALANCED' } })
       if (url.pathname.endsWith('/auth/onboarding/complete/')) return jsonResponse({ preferences: { ...body, onboarding_completed_at: '2026-09-22T00:00:00Z' } })
       if (url.pathname.endsWith('/transactions/summary/')) return jsonResponse({ currencies: [{ currency: 'BDT', credits: '5000.0000', debits: '250.0000', balance: '4750.0000' }] })
+      if (url.pathname.endsWith('/transactions/linked/')) return jsonResponse({})
       if (url.pathname.endsWith('/transactions/') && !url.pathname.includes('/summary')) return jsonResponse([{ id: 'tx-1', direction: 'DEBIT', amount: '250.00', currency: 'BDT', label: 'Books', transaction_at: '2026-09-22T04:00:00Z', source_kind: 'MANUAL' }])
       if (url.pathname.endsWith('/search/')) return jsonResponse({ results: [{ kind: 'NOTE_ITEM', id: 4, title: 'University deadline', excerpt: 'Submit project', source_note_id: 1, metadata: { item_type: 'TASK', status: 'PENDING' } }] })
       if (url.pathname.endsWith('/search/answer/')) return jsonResponse({ mode: 'deterministic', answer: 'You spent 250.0000 BDT.', sources: ['tx-1'], results: [] })

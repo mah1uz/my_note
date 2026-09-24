@@ -9,10 +9,12 @@ from rest_framework.response import Response
 from .models import FinanceTransaction
 from .serializers import FinanceTransactionSerializer
 from .services import summarize
+from config.pagination import StandardPagination
 
 
 class FinanceTransactionViewSet(viewsets.ModelViewSet):
     serializer_class = FinanceTransactionSerializer
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         queryset = FinanceTransaction.objects.filter(user=self.request.user).select_related(
@@ -46,6 +48,25 @@ class FinanceTransactionViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save()
+
+    @action(detail=False, methods=['get'], url_path='linked')
+    def linked(self, request):
+        """Batch linkage lookup: {note_item_id: transaction_id} for up to 100 ids.
+
+        One query replaces the per-row ?note_item= lookup tickable rows used
+        to fire on mount (N+1 fan-out). Owner-scoped like everything else.
+        """
+        raw = request.query_params.get('ids') or ''
+        try:
+            ids = [int(part) for part in raw.split(',') if part.strip()][:100]
+        except (TypeError, ValueError):
+            return Response({})
+        if not ids:
+            return Response({})
+        rows = FinanceTransaction.objects.filter(
+            user=request.user, note_item_id__in=ids,
+        ).values('id', 'note_item_id')
+        return Response({str(row['note_item_id']): str(row['id']) for row in rows})
 
     @action(detail=False, methods=['get'], url_path='summary')
     def summary(self, request):

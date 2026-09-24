@@ -1,4 +1,4 @@
-import { apiRequest } from './http'
+import { apiRequest, unwrapPage } from './http'
 
 const normalizeNote = (note) => ({
   id: String(note.id),
@@ -12,8 +12,9 @@ const normalizeNote = (note) => ({
   itemIds: []
 })
 
-export async function listNotes() {
-  return (await apiRequest('/notes/')).map(normalizeNote)
+export async function listNotes(page = 1) {
+  const { items, count, hasMore } = unwrapPage(await apiRequest(`/notes/${page > 1 ? `?page=${page}` : ''}`))
+  return { notes: items.map(normalizeNote), total: count, hasMore }
 }
 
 export async function getNote(id) {

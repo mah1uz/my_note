@@ -231,7 +231,7 @@ class IntelligenceApiTests(APITestCase):
         self.assertFalse(item.is_confirmed)
         self.assertEqual(self.note.raw_text, self.text)
         self.assertEqual(self.note.processing_status, 'REVIEW_REQUIRED')
-        self.assertEqual(self.client.get('/api/v1/items/').data, [])
+        self.assertEqual(self.client.get('/api/v1/items/').data['results'], [])
         self.assertNotIn('raw_response', str(response.data))
         self.assertEqual(self.note.ai_logs.get().parsed_response, example_output(self.text))
 
@@ -506,7 +506,7 @@ class IntelligenceApiTests(APITestCase):
             with self.subTest(action=action):
                 response = getattr(self.client, method)(self.base + action, {}, format='json')
                 self.assertEqual(response.status_code, 404)
-        self.assertEqual(self.client.get('/api/v1/items/').data, [])
+        self.assertEqual(self.client.get('/api/v1/items/').data['results'], [])
         self.assertEqual(self.client.get(f'/api/v1/items/{item.pk}/').status_code, 404)
         self.assertEqual(self.client.patch(f'/api/v1/items/{item.pk}/', {'status': 'COMPLETED'}, format='json').status_code, 404)
         self.provider.assert_not_called()
@@ -525,13 +525,13 @@ class IntelligenceApiTests(APITestCase):
         # Provisioning creates no notes: a brand-new account lists nothing,
         # and no account ever sees another account's notes.
         fresh = AppUser.objects.create(email='fresh@example.com')
-        owned = self.client.get('/api/v1/notes/').data
+        owned = self.client.get('/api/v1/notes/').data['results']
         self.assertEqual(len(owned), 1)
         self.assertEqual(owned[0]['raw_text'], self.text)
         self.client.force_authenticate(self.other)
-        self.assertEqual(self.client.get('/api/v1/notes/').data, [])
+        self.assertEqual(self.client.get('/api/v1/notes/').data['results'], [])
         self.client.force_authenticate(fresh)
-        self.assertEqual(self.client.get('/api/v1/notes/').data, [])
+        self.assertEqual(self.client.get('/api/v1/notes/').data['results'], [])
 
     def test_unauthenticated_requests_rejected(self):
         self.client.force_authenticate(None)
@@ -571,8 +571,8 @@ class IntelligenceApiTests(APITestCase):
             self.assertEqual(response.status_code, 200)
             item.refresh_from_db()
             self.assertEqual(item.status, state)
-        self.assertEqual(len(self.client.get('/api/v1/items/?type=TASK&domain=shopping&status=PENDING').data), 1)
-        self.assertEqual(self.client.get('/api/v1/items/?type=EXPENSE').data, [])
+        self.assertEqual(len(self.client.get('/api/v1/items/?type=TASK&domain=shopping&status=PENDING').data['results']), 1)
+        self.assertEqual(self.client.get('/api/v1/items/?type=EXPENSE').data['results'], [])
         self.assertEqual(self.client.get('/api/v1/items/?domain=private').status_code, 400)
         self.assertEqual(self.client.patch(url, {'status': 'COMPLETED'}, format='json').status_code, 400)
         self.assertEqual(self.client.patch(url, {'revision': 0, 'status': 'COMPLETED'}, format='json').status_code, 409)

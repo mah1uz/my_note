@@ -11,7 +11,7 @@ import useBodyScrollLock from './useBodyScrollLock'
  * When opened from a category tab with several items, it also lists each
  * element with its own tick for manual ticking.
  */
-export default function NotePeekModal({ note, onClose, onDelete, items = [], onItemsChanged = () => {}, onTicked = () => {} }) {
+export default function NotePeekModal({ note, onClose, onDelete, items = [], onItemsChanged = () => {}, onTicked = () => {}, linkedMap }) {
   const navigate = useNavigate()
   const { groqApiKey, trialActive } = useAiKey()
   const [deleting, setDeleting] = useState(false)
@@ -62,7 +62,7 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
         <hr className="glow-line" />
         <p className="eyebrow">Tick items in this note</p>
         <ul className="tab-item-list modal-item-list" aria-label="Items in this note">
-          {items.map((item) => <TabItemRow key={`${item.id}-${item.revision}`} item={item} onChanged={onItemsChanged} onTicked={onTicked} />)}
+          {items.map((item) => <TabItemRow key={`${item.id}-${item.revision}`} item={item} onChanged={onItemsChanged} onTicked={onTicked} linkedMap={linkedMap} />)}
         </ul>
       </>}
       <div className="modal-actions note-peek-actions">

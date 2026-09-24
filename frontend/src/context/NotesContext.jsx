@@ -7,15 +7,21 @@ const NotesContext = createContext(null)
 export function NotesProvider({ children }) {
   const { currentUser, isAuthenticated } = useAuth()
   const [notes, setNotes] = useState([])
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
   const [epoch, setEpoch] = useState(0)
+  const [page, setPage] = useState(1)
   const accountIdRef = useRef(currentUser?.id)
   accountIdRef.current = currentUser?.id
 
   useEffect(() => {
     if (!isAuthenticated) {
       setNotes([])
+      setTotal(0)
+      setHasMore(false)
       setError('')
       return
     }
@@ -23,8 +29,13 @@ export function NotesProvider({ children }) {
     setLoading(true)
     setNotes([])
     setError('')
+    setPage(1)
     listNotes().then((data) => {
-      if (active) setNotes(data)
+      if (active) {
+        setNotes(data.notes)
+        setTotal(data.total)
+        setHasMore(data.hasMore)
+      }
     }).catch((requestError) => {
       if (active) setError(requestError.message)
     }).finally(() => {
@@ -33,12 +44,32 @@ export function NotesProvider({ children }) {
     return () => { active = false }
   }, [currentUser?.id, isAuthenticated, epoch])
 
+  const loadMore = async () => {
+    const accountId = accountIdRef.current
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    try {
+      const data = await listNotes(page + 1)
+      if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
+      setNotes((current) => [...current, ...data.notes])
+      setTotal(data.total)
+      setHasMore(data.hasMore)
+      setPage((value) => value + 1)
+    } catch (requestError) {
+      if (accountIdRef.current === accountId) setError(requestError.message)
+      throw requestError
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
   const addNote = async (text) => {
     const accountId = accountIdRef.current
     try {
       const note = await createNote(text.trim())
       if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
       setNotes((current) => [note, ...current])
+      setTotal((value) => value + 1)
       setError('')
       return note
     } catch (requestError) {
@@ -52,7 +83,12 @@ export function NotesProvider({ children }) {
     try {
       const note = await getNote(id)
       if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
-      setNotes((current) => [note, ...current.filter((item) => item.id !== note.id)])
+      let isNew = false
+      setNotes((current) => {
+        isNew = !current.some((item) => item.id === note.id)
+        return [note, ...current.filter((item) => item.id !== note.id)]
+      })
+      if (isNew) setTotal((value) => value + 1)
       setError('')
       return note
     } catch (requestError) {
@@ -81,6 +117,7 @@ export function NotesProvider({ children }) {
       await removeNote(id)
       if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
       setNotes((current) => current.filter((note) => note.id !== id))
+      setTotal((value) => Math.max(0, value - 1))
       setError('')
     } catch (requestError) {
       if (accountIdRef.current === accountId) setError(requestError.message)
@@ -89,9 +126,10 @@ export function NotesProvider({ children }) {
   }
 
   const value = useMemo(() => ({
-    notes, loading, error, addNote, loadNote, updateNote, deleteNote,
+    notes, total, hasMore, loading, loadingMore, error,
+    addNote, loadNote, updateNote, deleteNote, loadMore,
     refresh: () => setEpoch((value) => value + 1),
-  }), [notes, loading, error])
+  }), [notes, total, hasMore, loading, loadingMore, error])
   return <NotesContext.Provider value={value}>{children}</NotesContext.Provider>
 }
 

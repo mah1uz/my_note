@@ -30,8 +30,12 @@ export async function toggleItemWithSymmetry(completion, item, { onChanged, onUn
     }
     if (ok) {
       // Optimistic flip: the UI updates instantly; the background refresh
-      // reconciles (or reverts, via the failure path below).
+      // reconciles (or reverts, via the failure path below). A second
+      // refresh follows record/void so the linkage map cannot go stale.
       if (onTicked) onTicked(item.id, done ? 'PENDING' : 'COMPLETED')
+      if (onChanged) {
+        try { await onChanged() } catch { /* Best-effort; the API result below still shows. */ }
+      }
     } else if (onChanged) {
       try { await onChanged() } catch { /* Refresh is best-effort; the API error below still shows. */ }
     }
@@ -43,8 +47,8 @@ export async function toggleItemWithSymmetry(completion, item, { onChanged, onUn
 }
 
 /** Single tick for a card holding exactly one actionable item. */
-export function SingleTick({ item, onChanged, onTicked }) {
-  const completion = useTaskCompletion(item, onChanged)
+export function SingleTick({ item, onChanged, onTicked, linkedMap }) {
+  const completion = useTaskCompletion(item, onChanged, linkedMap)
   const [unexpected, setUnexpected] = useState('')
   const done = item.status === 'COMPLETED'
   return <>
@@ -63,8 +67,8 @@ export function SingleTick({ item, onChanged, onTicked }) {
   </>
 }
 
-export default function TabItemRow({ item, onChanged, onTicked }) {
-  const completion = useTaskCompletion(item, onChanged)
+export default function TabItemRow({ item, onChanged, onTicked, linkedMap }) {
+  const completion = useTaskCompletion(item, onChanged, linkedMap)
   const [unexpected, setUnexpected] = useState('')
   const done = item.status === 'COMPLETED'
   const shopping = (item.domains || []).includes('shopping')

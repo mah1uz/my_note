@@ -20,10 +20,6 @@ export function processAll(mode, credentials = {}, signal) {
   })
 }
 
-export function getAiEntitlement(signal) {
-  return apiRequest('/auth/ai/entitlement/', { signal })
-}
-
 /** Collapse a process-all response into counts for display. Pure helper. */
 export function summarizeResults(data) {
   const counts = { analyzed: 0, confirmed: 0, failed: 0, skipped: 0 }
