@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { resolveLinkedTransaction } from './features/items/ItemPages'
 import { setAccessToken } from './api/http'
 import { installSupabaseMock } from './test/supabaseMock'
 import { AppStateProvider } from './context/AppStateContext'
@@ -318,6 +319,15 @@ describe('Part 2 full-stack UI flows', () => {
     expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: /^all/i }))
     expect(screen.getByRole('button', { name: /open note: team standup at ten/i })).toBeInTheDocument()
+  })
+
+  it('resolveLinkedTransaction finds the ledger row without trusting memory', async () => {
+    state.authenticated = true
+    state.transactions = [{ id: 'tx-9', note_item: 21, direction: 'DEBIT', amount: '100.00', currency: 'BDT', label: 'Buy shampoo' }]
+    renderApp('/app/notes')
+    await screen.findByRole('heading', { name: /^notes$/i })
+    await expect(resolveLinkedTransaction({ id: 21 })).resolves.toBe('tx-9')
+    await expect(resolveLinkedTransaction({ id: 999 })).resolves.toBeNull()
   })
 
   it('grays out a card when its item is ticked and restores on untick', async () => {

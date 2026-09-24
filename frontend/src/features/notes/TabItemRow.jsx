@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useTaskCompletion } from '../items/ItemPages'
+import { resolveLinkedTransaction, useTaskCompletion } from '../items/ItemPages'
 import { itemDate } from '../items/itemForm'
 
 /**
@@ -18,13 +18,17 @@ export async function toggleItemWithSymmetry(completion, item, { onChanged, onUn
     const shopping = (item.domains || []).includes('shopping')
     let ok = false
     if (!done) {
-      const linked = completion.recordedId
-      ok = await completion.save({ status: 'COMPLETED' })
+      // Adopt any orphan row (e.g. recorded before a refresh) instead of
+      // POSTing a duplicate against the one-transaction-per-item rule.
+      const linked = completion.recordedId || await resolveLinkedTransaction(item)
+      const ok = await completion.save({ status: 'COMPLETED' })
       if (ok && shopping && completion.recordable && !linked) await completion.record()
+      return ok
     } else {
-      const linked = completion.recordedId
-      ok = await completion.save({ status: 'PENDING' })
+      const linked = completion.recordedId || await resolveLinkedTransaction(item)
+      const ok = await completion.save({ status: 'PENDING' })
       if (ok && linked) await completion.voidRecorded(linked)
+      return ok
     }
     if (!ok && onChanged) {
       try { await onChanged() } catch { /* Refresh is best-effort; the API error below still shows. */ }
