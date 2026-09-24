@@ -126,7 +126,7 @@ function AppLayout({ children }) {
   const expandSidebar = () => {
     clearTimeout(hoverTimers.current.close)
     clearTimeout(hoverTimers.current.open)
-    hoverTimers.current.open = setTimeout(() => setNavOpen(true), 180)
+    hoverTimers.current.open = setTimeout(() => setNavOpen(true), 150)
   }
   const collapseSidebar = () => {
     clearTimeout(hoverTimers.current.open)
