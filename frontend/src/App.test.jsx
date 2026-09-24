@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { resolveLinkedTransaction } from './features/items/ItemPages'
+import { AiKeyContext } from './context/AiKeyContext'
 import { setAccessToken } from './api/http'
 import { installSupabaseMock } from './test/supabaseMock'
 import { AppStateProvider } from './context/AppStateContext'
@@ -121,7 +122,26 @@ function installApiMock() {
       state.analyzedNoteIds = [...(state.analyzedNoteIds || []), id]
       const note = state.notes.find((item) => item.id === id)
       if (!note) return jsonResponse({ detail: 'Not found.' }, 404)
-      return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: [], domains: [], analysis_running: false })
+      return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: state.analyzeItems || [], domains: [], analysis_running: false })
+    }
+
+    const confirmMatch = path.match(/\/notes\/(\d+)\/confirm-analysis\/$/)
+    if (confirmMatch && method === 'POST') {
+      const body = JSON.parse(options.body)
+      state.confirmedPayload = body
+      const id = Number(confirmMatch[1])
+      const confirmed = (body.items || []).map((item, index) => ({
+        id: item.id || 100 + index, item_type: item.item_type, title: item.title,
+        summary: item.summary || '', normalized_text: item.normalized_text || '',
+        domains: item.domains || [], status: 'PENDING', importance: item.importance || 'NORMAL',
+        start_date: item.start_date || null, due_date: item.due_date || null,
+        start_datetime: null, due_datetime: null, amount: item.amount ?? null,
+        currency: item.currency || null, quantity: null, unit: null, place_hint: null,
+        is_confirmed: true, note: id, revision: 1,
+      }))
+      state.itemsList = [...(state.itemsList || []), ...confirmed]
+      const note = state.notes.find((item) => item.id === id)
+      return jsonResponse({ note: { ...notePayload(note), revision: 1 }, items: confirmed, domains: [], analysis_running: false })
     }
 
     const match = path.match(/\/notes\/(\d+)\/$/)
@@ -161,6 +181,19 @@ function renderApp(path = '/') {
   )
 }
 
+function renderAppWithTrial(path = '/') {
+  window.history.pushState({}, '', path)
+  return render(
+    <AiKeyContext.Provider value={{ groqApiKey: '', setGroqApiKey: () => {}, clearGroqApiKey: () => {}, trialActive: true, startTrial: () => {}, endTrial: () => {} }}>
+      <AuthProvider>
+        <NotesProvider>
+          <AppStateProvider><App /></AppStateProvider>
+        </NotesProvider>
+      </AuthProvider>
+    </AiKeyContext.Provider>
+  )
+}
+
 describe('Part 2 full-stack UI flows', () => {
   beforeEach(() => {
     state.authenticated = false
@@ -172,6 +205,8 @@ describe('Part 2 full-stack UI flows', () => {
     state.delayNotes = false
     state.failNoteDetail = 0
     state.itemsList = []
+    state.analyzeItems = []
+    state.confirmedPayload = null
     state.transactions = []
     state.txSummary = null
     state.failLogin = false
@@ -328,6 +363,54 @@ describe('Part 2 full-stack UI flows', () => {
     await screen.findByRole('heading', { name: /^notes$/i })
     await expect(resolveLinkedTransaction({ id: 21 })).resolves.toBe('tx-9')
     await expect(resolveLinkedTransaction({ id: 999 })).resolves.toBeNull()
+  })
+
+  it('auto analyze+confirms a backlog note on tick when trial is active', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'File taxes Friday', created_at: '2026-09-21T08:00:00Z' }]
+    state.itemsList = []
+    state.analyzeItems = [{
+      id: 11, item_type: 'TASK', title: 'File taxes', summary: '', normalized_text: 'File taxes',
+      domains: ['finance'], status: 'PENDING', importance: 'NORMAL',
+      start_date: null, due_date: '2026-09-26', start_datetime: null, due_datetime: null,
+      amount: null, currency: null, quantity: null, unit: null, place_hint: null,
+      confidence: 0.9, is_confirmed: false, note: 1, revision: 1,
+    }]
+    const user = userEvent.setup()
+    renderAppWithTrial('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /analyze and confirm file taxes friday automatically/i }))
+    await waitFor(() => expect(state.confirmedPayload).not.toBeNull())
+    expect(state.confirmedPayload.items).toHaveLength(1)
+    expect(state.confirmedPayload.items[0]).toMatchObject({ item_type: 'TASK', title: 'File taxes', due_date: '2026-09-26' })
+    expect(await screen.findByRole('tab', { name: /tasks \(1\)/i })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('opens the peek modal instead of auto-running without credentials', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'File taxes Friday', created_at: '2026-09-21T08:00:00Z' }]
+    state.itemsList = []
+    state.analyzeItems = []
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /analyze and confirm file taxes friday automatically/i }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    const analyzes = fetch.mock.calls.filter(([url, options]) => /\/notes\/\d+\/analyze\/$/.test(new URL(url).pathname) && options?.method === 'POST')
+    expect(analyzes).toHaveLength(0)
+  })
+
+  it('does not flash loading skeletons when ticking', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'File taxes Friday', created_at: '2026-09-21T08:00:00Z' }]
+    state.itemsList = [
+      { id: 21, item_type: 'TASK', title: 'File taxes', status: 'PENDING', due_date: '2026-09-26', domains: ['finance'], note: 1, revision: 0 },
+    ]
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    await user.click(await screen.findByRole('tab', { name: /tasks/i }))
+    await user.click(await screen.findByRole('button', { name: 'Mark File taxes complete' }))
+    expect(await screen.findByRole('button', { name: 'Mark File taxes incomplete' })).toBeInTheDocument()
+    expect(document.querySelector('.note-skeleton')).toBeNull()
   })
 
   it('grays out a card when its item is ticked and restores on untick', async () => {

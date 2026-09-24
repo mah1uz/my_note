@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useAppState } from './context/AppStateContext'
 import { useAuth } from './context/AuthContext'
 import { useNotes } from './context/NotesContext'
 import { confirmPasswordReset, requestPasswordReset } from './api/authApi'
 import { apiRequest } from './api/http'
-import { listItems } from './api/itemsApi'
+import { listItems, analyzeNote, confirmAnalysis } from './api/itemsApi'
 import { LogoutIcon, MenuIcon, NavIcon, NotesIcon, PlacesIcon, SearchIcon, SparkleIcon, TasksIcon } from './components/icons'
 import Reveal from './components/Reveal'
 import Tilt from './components/Tilt'
@@ -29,6 +29,7 @@ import ProcessButtons from './features/processing/ProcessButtons'
 import QueueProgress from './features/processing/QueueProgress'
 import { NOTE_TABS, NOTE_MAX_LENGTH, groupItemsByNote, isDueToday, useConfirmedItems } from './features/notes/noteTaxonomy'
 import { SingleTick } from './features/notes/TabItemRow'
+import { itemForm, itemPayload } from './features/items/itemForm'
 import { useNotifications } from './features/notifications/useNotifications'
 import { backlogNotes } from './api/processApi'
 
@@ -262,7 +263,7 @@ function DashboardPage() {
   </>
 }
 
-function NoteCard({ note, onPeek, items = [], onChanged = () => {} }) {
+function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = () => {}, auto = null }) {
   const open = (event) => {
     if (event.target.closest('a,button')) return
     onPeek(note)
@@ -278,16 +279,26 @@ function NoteCard({ note, onPeek, items = [], onChanged = () => {} }) {
   return <article className={`note-card glow-note${allDone ? ' done' : ''}`} onClick={open} onKeyDown={onKey} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`}>
     <span className="glow-card__border" aria-hidden="true" />
     <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
-      {single
-        ? <SingleTick item={single} onChanged={onChanged} />
-        : items.length > 1 && <button type="button" className="check-button card-tick" aria-label={`Choose items to tick in ${note.originalText || 'this note'}`} onClick={() => onPeek(note)} />}
+      <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} auto={auto} onPeek={onPeek} />
     </div>
     <p className="note-title note-clamp">{note.originalText}</p>
-    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}</div>
+    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
   </article>
 }
 
-function NoteCategoryCard({ note, tab, items, onChanged, onPeek }) {
+/**
+ * One tick slot per card: a single item ticks directly, several open the
+ * chooser popup, and backlog notes with nothing confirmed offer an
+ * automatic analyze+confirm run instead.
+ */
+function CardTick({ note, items, single, onChanged, onTicked, auto, onPeek }) {
+  if (single) return <SingleTick item={single} onChanged={onChanged} onTicked={onTicked} />
+  if (items.length > 1) return <button type="button" className="check-button card-tick" aria-label={`Choose items to tick in ${note.originalText || 'this note'}`} onClick={() => onPeek(note)} />
+  if (auto?.can) return <button type="button" className="check-button card-tick card-auto" disabled={auto.running} aria-label={`Analyze and confirm ${note.originalText || 'this note'} automatically`} title="Analyze and confirm automatically" onClick={() => auto.run(note)} />
+  return null
+}
+
+function NoteCategoryCard({ note, tab, items, onChanged, onTicked, auto, onPeek }) {
   const open = (event) => {
     if (event.target.closest('a,button')) return
     onPeek(note)
@@ -299,21 +310,29 @@ function NoteCategoryCard({ note, tab, items, onChanged, onPeek }) {
   }}>
     <span className="glow-card__border" aria-hidden="true" />
     <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
-      {single
-        ? <SingleTick item={single} onChanged={onChanged} />
-        : items.length > 1 && <button type="button" className="check-button card-tick" aria-label={`Choose items to tick in ${note.originalText || 'this note'}`} onClick={() => onPeek(note)} />}
+      <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} auto={auto} onPeek={onPeek} />
     </div>
     <p className="note-title note-clamp">{note.originalText}</p>
-    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}</div>
+    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
   </article>
 }
 
 function NotesPage() {
-  const { notes, loading, error, deleteNote } = useNotes()
+  const { notes, loading, error, deleteNote, refresh: refreshNotes } = useNotes()
+  const { groqApiKey, trialActive } = useAiKey()
   const [tab, setTab] = useState('all')
   const [peekId, setPeekId] = useState(null)
-  const { items, loading: catsLoading, refresh: refreshCats } = useConfirmedItems()
+  const [autoId, setAutoId] = useState(null)
+  const { items, loading: catsLoading, refresh: refreshCats, patchLocal } = useConfirmedItems()
   const groups = groupItemsByNote(items)
+  const totalByNote = useMemo(() => {
+    const map = new Map()
+    for (const item of items) {
+      const key = String(item.note)
+      map.set(key, (map.get(key) || 0) + 1)
+    }
+    return map
+  }, [items])
   const countFor = (key) => key === 'all' ? notes.length : notes.filter((note) => groups[String(note.id)]?.[key]).length
   const itemsForAll = (note) => items.filter((item) => String(item.note) === String(note.id))
   const itemsFor = (note) => items.filter((item) => String(item.note) === String(note.id)
@@ -323,18 +342,46 @@ function NotesPage() {
   const visible = tab === 'all' ? notes : notes.filter((note) => groups[String(note.id)]?.[tab])
   const peekNote = peekId == null ? null : notes.find((note) => String(note.id) === String(peekId)) || null
   const tabHint = { tasks: 'task', events: 'event', shopping: 'shopping' }[tab]
+  const onTicked = (id, status) => patchLocal(id, { status })
+  // Backlog notes (UNPROCESSED/FAILED) with zero confirmed items offer an
+  // automatic analyze+confirm run on tick — the same fully-automatic path
+  // as bulk Analyze All. Anything else keeps manual ticks or review.
+  const autoFor = (note) => {
+    const can = (note.processingStatus === 'UNPROCESSED' || note.processingStatus === 'FAILED')
+      && (totalByNote.get(String(note.id)) || 0) === 0
+    return { can, running: autoId === String(note.id), run: runAuto }
+  }
+  const runAuto = async (note) => {
+    if (!(groqApiKey || trialActive)) { setPeekId(note.id); return }
+    if (autoId) return
+    setAutoId(note.id)
+    try {
+      const reviewed = await analyzeNote(note.id, note.revision, groqApiKey, trialActive)
+      const drafts = (reviewed.items || []).filter((item) => !item.is_confirmed)
+      if (!drafts.length) { setPeekId(note.id); return }
+      await confirmAnalysis(note.id, reviewed.note.revision, drafts.map((draft) => itemPayload(itemForm(draft))))
+      refreshNotes()
+      refreshCats()
+    } catch {
+      setPeekId(note.id)
+    } finally {
+      setAutoId(null)
+    }
+  }
   return <><PageHeader eyebrow="Your memory" title="Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
-    <div className="notes-tabs" role="tablist" aria-label="Filter notes by category">
-      {NOTE_TABS.map((entry) => <button key={entry.key} role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'notes-tab active' : 'notes-tab'} onClick={() => setTab(entry.key)}>{entry.label} ({countFor(entry.key)})</button>)}
-    </div>
-    {loading ? <div className="loading-state">Loading your notes…</div> : error ? <div className="form-error">{error}</div>
-      : tab !== 'all' && catsLoading ? <div className="loading-state">Loading categories…</div>
-        : visible.length ? <div className="notes-list notes-grid">{visible.map((note) => tab === 'all'
-          ? <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} items={itemsForAll(note)} onChanged={refreshCats} />
-          : <NoteCategoryCard key={note.id} note={note} tab={tab} items={itemsFor(note)} onChanged={refreshCats} onPeek={(item) => setPeekId(item.id)} />)}</div>
-          : notes.length ? <EmptyState title={`No ${tab} notes`} text={`Notes appear here once they hold confirmed ${tabHint} items. Drafts stay on their source note until confirmed; other categories live under their own tabs.`} />
-            : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}
-    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} items={tab === 'all' ? itemsForAll(peekNote) : itemsFor(peekNote)} onItemsChanged={refreshCats} />}
+    <section className="notes-box" aria-label="Notes by category">
+      <div className="notes-tabs" role="tablist" aria-label="Filter notes by category">
+        {NOTE_TABS.map((entry) => <button key={entry.key} role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'notes-tab active' : 'notes-tab'} onClick={() => setTab(entry.key)}>{entry.label} ({countFor(entry.key)})</button>)}
+      </div>
+      {loading ? <div className="loading-state">Loading your notes…</div> : error ? <div className="form-error">{error}</div>
+        : tab !== 'all' && catsLoading ? <><p role="status" className="sr-only">Loading categories…</p><div className="notes-list notes-grid" aria-hidden="true">{[0, 1, 2, 3, 4, 5].map((index) => <div key={index} className="note-card glow-note note-skeleton"><div className="skeleton-line" /><div className="skeleton-line short" /></div>)}</div></>
+          : visible.length ? <div key={tab} className="notes-list notes-grid notes-enter">{visible.map((note) => tab === 'all'
+            ? <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} items={itemsForAll(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} />
+            : <NoteCategoryCard key={note.id} note={note} tab={tab} items={itemsFor(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} onPeek={(item) => setPeekId(item.id)} />)}</div>
+            : notes.length ? <EmptyState title={`No ${tab} notes`} text={`Notes appear here once they hold confirmed ${tabHint} items. Drafts stay on their source note until confirmed; other categories live under their own tabs.`} />
+              : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}
+    </section>
+    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} items={tab === 'all' ? itemsForAll(peekNote) : itemsFor(peekNote)} onItemsChanged={refreshCats} onTicked={onTicked} />}
   </>
 }
 

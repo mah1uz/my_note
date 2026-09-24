@@ -9,6 +9,8 @@ const emptyContext = {
   endTrial: () => {},
 }
 const AiKeyContext = createContext(emptyContext)
+
+export { AiKeyContext }
 let clearActiveGroqKey = () => {}
 
 export function clearSessionGroqKey() {

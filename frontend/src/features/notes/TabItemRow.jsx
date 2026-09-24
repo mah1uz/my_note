@@ -11,7 +11,7 @@ import { itemDate } from '../items/itemForm'
  * revision (stale-revision 409s self-heal); unexpected exceptions surface
  * through onUnexpected instead of vanishing silently.
  */
-export async function toggleItemWithSymmetry(completion, item, { onChanged, onUnexpected } = {}) {
+export async function toggleItemWithSymmetry(completion, item, { onChanged, onUnexpected, onTicked } = {}) {
   try {
     if (completion.busy) return false
     const done = item.status === 'COMPLETED'
@@ -21,16 +21,18 @@ export async function toggleItemWithSymmetry(completion, item, { onChanged, onUn
       // Adopt any orphan row (e.g. recorded before a refresh) instead of
       // POSTing a duplicate against the one-transaction-per-item rule.
       const linked = completion.recordedId || await resolveLinkedTransaction(item)
-      const ok = await completion.save({ status: 'COMPLETED' })
+      ok = await completion.save({ status: 'COMPLETED' })
       if (ok && shopping && completion.recordable && !linked) await completion.record()
-      return ok
     } else {
       const linked = completion.recordedId || await resolveLinkedTransaction(item)
-      const ok = await completion.save({ status: 'PENDING' })
+      ok = await completion.save({ status: 'PENDING' })
       if (ok && linked) await completion.voidRecorded(linked)
-      return ok
     }
-    if (!ok && onChanged) {
+    if (ok) {
+      // Optimistic flip: the UI updates instantly; the background refresh
+      // reconciles (or reverts, via the failure path below).
+      if (onTicked) onTicked(item.id, done ? 'PENDING' : 'COMPLETED')
+    } else if (onChanged) {
       try { await onChanged() } catch { /* Refresh is best-effort; the API error below still shows. */ }
     }
     return ok
@@ -41,7 +43,7 @@ export async function toggleItemWithSymmetry(completion, item, { onChanged, onUn
 }
 
 /** Single tick for a card holding exactly one actionable item. */
-export function SingleTick({ item, onChanged }) {
+export function SingleTick({ item, onChanged, onTicked }) {
   const completion = useTaskCompletion(item, onChanged)
   const [unexpected, setUnexpected] = useState('')
   const done = item.status === 'COMPLETED'
@@ -53,6 +55,7 @@ export function SingleTick({ item, onChanged }) {
       aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`}
       onClick={() => toggleItemWithSymmetry(completion, item, {
         onChanged,
+        onTicked,
         onUnexpected: () => setUnexpected('The tick could not be saved. Try again.'),
       })}
     >{done ? '✓' : ''}</button>
@@ -60,7 +63,7 @@ export function SingleTick({ item, onChanged }) {
   </>
 }
 
-export default function TabItemRow({ item, onChanged }) {
+export default function TabItemRow({ item, onChanged, onTicked }) {
   const completion = useTaskCompletion(item, onChanged)
   const [unexpected, setUnexpected] = useState('')
   const done = item.status === 'COMPLETED'
@@ -68,6 +71,7 @@ export default function TabItemRow({ item, onChanged }) {
   return <li className={`tab-item-row${done ? ' completed' : ''}`}>
     <button type="button" className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={() => toggleItemWithSymmetry(completion, item, {
       onChanged,
+      onTicked,
       onUnexpected: () => setUnexpected('The tick could not be saved. Try again.'),
     })}>{done ? '✓' : ''}</button>
     <span className="tab-item-main"><strong>{item.title}</strong><small>{item.item_type === 'EVENT' ? itemDate(item) : itemDate(item, 'due')}</small></span>

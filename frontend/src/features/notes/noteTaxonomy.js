@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { listItems } from '../../api/itemsApi'
 import { useAuth } from '../../context/AuthContext'
 
@@ -70,20 +70,40 @@ export function isDueToday(item, now = new Date()) {
 /**
  * Fetch all confirmed items once and expose the per-note category map
  * plus the raw items. Scoped to the current account like every list.
+ *
+ * Refreshes are silent: only the first load flashes loading (and clears);
+ * later refetches reconcile in place so ticks never remount the grid.
+ * patchLocal applies an optimistic flip instantly; the next refresh
+ * confirms or reverts it from server truth.
  */
 export function useConfirmedItems() {
   const { currentUser } = useAuth()
   const [state, setState] = useState({ loading: true, items: [], error: '' })
   const [epoch, setEpoch] = useState(0)
+  const initialized = useRef(false)
   useEffect(() => {
     const controller = new AbortController()
-    const owner = currentUser?.id
-    setState({ loading: true, items: [], error: '' })
+    const first = !initialized.current
+    if (first) setState({ loading: true, items: [], error: '' })
     listItems('', { signal: controller.signal }).then(
-      (items) => { if (!controller.signal.aborted) setState({ loading: false, items: Array.isArray(items) ? items : [], error: '' }) },
-      () => { if (!controller.signal.aborted) setState({ loading: false, items: [], error: 'Categories are unavailable right now.' }) },
+      (items) => {
+        if (controller.signal.aborted) return
+        initialized.current = true
+        setState({ loading: false, items: Array.isArray(items) ? items : [], error: '' })
+      },
+      () => {
+        if (controller.signal.aborted) return
+        initialized.current = true
+        setState((current) => ({ loading: false, items: first ? [] : current.items, error: 'Categories are unavailable right now.' }))
+      },
     )
     return () => controller.abort()
   }, [currentUser?.id, epoch])
-  return { ...state, refresh: () => setEpoch((value) => value + 1) }
+  const patchLocal = (id, changes) => {
+    setState((current) => ({
+      ...current,
+      items: current.items.map((item) => String(item.id) === String(id) ? { ...item, ...changes } : item),
+    }))
+  }
+  return { ...state, refresh: () => setEpoch((value) => value + 1), patchLocal }
 }
