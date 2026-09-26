@@ -1,8 +1,28 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { analyzeNote, confirmAnalysis } from '../../api/itemsApi'
 import { useAiKey } from '../../context/AiKeyContext'
 import { useNotes } from '../../context/NotesContext'
 import { itemForm, itemPayload } from '../items/itemForm'
+
+// Note ids with an auto-organize run currently in flight. Tracked at module
+// level (not just per hook instance) so banners can report "being organized"
+// immediately, without waiting for the server status to refresh.
+const activeOrganizeIds = new Set()
+const activeOrganizeListeners = new Set()
+
+function emitActiveOrganize() {
+  const snapshot = [...activeOrganizeIds]
+  activeOrganizeListeners.forEach((listener) => listener(snapshot))
+}
+
+export function subscribeActiveOrganize(listener) {
+  activeOrganizeListeners.add(listener)
+  return () => { activeOrganizeListeners.delete(listener) }
+}
+
+export function getActiveOrganizeIds() {
+  return [...activeOrganizeIds]
+}
 
 /** True when AI can run: personal key (session or saved) or trial. */
 export function isAiConfigured({ groqApiKey = '', storedKey = null, trialActive = false } = {}) {
@@ -35,6 +55,9 @@ export function useAutoOrganize() {
   const { groqApiKey, storedKey, trialActive } = useAiKey()
   const { refresh } = useNotes()
   const runningRef = useRef(new Set())
+  const [activeIds, setActiveIds] = useState(() => getActiveOrganizeIds())
+
+  useEffect(() => subscribeActiveOrganize(setActiveIds), [])
 
   const organize = useCallback((note) => {
     const credentials = { groqApiKey, storedKey, trialActive }
@@ -42,6 +65,8 @@ export function useAutoOrganize() {
     const key = String(note.id)
     if (runningRef.current.has(key)) return Promise.resolve({ status: 'already-running' })
     runningRef.current.add(key)
+    activeOrganizeIds.add(key)
+    emitActiveOrganize()
     return autoOrganize(note, { apiKey: groqApiKey, trial: trialActive })
       .then((result) => {
         refresh()
@@ -54,11 +79,14 @@ export function useAutoOrganize() {
       })
       .finally(() => {
         runningRef.current.delete(key)
+        activeOrganizeIds.delete(key)
+        emitActiveOrganize()
       })
   }, [groqApiKey, storedKey, trialActive, refresh])
 
   return {
     organize,
     configured: isAiConfigured({ groqApiKey, storedKey, trialActive }),
+    activeOrganizeIds: activeIds,
   }
 }

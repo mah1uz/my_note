@@ -68,15 +68,27 @@ function MobileNav() {
 function AiNotices() {
   const { groqApiKey, storedKey, trialActive } = useAiKey()
   const { notes } = useNotes()
+  const { activeOrganizeIds } = useAutoOrganize()
   const [setupDismissed, setSetupDismissed] = useState(false)
   const configured = isAiConfigured({ groqApiKey, storedKey, trialActive })
   if (!configured) {
     if (setupDismissed) return null
     return <div className="notice-banner notice-setup" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>AI organization is off.</strong><span> Add a Groq key or turn on the free trial in Settings to organize notes automatically.</span></div><Link className="button button-primary" to="/app/settings">Open Settings</Link><button className="text-button" onClick={() => setSetupDismissed(true)}>Dismiss</button></div>
   }
-  const backlog = backlogNotes(notes)
-  if (!backlog.length) return null
-  return <div className="notice-banner" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>{backlog.length} note{backlog.length === 1 ? '' : 's'} need{backlog.length === 1 ? 's' : ''} review.</strong><span> New notes organize automatically; retry these from All Notes.</span></div><Link className="button button-primary" to="/app/notes">Review in All Notes</Link></div>
+  // Split by live state: notes being organized right now (in-flight runs or
+  // PROCESSING status) read differently from settled notes awaiting review.
+  // In-flight ids are excluded from the backlog so one note is never counted
+  // in both sentences at once.
+  const activeSet = new Set((activeOrganizeIds || []).map(String))
+  const organizing = (notes || []).filter((note) =>
+    note.processingStatus === 'PROCESSING' || activeSet.has(String(note.id)))
+  const backlog = backlogNotes(notes).filter((note) =>
+    note.processingStatus !== 'PROCESSING' && !activeSet.has(String(note.id)))
+  if (!organizing.length && !backlog.length) return null
+  return <div className="notice-banner" role="status"><span className="notice-icon"><SparkleIcon /></span><div>
+    {organizing.length > 0 && <><strong>Your {organizing.length} note{organizing.length === 1 ? ' is' : 's are'} being organized…</strong><span> You can reanalyze {organizing.length === 1 ? 'it' : 'them'} in All Notes.</span></>}
+    {backlog.length > 0 && <><strong>{backlog.length} note{backlog.length === 1 ? '' : 's'} need{backlog.length === 1 ? 's' : ''} review.</strong><span> New notes organize automatically; retry these from All Notes.</span></>}
+  </div><Link className="button button-primary" to="/app/notes">{organizing.length && !backlog.length ? 'View in All Notes' : 'Review in All Notes'}</Link></div>
 }
 
 function HeaderSearch() {

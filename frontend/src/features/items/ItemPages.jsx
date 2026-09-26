@@ -64,6 +64,9 @@ export function useTaskCompletion(item, onChanged) {
   // Tracks which item a recordedId belongs to, so list refreshes (new
   // revision, same id) don't trigger redundant ledger lookups.
   const recordedForRef = useRef(null)
+  // Set while a COMPLETED save (and its follow-up record POST) is in flight
+  // so the lookup effect below doesn't race the record it is about to make.
+  const suppressLookupRef = useRef(false)
   const active = useRef(true)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
 
@@ -83,9 +86,11 @@ export function useTaskCompletion(item, onChanged) {
 
   useEffect(() => {
     if (!(recordable && item.status === 'COMPLETED')) {
+      suppressLookupRef.current = false
       forgetRecorded()
       return undefined
     }
+    if (suppressLookupRef.current) return undefined
     if (recordedId && recordedForRef.current === item.id) return undefined
     let live = true
     listTransactions({ note_item: item.id })
@@ -101,11 +106,13 @@ export function useTaskCompletion(item, onChanged) {
     setBusy(true)
     setError('')
     if (changes.status) setPendingStatus(changes.status)
+    if (changes.status === 'COMPLETED' && recordable) suppressLookupRef.current = true
     try {
       const saved = await patchItem(item.id, item.revision, changes)
       if (active.current) onChanged()
       return saved
     } catch (requestError) {
+      suppressLookupRef.current = false
       if (active.current) {
         setPendingStatus(null)
         setError(requestErrorText(requestError))
@@ -158,7 +165,10 @@ export function useTaskCompletion(item, onChanged) {
       }
       if (active.current) setRecordMsg(requestErrorText(requestError))
       return false
-    } finally { if (active.current) setRecordBusy(false) }
+    } finally {
+      suppressLookupRef.current = false
+      if (active.current) setRecordBusy(false)
+    }
   }
 
   const voidRecorded = async (id) => {

@@ -40,7 +40,7 @@ function notePayload(note) {
   return {
     id: note.id,
     raw_text: note.raw_text,
-    processing_status: 'UNPROCESSED',
+    processing_status: note.processing_status || 'UNPROCESSED',
     is_archived: false,
     created_at: note.created_at || '2026-09-21T08:00:00Z',
     updated_at: note.updated_at || '2026-09-21T08:00:00Z'
@@ -142,6 +142,7 @@ function installApiMock() {
       const id = Number(analyzeMatch[1])
       state.analyzedNoteIds = [...(state.analyzedNoteIds || []), id]
       if (state.failAnalyze) return jsonResponse({ detail: 'AI organization failed. Your note is saved.' }, 502)
+      if (state.delayAnalyzeMs) await new Promise((resolve) => setTimeout(resolve, state.delayAnalyzeMs))
       const note = state.notes.find((item) => item.id === id)
       if (!note) return jsonResponse({ detail: 'Not found.' }, 404)
       return jsonResponse({ note: { ...notePayload(note), revision: 0 }, items: state.analyzeItems || [], domains: [], analysis_running: false })
@@ -227,6 +228,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.delayNotes = false
     state.failNoteDetail = 0
     state.failAnalyze = false
+    state.delayAnalyzeMs = 0
     state.itemsList = []
     state.analyzeItems = []
     state.analyzedNoteIds = []
@@ -342,6 +344,43 @@ describe('Part 2 full-stack UI flows', () => {
     expect(await screen.findByText(/saved as an unprocessed note/i)).toBeInTheDocument()
     const analyzes = fetch.mock.calls.filter(([url, options]) => /\/notes\/\d+\/analyze\/$/.test(new URL(url).pathname) && options?.method === 'POST')
     expect(analyzes).toHaveLength(0)
+  })
+
+  it('says a PROCESSING note is being organized instead of needing review', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'Working on it', created_at: '2026-09-21T08:00:00Z', processing_status: 'PROCESSING' }]
+    state.itemsList = []
+    renderAppWithTrial('/app')
+    expect(await screen.findByText(/your 1 note is being organized/i)).toBeInTheDocument()
+    expect(screen.getByText(/reanalyze it in all notes/i)).toBeInTheDocument()
+    expect(screen.queryByText(/need review/i)).not.toBeInTheDocument()
+  })
+
+  it('shows both sentences when one note organizes while another waits', async () => {
+    state.authenticated = true
+    state.notes = [
+      { id: 1, raw_text: 'Working on it', created_at: '2026-09-21T08:00:00Z', processing_status: 'PROCESSING' },
+      { id: 2, raw_text: 'Waiting note', created_at: '2026-09-21T08:00:00Z', processing_status: 'FAILED' },
+    ]
+    state.itemsList = []
+    renderAppWithTrial('/app')
+    expect(await screen.findByText(/your 1 note is being organized/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 note needs review/i)).toBeInTheDocument()
+  })
+
+  it('shows the organizing banner while a fresh save organizes in the background', async () => {
+    state.authenticated = true
+    state.delayAnalyzeMs = 400
+    state.notes = []
+    state.itemsList = []
+    state.analyzeItems = []
+    const user = userEvent.setup()
+    renderAppWithTrial('/app')
+    await user.type(await screen.findByLabelText(/what do you want to remember/i), 'File taxes Friday')
+    const clicked = user.click(screen.getByRole('button', { name: /^save note/i }))
+    expect(await screen.findByText(/your 1 note is being organized/i, {}, { timeout: 1500 })).toBeInTheDocument()
+    await clicked
+    state.delayAnalyzeMs = 0
   })
 
   it('shows Notes API loading and error states', async () => {

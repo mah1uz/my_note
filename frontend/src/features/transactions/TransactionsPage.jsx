@@ -18,7 +18,7 @@ export default function TransactionsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const load = async ({ silent = false } = {}) {
+  const load = async ({ silent = false } = {}) => {
     // Background reloads (e.g. a tick elsewhere just recorded an expense)
     // must not flash the full-page spinner over existing rows.
     if (!silent) setLoading(true)

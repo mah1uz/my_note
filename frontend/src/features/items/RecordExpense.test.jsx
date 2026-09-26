@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
-import { TasksPage } from './ItemPages'
+import { ShoppingPage, TasksPage } from './ItemPages'
 import { setAccessToken } from '../../api/http'
 import { installSupabaseMock } from '../../test/supabaseMock'
 import { AuthProvider } from '../../context/AuthContext'
@@ -13,6 +13,8 @@ let recorded
 let calls
 let failNextPost
 let delayPatchMs
+let holdPatch
+let releasePatch
 
 function jsonResponse(data, status = 200) {
   return Promise.resolve(new Response(status === 204 ? null : JSON.stringify(data), {
@@ -43,6 +45,7 @@ function installMock() {
     const itemMatch = path.match(/\/items\/(\d+)\/$/)
     if (itemMatch && method === 'PATCH') {
       if (delayPatchMs) await new Promise((resolve) => setTimeout(resolve, delayPatchMs))
+      if (holdPatch) await new Promise((resolve) => { releasePatch = resolve })
       Object.assign(taskState, JSON.parse(options.body), { revision: taskState.revision + 1 })
       return jsonResponse({ ...taskState })
     }
@@ -73,6 +76,11 @@ function renderTasks() {
   return render(<MemoryRouter><AuthProvider><TasksPage /></AuthProvider></MemoryRouter>)
 }
 
+function renderShopping() {
+  window.history.pushState({}, '', '/app/shopping')
+  return render(<MemoryRouter><AuthProvider><ShoppingPage /></AuthProvider></MemoryRouter>)
+}
+
 describe('tick-done expense recording', () => {
   beforeEach(() => {
     setAccessToken(null)
@@ -80,6 +88,8 @@ describe('tick-done expense recording', () => {
     recorded = []
     failNextPost = false
     delayPatchMs = 0
+    holdPatch = false
+    releasePatch = null
     installSupabaseMock({ authenticated: true, profile })
     installMock()
   })
@@ -110,16 +120,21 @@ describe('tick-done expense recording', () => {
   })
 
   it('flips the checkbox instantly while the PATCH is still in flight', async () => {
-    taskState = { ...baseTask(), status: 'PENDING' }
-    delayPatchMs = 400
+    taskState = { ...baseTask(), amount: null, currency: null, status: 'PENDING' }
+    holdPatch = true
     const user = userEvent.setup()
     renderTasks()
+    // Settle the session first so the clicked node is never a detached render.
+    await waitFor(() => expect(screen.queryByText('Buy shampoo')).toBeInTheDocument())
     const button = await screen.findByRole('button', { name: /mark buy shampoo complete/i })
     const clicked = user.click(button)
-    // The optimistic flip lands long before the 400ms PATCH resolves.
-    expect(await screen.findByRole('button', { name: /mark buy shampoo incomplete/i }, { timeout: 150 })).toBeInTheDocument()
+    // The PATCH is held open: only the optimistic flip can show this.
+    await waitFor(() => expect(screen.getByRole('button', { name: /mark buy shampoo incomplete/i })).toBeInTheDocument())
+    expect(taskState.status).toBe('PENDING')
+    releasePatch()
     await clicked
     await waitFor(() => expect(taskState.status).toBe('COMPLETED'))
+    expect(await screen.findByRole('button', { name: /mark buy shampoo incomplete/i })).toBeInTheDocument()
   })
 
   it('adopts the existing ledger row when the record POST conflicts', async () => {
@@ -127,9 +142,12 @@ describe('tick-done expense recording', () => {
     recorded = [{ id: 'tx-orphan' }]
     failNextPost = true
     const user = userEvent.setup()
-    renderTasks()
+    renderShopping()
+    // Settle the session first so the clicked node is never a detached render.
+    await waitFor(() => expect(screen.queryByText('Buy shampoo')).toBeInTheDocument())
     await user.click(await screen.findByRole('button', { name: /mark buy shampoo complete/i }))
-    expect(await screen.findByText('Recorded as expense', { selector: 'span.pill' })).toBeInTheDocument()
+    // Shopping rows auto-record on tick and show the compact pill.
+    expect(await screen.findByText('Recorded', { selector: 'span.pill' })).toBeInTheDocument()
     const txCalls = calls.filter((call) => call.path.startsWith('/api/v1/transactions/'))
     expect(txCalls[0].method).toBe('POST')
     expect(txCalls.filter((call) => call.method === 'POST')).toHaveLength(1)
