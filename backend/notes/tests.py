@@ -74,6 +74,36 @@ class NoteApiTests(APITestCase):
         self.assertEqual(self.note_a.raw_text, 'User A private note')
 
 
+class EmptyProcessedRepairTests(TestCase):
+    def test_processed_without_any_items_returns_to_review(self):
+        import importlib
+
+        from django.apps import apps
+
+        repair = importlib.import_module('notes.migrations.0008_demote_empty_processed_notes')
+        user = AppUser.objects.create(email='owner@example.com')
+        empty = Note.objects.create(app_user=user, raw_text='Empty processed')
+        Note.objects.filter(pk=empty.pk).update(processing_status=Note.ProcessingStatus.PROCESSED)
+        drafts_only = Note.objects.create(app_user=user, raw_text='Drafts only')
+        Note.objects.filter(pk=drafts_only.pk).update(processing_status=Note.ProcessingStatus.PROCESSED)
+        drafts_only.items.create(title='Draft', item_type='TASK', is_confirmed=False)
+        healthy = Note.objects.create(app_user=user, raw_text='Healthy')
+        Note.objects.filter(pk=healthy.pk).update(processing_status=Note.ProcessingStatus.PROCESSED)
+        healthy.items.create(title='Done', item_type='TASK', is_confirmed=True)
+
+        repair.demote_empty_processed_notes(apps, None)
+
+        empty.refresh_from_db()
+        drafts_only.refresh_from_db()
+        healthy.refresh_from_db()
+        self.assertEqual(empty.processing_status, Note.ProcessingStatus.REVIEW_REQUIRED)
+        # Drafts pending means work remains: back to review, rows preserved.
+        self.assertEqual(drafts_only.processing_status, Note.ProcessingStatus.REVIEW_REQUIRED)
+        self.assertEqual(drafts_only.items.count(), 1)
+        self.assertEqual(healthy.processing_status, Note.ProcessingStatus.PROCESSED)
+        self.assertEqual(Note.objects.count(), 3)
+
+
 class AdminAccessTests(TestCase):
     def setUp(self):
         from django.contrib.auth import get_user_model

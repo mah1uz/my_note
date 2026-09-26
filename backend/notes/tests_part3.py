@@ -273,6 +273,31 @@ class IntelligenceApiTests(APITestCase):
         note.refresh_from_db()
         return note
 
+    def test_reported_hot_dog_note_becomes_confirmed_expense_end_to_end(self):
+        # Reported note: "i have bought hot dog for 150 taka". Past spend is
+        # an EXPENSE by policy (never a shopping task), so it must survive
+        # analyze and confirm as one confirmed EXPENSE on a PROCESSED note.
+        note = self.analyze_text('i have bought hot dog for 150 taka', [
+            prediction(type='EXPENSE', title='Hot dog', amount=150, currency='BDT',
+                       domains=['shopping', 'finance'], start_date='2026-09-26'),
+        ])
+        draft = note.items.get()
+        self.assertFalse(draft.is_confirmed)
+        response = self.client.post(
+            f'/api/v1/notes/{note.pk}/confirm-analysis/',
+            {'revision': note.revision, 'items': [{
+                'id': draft.pk, 'item_type': 'EXPENSE', 'title': 'Hot dog',
+                'amount': '150', 'currency': 'BDT', 'domains': ['shopping', 'finance'],
+                'start_date': '2026-09-26',
+            }]}, format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        note.refresh_from_db()
+        self.assertEqual(note.processing_status, 'PROCESSED')
+        item = note.items.get()
+        self.assertTrue(item.is_confirmed)
+        self.assertEqual(item.item_type, 'EXPENSE')
+
     def test_future_intent_reported_as_expense_is_flagged(self):
         # The exact reported scenario: nothing spent, provider guessed EXPENSE.
         note = self.analyze_text('i have to buy shampoo for 100 taka', [

@@ -166,6 +166,18 @@ describe('Part 3 review and confirmed-item integration', () => {
     expect(api.items[0].title).toBe('Buy bread')
   })
 
+  it('toggles expense accounted state with an element-wise tick', async () => {
+    api.items = [exampleItem({ id: 9, is_confirmed: true, item_type: 'EXPENSE', title: 'Hot dog', amount: '150.00', currency: 'BDT', domains: ['shopping', 'finance'] })]
+    const user = userEvent.setup()
+    renderApp('/app/expenses')
+    await user.click(await screen.findByRole('button', { name: 'Mark Hot dog open' }))
+    expect(await screen.findByRole('button', { name: 'Mark Hot dog accounted' })).toBeInTheDocument()
+    expect(api.items[0].status).toBe('COMPLETED')
+    await user.click(screen.getByRole('button', { name: 'Mark Hot dog accounted' }))
+    expect(await screen.findByRole('button', { name: 'Mark Hot dog open' })).toBeInTheDocument()
+    expect(api.items[0].status).toBe('PENDING')
+  })
+
   it('toggles event completion with a darkened done state', async () => {
     api.items = [exampleItem({ id: 7, item_type: 'EVENT', title: 'Dentist', domains: ['health'], start_date: '2026-09-24', is_confirmed: true })]
     const user = userEvent.setup()
