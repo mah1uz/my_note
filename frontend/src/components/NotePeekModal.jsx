@@ -66,7 +66,7 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
         <hr className="glow-line" />
         <p className="eyebrow">Tick items in this note</p>
         <ul className="tab-item-list modal-item-list" aria-label="Items in this note">
-          {items.map((item) => <TabItemRow key={`${item.id}-${item.revision}`} item={item} onChanged={onItemsChanged} onTicked={onTicked} />)}
+          {items.map((item) => <TabItemRow key={`${item.id}-${item.revision}`} item={item} onChanged={onItemsChanged} onTicked={onTicked} showPriceEditor />)}
         </ul>
       </>}
       <div className="modal-actions note-peek-actions">

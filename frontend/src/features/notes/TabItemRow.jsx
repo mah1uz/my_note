@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { resolveLinkedTransaction, useTaskCompletion } from '../items/ItemPages'
+import PriceMenu from '../items/PriceMenu'
 import { itemDate } from '../items/itemForm'
 
 /**
@@ -78,7 +79,7 @@ export function SingleTick({ item, onChanged, onTicked }) {
   </>
 }
 
-export default function TabItemRow({ item, onChanged, onTicked }) {
+export default function TabItemRow({ item, onChanged, onTicked, showPriceEditor = false }) {
   const completion = useTaskCompletion(item, onChanged)
   const [unexpected, setUnexpected] = useState('')
   const [pending, setPending] = useState(false)
@@ -94,6 +95,7 @@ export default function TabItemRow({ item, onChanged, onTicked }) {
     <button type="button" className="check-button" aria-pressed={done} disabled={completion.busy || pending} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={toggle}>{done ? '✓' : ''}</button>
     <span className="tab-item-main"><strong>{item.title}</strong><small>{item.item_type === 'EVENT' ? itemDate(item) : itemDate(item, 'due')}</small></span>
     {shopping && item.amount != null && <span className="shopping-price">{item.currency || ''} {item.amount}</span>}
+    {showPriceEditor && shopping && <PriceMenu item={item} completion={completion} onChanged={onChanged} />}
     {completion.recordMsg && <span className="record-message" role="status">{completion.recordMsg}</span>}
     {completion.error && <span className="form-error" role="alert">{completion.error}</span>}
     {unexpected && <span className="form-error" role="alert">{unexpected}</span>}

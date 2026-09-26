@@ -46,6 +46,7 @@ function installMock() {
     if (itemMatch && method === 'PATCH') {
       if (delayPatchMs) await new Promise((resolve) => setTimeout(resolve, delayPatchMs))
       if (holdPatch) await new Promise((resolve) => { releasePatch = resolve })
+      calls[calls.length - 1].body = JSON.parse(options.body)
       Object.assign(taskState, JSON.parse(options.body), { revision: taskState.revision + 1 })
       return jsonResponse({ ...taskState })
     }
@@ -66,6 +67,12 @@ function installMock() {
     if (path.includes('/transactions/') && method === 'DELETE') {
       recorded = recorded.filter((row) => !path.includes(row.id))
       return jsonResponse(null, 204)
+    }
+    if (path.includes('/transactions/') && method === 'PATCH') {
+      const body = JSON.parse(options.body)
+      recorded = recorded.map((row) => (path.includes(row.id) ? { ...row, ...body } : row))
+      calls[calls.length - 1].body = body
+      return jsonResponse(recorded.find((row) => path.includes(row.id)) || {})
     }
     return jsonResponse({})
   }))
@@ -151,6 +158,45 @@ describe('tick-done expense recording', () => {
     const txCalls = calls.filter((call) => call.path.startsWith('/api/v1/transactions/'))
     expect(txCalls[0].method).toBe('POST')
     expect(txCalls.filter((call) => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it('edits the extracted price and syncs the linked ledger row', async () => {
+    taskState = { ...baseTask(), status: 'PENDING' }
+    const user = userEvent.setup()
+    renderShopping()
+    await waitFor(() => expect(screen.queryByText('Buy shampoo')).toBeInTheDocument())
+    await user.click(await screen.findByRole('button', { name: /mark buy shampoo complete/i }))
+    expect(await screen.findByText('Recorded', { selector: 'span.pill' })).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /set price for buy shampoo/i }))
+    expect(screen.getByText('Current price: BDT 100.00')).toBeInTheDocument()
+    const amountInput = screen.getByLabelText('Price amount')
+    expect(amountInput).toHaveValue(100)
+    await user.clear(amountInput)
+    await user.type(amountInput, '150')
+    await user.click(screen.getByRole('button', { name: /save price/i }))
+    // A successful save bumps the revision, remounting the row with the new
+    // price inline — that is the visible confirmation.
+    expect(await screen.findByText('BDT 150')).toBeInTheDocument()
+    const itemPatches = calls.filter((call) => call.path === '/api/v1/items/7/' && call.method === 'PATCH')
+    expect(itemPatches[itemPatches.length - 1].body).toMatchObject({ amount: '150' })
+    const txPatch = calls.find((call) => call.path.includes('/transactions/tx-1/') && call.method === 'PATCH')
+    expect(txPatch.body).toMatchObject({ amount: '150', currency: 'BDT' })
+    expect(recorded[0]).toMatchObject({ amount: '150', currency: 'BDT' })
+  })
+
+  it('adds a price to an item that has none', async () => {
+    taskState = { ...baseTask(), status: 'PENDING', amount: null, currency: null }
+    const user = userEvent.setup()
+    renderShopping()
+    await waitFor(() => expect(screen.queryByText('Buy shampoo')).toBeInTheDocument())
+    await user.click(await screen.findByRole('button', { name: /set price for buy shampoo/i }))
+    expect(screen.getByText(/no price set yet/i)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Price amount'), '75')
+    await user.type(screen.getByLabelText('Price currency'), 'BDT')
+    await user.click(screen.getByRole('button', { name: /save price/i }))
+    expect(await screen.findByText('BDT 75')).toBeInTheDocument()
+    expect(taskState.amount).toBe('75')
+    expect(taskState.currency).toBe('BDT')
   })
 
   it('shows no record action for tasks without a price', async () => {

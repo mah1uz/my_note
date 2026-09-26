@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createItem, listItems, patchItem } from '../../api/itemsApi'
-import { createTransaction, deleteTransaction, listTransactions } from '../../api/transactionsApi'
+import { createTransaction, deleteTransaction, findLinkedTransactionId, listTransactions } from '../../api/transactionsApi'
 import { useAuth } from '../../context/AuthContext'
 import ItemFields from './ItemFields'
+import PriceMenu from './PriceMenu'
 import { itemDate, itemForm, itemPayload, requestErrorText } from './itemForm'
 
 function useItems(query) {
@@ -34,12 +35,7 @@ function useItems(query) {
  * Returns the linked transaction id or null. Never throws.
  */
 export async function resolveLinkedTransaction(item) {
-  try {
-    const rows = await listTransactions({ note_item: item.id })
-    return (Array.isArray(rows) && rows[0]?.id) || null
-  } catch {
-    return null
-  }
+  return findLinkedTransactionId(item.id)
 }
 
 /**
@@ -236,6 +232,7 @@ function ShoppingRow({ item, onChanged }) {
     <button type="button" className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={done ? reopen : completeAndRecord}>{done ? '✓' : ''}</button>
     <Link to={`/app/notes/${item.note}`}>{item.title}</Link>
     {item.amount != null && <span className="shopping-price">{item.currency || ''} {item.amount}</span>}
+    <PriceMenu item={item} completion={completion} onChanged={onChanged} />
     {completion.recordable && done && (completion.recordedId
       ? <span className="pill pill-success">Recorded</span>
       : <button className="text-button" disabled={completion.recordBusy} onClick={() => completion.record()}>{completion.recordBusy ? 'Recording…' : 'Record'}</button>)}

@@ -9,6 +9,19 @@ export function listTransactions(params = {}, signal) {
   return apiRequest(`/transactions/${query.toString() ? `?${query}` : ''}`, { signal })
 }
 
+/**
+ * Ledger row recorded for one item, or null. Never throws: callers treat
+ * lookup failure as "unknown" and let the POST-or-adopt step decide.
+ */
+export async function findLinkedTransactionId(noteItemId) {
+  try {
+    const rows = await listTransactions({ note_item: noteItemId })
+    return (Array.isArray(rows) && rows[0]?.id) || null
+  } catch {
+    return null
+  }
+}
+
 export function getTransactionSummary(params = {}, signal) {
   const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value))
   return apiRequest(`/transactions/summary/${query.toString() ? `?${query}` : ''}`, { signal })

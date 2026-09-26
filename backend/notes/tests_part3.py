@@ -658,6 +658,29 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(self.client.patch(url, {'status': 'COMPLETED'}, format='json').status_code, 400)
         self.assertEqual(self.client.patch(url, {'revision': 0, 'status': 'COMPLETED'}, format='json').status_code, 409)
 
+    def test_price_only_partial_patch_updates_amount_and_currency(self):
+        self.confirm([{'item_type': 'TASK', 'title': 'Brush', 'domains': ['shopping']}])
+        item = self.note.items.get()
+        self.assertIsNone(item.amount)
+        url = f'/api/v1/items/{item.pk}/'
+        self.note.refresh_from_db()
+        response = self.client.patch(
+            url, {'revision': self.note.revision, 'amount': '150.00', 'currency': 'BDT'}, format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        item.refresh_from_db()
+        self.assertEqual(str(item.amount), '150.00')
+        self.assertEqual(item.currency, 'BDT')
+        self.assertEqual(item.title, 'Brush')
+        self.note.refresh_from_db()
+        cleared = self.client.patch(
+            url, {'revision': self.note.revision, 'amount': None, 'currency': None}, format='json',
+        )
+        self.assertEqual(cleared.status_code, 200)
+        item.refresh_from_db()
+        self.assertIsNone(item.amount)
+        self.assertIsNone(item.currency)
+
     def test_pure_status_flip_skips_snapshot_log_but_still_notifies(self):
         from notifications.models import Notification
 
