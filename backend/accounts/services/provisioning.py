@@ -18,27 +18,52 @@ def _display_name(claims, email):
     ).strip()[:120]
 
 
-@transaction.atomic
+# Activity timestamps are refreshed at most once per bucket window. Every
+# authenticated request used to take a write lock and issue two UPDATEs just
+# to bump last_seen_at; tick flows fire several sequential requests, so the
+# lock and writes multiplied into visible latency.
+LAST_SEEN_BUCKET_SECONDS = 600
+
+
+def _touch_activity(identity, user, now):
+    """Best-effort activity touch without row locking.
+
+    Concurrent requests racing a bucket rollover may both write; the values
+    are idempotent timestamps, so the loser overwrites with an equivalent row.
+    """
+    bucket = int(now.timestamp()) // LAST_SEEN_BUCKET_SECONDS
+    last = identity.last_seen_at
+    last_bucket = int(last.timestamp()) // LAST_SEEN_BUCKET_SECONDS if last else None
+    if last_bucket == bucket:
+        return
+    UserAuthIdentity.objects.filter(pk=identity.pk).update(last_seen_at=now)
+    AppUser.objects.filter(pk=user.pk).update(last_seen_at=now, updated_at=now)
+
+
 def provision_from_claims(claims):
     issuer = str(claims.get('iss', '')).strip()
     subject = str(claims.get('sub', '')).strip()
     if not issuer or not subject:
         raise ValueError('The authenticated token is missing issuer or subject.')
 
-    now = timezone.now()
-    identity = UserAuthIdentity.objects.select_for_update().select_related('user').filter(
+    # Fast path for the overwhelmingly common case: known identity, active
+    # user. Two indexed reads, zero writes, zero locks, zero transaction.
+    identity = UserAuthIdentity.objects.select_related('user').filter(
         issuer=issuer, subject=subject,
     ).first()
     if identity:
         user = identity.user
-        identity.last_seen_at = now
-        identity.save(update_fields=('last_seen_at',))
         if user.status != AppUser.Status.ACTIVE:
             raise PermissionError('This application account is not active.')
-        user.last_seen_at = now
-        user.save(update_fields=('last_seen_at', 'updated_at'))
+        _touch_activity(identity, user, timezone.now())
         return user
 
+    return _provision_new_identity(issuer, subject, claims)
+
+
+@transaction.atomic
+def _provision_new_identity(issuer, subject, claims):
+    now = timezone.now()
     email = _claim_email(claims)
     user = AppUser.objects.filter(
         email=email, status__in=(AppUser.Status.ACTIVE, AppUser.Status.SUSPENDED, AppUser.Status.DELETION_PENDING),

@@ -11,6 +11,8 @@ const profile = { id: '11111111-1111-4111-8111-111111111111', username: 'maya@ex
 let taskState
 let recorded
 let calls
+let failNextPost
+let delayPatchMs
 
 function jsonResponse(data, status = 200) {
   return Promise.resolve(new Response(status === 204 ? null : JSON.stringify(data), {
@@ -40,6 +42,7 @@ function installMock() {
     if (path.endsWith('/items/')) return jsonResponse([{ ...taskState }])
     const itemMatch = path.match(/\/items\/(\d+)\/$/)
     if (itemMatch && method === 'PATCH') {
+      if (delayPatchMs) await new Promise((resolve) => setTimeout(resolve, delayPatchMs))
       Object.assign(taskState, JSON.parse(options.body), { revision: taskState.revision + 1 })
       return jsonResponse({ ...taskState })
     }
@@ -48,9 +51,13 @@ function installMock() {
       return jsonResponse([])
     }
     if (path.endsWith('/transactions/') && method === 'POST') {
+      calls[calls.length - 1].body = JSON.parse(options.body)
+      if (failNextPost) {
+        failNextPost = false
+        return jsonResponse({ detail: 'This transaction conflicts with an existing ledger record.' }, 400)
+      }
       const created = { id: 'tx-1', ...JSON.parse(options.body) }
       recorded.push(created)
-      calls[calls.length - 1].body = JSON.parse(options.body)
       return jsonResponse(created, 201)
     }
     if (path.includes('/transactions/') && method === 'DELETE') {
@@ -71,6 +78,8 @@ describe('tick-done expense recording', () => {
     setAccessToken(null)
     taskState = baseTask()
     recorded = []
+    failNextPost = false
+    delayPatchMs = 0
     installSupabaseMock({ authenticated: true, profile })
     installMock()
   })
@@ -98,6 +107,32 @@ describe('tick-done expense recording', () => {
     await user.click(screen.getByRole('button', { name: /mark buy shampoo incomplete/i }))
     await waitFor(() => expect(calls.some((call) => call.path.includes('/transactions/tx-9/') && call.method === 'DELETE')).toBe(true))
     expect(await screen.findByRole('button', { name: /mark buy shampoo complete/i })).toBeInTheDocument()
+  })
+
+  it('flips the checkbox instantly while the PATCH is still in flight', async () => {
+    taskState = { ...baseTask(), status: 'PENDING' }
+    delayPatchMs = 400
+    const user = userEvent.setup()
+    renderTasks()
+    const button = await screen.findByRole('button', { name: /mark buy shampoo complete/i })
+    const clicked = user.click(button)
+    // The optimistic flip lands long before the 400ms PATCH resolves.
+    expect(await screen.findByRole('button', { name: /mark buy shampoo incomplete/i }, { timeout: 150 })).toBeInTheDocument()
+    await clicked
+    await waitFor(() => expect(taskState.status).toBe('COMPLETED'))
+  })
+
+  it('adopts the existing ledger row when the record POST conflicts', async () => {
+    taskState = { ...baseTask(), status: 'PENDING' }
+    recorded = [{ id: 'tx-orphan' }]
+    failNextPost = true
+    const user = userEvent.setup()
+    renderTasks()
+    await user.click(await screen.findByRole('button', { name: /mark buy shampoo complete/i }))
+    expect(await screen.findByText('Recorded as expense', { selector: 'span.pill' })).toBeInTheDocument()
+    const txCalls = calls.filter((call) => call.path.startsWith('/api/v1/transactions/'))
+    expect(txCalls[0].method).toBe('POST')
+    expect(txCalls.filter((call) => call.method === 'POST')).toHaveLength(1)
   })
 
   it('shows no record action for tasks without a price', async () => {

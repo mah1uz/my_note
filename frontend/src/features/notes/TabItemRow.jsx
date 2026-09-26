@@ -21,12 +21,20 @@ export async function toggleItemWithSymmetry(completion, item, { onChanged, onUn
     onTicked?.(item.id, done ? 'PENDING' : 'COMPLETED')
     let ok = false
     if (!done) {
-      const linked = shopping ? (completion.recordedId || await resolveLinkedTransaction(item)) : null
+      // No pre-save ledger lookup: a duplicate record POST is adopted via
+      // the backend's unique linkage instead.
+      const linked = shopping ? completion.recordedId : null
       ok = await completion.save({ status: 'COMPLETED' })
       if (ok && shopping && completion.recordable && !linked) await completion.record()
     } else {
-      const linked = shopping ? (completion.recordedId || await resolveLinkedTransaction(item)) : null
+      // The void-target lookup runs alongside the PATCH instead of before it.
+      const linkedPromise = !shopping
+        ? Promise.resolve(null)
+        : completion.recordedId
+          ? Promise.resolve(completion.recordedId)
+          : resolveLinkedTransaction(item)
       ok = await completion.save({ status: 'PENDING' })
+      const linked = await linkedPromise
       if (ok && linked) await completion.voidRecorded(linked)
     }
     if (ok) {

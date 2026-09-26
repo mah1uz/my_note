@@ -57,31 +57,59 @@ export function useTaskCompletion(item, onChanged) {
   const [recordedId, setRecordedId] = useState(null)
   const [recordBusy, setRecordBusy] = useState(false)
   const [recordMsg, setRecordMsg] = useState('')
+  // Optimistic status: the checkbox flips instantly; the PATCH response (via
+  // parent refresh) replaces it. Cleared on failure or when server truth
+  // arrives, so a wrong guess never sticks.
+  const [pendingStatus, setPendingStatus] = useState(null)
+  // Tracks which item a recordedId belongs to, so list refreshes (new
+  // revision, same id) don't trigger redundant ledger lookups.
+  const recordedForRef = useRef(null)
   const active = useRef(true)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
 
   useEffect(() => {
+    if (pendingStatus && item.status === pendingStatus) setPendingStatus(null)
+  }, [item.status, pendingStatus])
+
+  const rememberRecorded = (id) => {
+    recordedForRef.current = item.id
+    if (active.current) setRecordedId(id)
+  }
+
+  const forgetRecorded = () => {
+    recordedForRef.current = null
+    if (active.current) setRecordedId(null)
+  }
+
+  useEffect(() => {
     if (!(recordable && item.status === 'COMPLETED')) {
-      setRecordedId(null)
-      return
+      forgetRecorded()
+      return undefined
     }
+    if (recordedId && recordedForRef.current === item.id) return undefined
     let live = true
     listTransactions({ note_item: item.id })
-      .then((rows) => { if (live) setRecordedId(rows[0]?.id || null) })
+      .then((rows) => { if (live) rememberRecorded(rows[0]?.id || null) })
       .catch(() => { /* Lookup is a hint; recording still attempts the POST. */ })
     return () => { live = false }
-  }, [recordable, item.status, item.id, item.revision])
+  }, [recordable, item.status, item.id, item.revision]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const displayStatus = pendingStatus || item.status
 
   const save = async (changes) => {
     if (busy) return false
     setBusy(true)
     setError('')
+    if (changes.status) setPendingStatus(changes.status)
     try {
       const saved = await patchItem(item.id, item.revision, changes)
       if (active.current) onChanged()
       return saved
     } catch (requestError) {
-      if (active.current) setError(requestErrorText(requestError))
+      if (active.current) {
+        setPendingStatus(null)
+        setError(requestErrorText(requestError))
+      }
       return false
     } finally { if (active.current) setBusy(false) }
   }
@@ -110,11 +138,24 @@ export function useTaskCompletion(item, onChanged) {
         primary_domain: item.domains.includes('shopping') ? 'shopping' : item.domains[0],
       })
       if (active.current) {
-        setRecordedId(created.id)
+        rememberRecorded(created.id)
         setRecordMsg('Recorded as expense.')
       }
       return true
     } catch (requestError) {
+      // A 400 here usually means the linkage already exists (recorded before
+      // a refresh, or from another tab): adopt the winning row instead of
+      // failing, so the pre-save lookup round trip stays skipped.
+      if (requestError?.status === 400) {
+        const linked = await resolveLinkedTransaction(item)
+        if (linked) {
+          if (active.current) {
+            rememberRecorded(linked)
+            setRecordMsg('Recorded as expense.')
+          }
+          return true
+        }
+      }
       if (active.current) setRecordMsg(requestErrorText(requestError))
       return false
     } finally { if (active.current) setRecordBusy(false) }
@@ -124,7 +165,7 @@ export function useTaskCompletion(item, onChanged) {
     try {
       await deleteTransaction(id)
       if (active.current) {
-        setRecordedId(null)
+        forgetRecorded()
         setRecordMsg('Recorded expense removed.')
       }
     } catch (requestError) {
@@ -132,22 +173,23 @@ export function useTaskCompletion(item, onChanged) {
     }
   }
 
-  return { busy, error, recordable, recordedId, recordBusy, recordMsg, save, toggle, record, voidRecorded }
+  return { busy, error, recordable, recordedId, displayStatus, recordBusy, recordMsg, save, toggle, record, voidRecorded }
 }
 
 function TaskCard({ item, onChanged }) {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(() => itemForm(item))
   const completion = useTaskCompletion(item, onChanged)
-  const { busy, error, recordable, recordedId, recordBusy, recordMsg, save, toggle, record } = completion
+  const { busy, error, recordable, recordedId, displayStatus, recordBusy, recordMsg, save, toggle, record } = completion
+  const done = displayStatus === 'COMPLETED'
 
   return <article className="structured-card">
-    <div className={`task-row ${item.status === 'COMPLETED' ? 'completed' : ''}`}>
-      <button type="button" className="check-button" disabled={busy} aria-label={`Mark ${item.title} ${item.status === 'COMPLETED' ? 'incomplete' : 'complete'}`} onClick={toggle}>{item.status === 'COMPLETED' ? '✓' : ''}</button>
+    <div className={`task-row ${done ? 'completed' : ''}`}>
+      <button type="button" className="check-button" disabled={busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={toggle}>{done ? '✓' : ''}</button>
       <div className="task-main"><h2>{item.title}</h2><p>{itemDate(item, 'due')}</p><p>{item.domains.join(' · ')}</p></div><span className="pill">{item.importance}</span>
     </div>
     {error && <p role="alert" className="form-error">{error} <button onClick={onChanged}>Reload items</button></p>}
-    {recordable && item.status === 'COMPLETED' && <div className="record-expense">
+    {recordable && done && <div className="record-expense">
       {recordedId
         ? <span className="pill pill-success">Recorded as expense</span>
         : <button className="button button-ghost" disabled={recordBusy} onClick={record}>{recordBusy ? 'Recording…' : 'Record as expense'}</button>}
@@ -160,20 +202,24 @@ function TaskCard({ item, onChanged }) {
 
 function ShoppingRow({ item, onChanged }) {
   const completion = useTaskCompletion(item, onChanged)
-  const done = item.status === 'COMPLETED'
+  const done = completion.displayStatus === 'COMPLETED'
   // Ticking a priced item completes it and moves the price into the ledger
   // in the same gesture; reopening voids the recorded row (same symmetry as
-  // the Tasks page). State changes refresh the list; the ledger lookup on
-  // remount is the source of truth, never local memory.
+  // the Tasks page). The checkbox flips optimistically; no pre-save ledger
+  // lookup — a duplicate POST is adopted via the backend's unique linkage.
   const completeAndRecord = async () => {
-    const linked = completion.recordedId || await resolveLinkedTransaction(item)
+    const linked = completion.recordedId
     const ok = await completion.save({ status: 'COMPLETED' })
     if (!ok) return
     if (completion.recordable && !linked) await completion.record()
   }
   const reopen = async () => {
-    const linked = completion.recordedId || await resolveLinkedTransaction(item)
+    // The void target lookup runs alongside the PATCH instead of before it.
+    const linkedPromise = completion.recordedId
+      ? Promise.resolve(completion.recordedId)
+      : resolveLinkedTransaction(item)
     const ok = await completion.save({ status: 'PENDING' })
+    const linked = await linkedPromise
     if (ok && linked) await completion.voidRecorded(linked)
   }
   return <li className={`shopping-row${done ? ' completed' : ''}`}>
@@ -190,10 +236,10 @@ function ShoppingRow({ item, onChanged }) {
 
 function EventCard({ item, onChanged }) {
   const completion = useTaskCompletion(item, onChanged)
-  const done = item.status === 'COMPLETED'
+  const done = completion.displayStatus === 'COMPLETED'
   const toggle = async () => {
     if (completion.busy) return
-    await completion.save({ status: done ? 'PENDING' : 'COMPLETED' })
+    await completion.save({ status: item.status !== 'COMPLETED' ? 'COMPLETED' : 'PENDING' })
   }
   return <article className={`structured-card${done ? ' completed' : ''}`}>
     <div className="task-row event-row">

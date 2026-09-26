@@ -364,7 +364,12 @@ def edit_confirmed(item, revision, changes):
         # Preserve server-attached evidence on edits as well.
         changes.pop('metadata', None)
         save_item(note, changes, item=item, confirmed=True)
-        record_confirmation(note, item.analysis_log, operation='EDIT')
+        # Pure status flips (ticking done/undone) skip the full snapshot log:
+        # every tick used to serialize all confirmed items into a new
+        # AIProcessingLog row. Content edits keep the audit trail, and the
+        # completion notification below still fires on real transitions.
+        if set(changes.keys()) != {'status'}:
+            record_confirmation(note, item.analysis_log, operation='EDIT')
     # Completion notifications fire only on a real transition, and never
     # break the write that just succeeded.
     if previous_status != 'COMPLETED' and changes.get('status') == 'COMPLETED':

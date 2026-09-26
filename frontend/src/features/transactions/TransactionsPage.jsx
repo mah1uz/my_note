@@ -18,8 +18,10 @@ export default function TransactionsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const load = async () => {
-    setLoading(true)
+  const load = async ({ silent = false } = {}) {
+    // Background reloads (e.g. a tick elsewhere just recorded an expense)
+    // must not flash the full-page spinner over existing rows.
+    if (!silent) setLoading(true)
     try {
       const params = filter === 'ALL' ? {} : { direction: filter }
       const [rows, totals] = await Promise.all([listTransactions(params), getTransactionSummary(params)])
@@ -29,11 +31,17 @@ export default function TransactionsPage() {
     } catch (requestError) {
       setError(requestError.message)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
-  useEffect(() => { load() }, [filter])
+  useEffect(() => { load() }, [filter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onLedgerChanged = () => load({ silent: true })
+    window.addEventListener('rememberly:transactions-changed', onLedgerChanged)
+    return () => window.removeEventListener('rememberly:transactions-changed', onLedgerChanged)
+  }, [filter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async (event) => {
     event.preventDefault()

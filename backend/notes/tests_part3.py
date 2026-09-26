@@ -658,6 +658,37 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(self.client.patch(url, {'status': 'COMPLETED'}, format='json').status_code, 400)
         self.assertEqual(self.client.patch(url, {'revision': 0, 'status': 'COMPLETED'}, format='json').status_code, 409)
 
+    def test_pure_status_flip_skips_snapshot_log_but_still_notifies(self):
+        from notifications.models import Notification
+
+        self.confirm([{'item_type': 'TASK', 'title': 'Eggs', 'domains': ['shopping']}])
+        item = self.note.items.get()
+        url = f'/api/v1/items/{item.pk}/'
+        logs_before = self.note.ai_logs.count()
+        self.note.refresh_from_db()
+        response = self.client.patch(url, {'revision': self.note.revision, 'status': 'COMPLETED'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        item.refresh_from_db()
+        self.assertEqual(item.status, 'COMPLETED')
+        # No full snapshot row for a tick; the completion notification remains.
+        self.assertEqual(self.note.ai_logs.count(), logs_before)
+        self.assertTrue(Notification.objects.filter(
+            user=self.owner, type=Notification.Type.TASK_COMPLETED,
+        ).exists())
+
+    def test_content_edit_still_writes_snapshot_log(self):
+        self.confirm([{'item_type': 'TASK', 'title': 'Eggs', 'domains': ['shopping']}])
+        item = self.note.items.get()
+        url = f'/api/v1/items/{item.pk}/'
+        logs_before = self.note.ai_logs.count()
+        self.note.refresh_from_db()
+        response = self.client.patch(
+            url, {'revision': self.note.revision, 'status': 'COMPLETED', 'title': 'Eggs tomorrow'}, format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.note.ai_logs.count(), logs_before + 1)
+        self.assertTrue(self.note.ai_logs.filter(operation='EDIT').exists())
+
     def test_inflight_note_edit_discards_stale_ai_result(self):
         def edit_during_call(*args, **kwargs):
             self.client.patch(self.base, {'raw_text': 'New source'}, format='json')

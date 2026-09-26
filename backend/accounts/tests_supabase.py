@@ -49,6 +49,42 @@ class SupabaseProvisioningTests(TestCase):
         with self.assertRaises(PermissionError):
             provision_from_claims(self.claims())
 
+    def test_repeat_authentication_issues_no_writes_within_bucket(self):
+        from django.utils import timezone
+
+        from .services.provisioning import provision_from_claims
+
+        user = provision_from_claims(self.claims())
+        identity = UserAuthIdentity.objects.get(user=user)
+        user.refresh_from_db()
+        touched_at = user.updated_at
+        with self.assertNumQueries(1):
+            # Single joined identity+user lookup; no writes within the bucket.
+            same = provision_from_claims(self.claims())
+        self.assertEqual(same.pk, user.pk)
+        user.refresh_from_db()
+        self.assertEqual(user.updated_at, touched_at)
+        identity.refresh_from_db()
+        self.assertEqual(identity.last_seen_at.tzinfo is not None, True)
+
+    def test_activity_touch_resumes_after_bucket_rollover(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from .services import provisioning
+        from .services.provisioning import provision_from_claims
+
+        user = provision_from_claims(self.claims())
+        stale = timezone.now() - timedelta(seconds=provisioning.LAST_SEEN_BUCKET_SECONDS + 5)
+        UserAuthIdentity.objects.filter(user=user).update(last_seen_at=stale)
+        AppUser.objects.filter(pk=user.pk).update(last_seen_at=stale, updated_at=stale)
+        provision_from_claims(self.claims())
+        user.refresh_from_db()
+        identity = UserAuthIdentity.objects.get(user=user)
+        self.assertGreater(identity.last_seen_at, stale)
+        self.assertGreater(user.updated_at, stale)
+
 
 @override_settings(
     SUPABASE_URL='https://project.supabase.co',
