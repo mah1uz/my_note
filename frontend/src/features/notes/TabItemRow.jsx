@@ -15,28 +15,31 @@ export async function toggleItemWithSymmetry(completion, item, { onChanged, onUn
   try {
     if (completion.busy) return false
     const done = item.status === 'COMPLETED'
-    const shopping = (item.domains || []).includes('shopping')
+    const shopping = Boolean(completion.recordable)
+    // The click is visible immediately; the server result (including the
+    // shared note revision) replaces it once the PATCH succeeds.
+    onTicked?.(item.id, done ? 'PENDING' : 'COMPLETED')
     let ok = false
     if (!done) {
-      // Adopt any orphan row (e.g. recorded before a refresh) instead of
-      // POSTing a duplicate against the one-transaction-per-item rule.
-      const linked = completion.recordedId || await resolveLinkedTransaction(item)
+      const linked = shopping ? (completion.recordedId || await resolveLinkedTransaction(item)) : null
       ok = await completion.save({ status: 'COMPLETED' })
       if (ok && shopping && completion.recordable && !linked) await completion.record()
     } else {
-      const linked = completion.recordedId || await resolveLinkedTransaction(item)
+      const linked = shopping ? (completion.recordedId || await resolveLinkedTransaction(item)) : null
       ok = await completion.save({ status: 'PENDING' })
       if (ok && linked) await completion.voidRecorded(linked)
     }
     if (ok) {
-      // Optimistic flip: the UI updates instantly; the background refresh
-      // reconciles (or reverts, via the failure path below).
-      if (onTicked) onTicked(item.id, done ? 'PENDING' : 'COMPLETED')
+      onTicked?.(item.id, done ? 'PENDING' : 'COMPLETED', ok)
     } else if (onChanged) {
+      onTicked?.(item.id, item.status)
       try { await onChanged() } catch { /* Refresh is best-effort; the API error below still shows. */ }
+    } else {
+      onTicked?.(item.id, item.status)
     }
     return ok
   } catch (error) {
+    onTicked?.(item.id, item.status)
     if (onUnexpected) onUnexpected(error)
     return false
   }
@@ -46,18 +49,22 @@ export async function toggleItemWithSymmetry(completion, item, { onChanged, onUn
 export function SingleTick({ item, onChanged, onTicked }) {
   const completion = useTaskCompletion(item, onChanged)
   const [unexpected, setUnexpected] = useState('')
+  const [pending, setPending] = useState(false)
   const done = item.status === 'COMPLETED'
+  const toggle = async () => {
+    if (pending) return
+    setPending(true)
+    try { await toggleItemWithSymmetry(completion, item, { onChanged, onTicked, onUnexpected: () => setUnexpected('The tick could not be saved. Try again.') }) }
+    finally { setPending(false) }
+  }
   return <>
     <button
       type="button"
       className="check-button card-tick"
-      disabled={completion.busy}
+      disabled={completion.busy || pending}
+      aria-pressed={done}
       aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`}
-      onClick={() => toggleItemWithSymmetry(completion, item, {
-        onChanged,
-        onTicked,
-        onUnexpected: () => setUnexpected('The tick could not be saved. Try again.'),
-      })}
+      onClick={toggle}
     >{done ? '✓' : ''}</button>
     {unexpected && <span className="form-error" role="alert">{unexpected}</span>}
   </>
@@ -66,14 +73,17 @@ export function SingleTick({ item, onChanged, onTicked }) {
 export default function TabItemRow({ item, onChanged, onTicked }) {
   const completion = useTaskCompletion(item, onChanged)
   const [unexpected, setUnexpected] = useState('')
+  const [pending, setPending] = useState(false)
   const done = item.status === 'COMPLETED'
   const shopping = (item.domains || []).includes('shopping')
+  const toggle = async () => {
+    if (pending) return
+    setPending(true)
+    try { await toggleItemWithSymmetry(completion, item, { onChanged, onTicked, onUnexpected: () => setUnexpected('The tick could not be saved. Try again.') }) }
+    finally { setPending(false) }
+  }
   return <li className={`tab-item-row${done ? ' completed' : ''}`}>
-    <button type="button" className="check-button" disabled={completion.busy} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={() => toggleItemWithSymmetry(completion, item, {
-      onChanged,
-      onTicked,
-      onUnexpected: () => setUnexpected('The tick could not be saved. Try again.'),
-    })}>{done ? '✓' : ''}</button>
+    <button type="button" className="check-button" aria-pressed={done} disabled={completion.busy || pending} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={toggle}>{done ? '✓' : ''}</button>
     <span className="tab-item-main"><strong>{item.title}</strong><small>{item.item_type === 'EVENT' ? itemDate(item) : itemDate(item, 'due')}</small></span>
     {shopping && item.amount != null && <span className="shopping-price">{item.currency || ''} {item.amount}</span>}
     {completion.recordMsg && <span className="record-message" role="status">{completion.recordMsg}</span>}

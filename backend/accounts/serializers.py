@@ -193,6 +193,16 @@ class AiEntitlementSerializer(serializers.ModelSerializer):
         return max(entitlement.trial_limit - entitlement.trial_used, 0)
 
 
+class UserGroqKeySerializer(serializers.Serializer):
+    key = serializers.CharField(write_only=True, trim_whitespace=False, min_length=20, max_length=200)
+
+    def validate_key(self, value):
+        value = value.strip()
+        if not value.startswith('gsk_'):
+            raise serializers.ValidationError('That does not look like a Groq API key.')
+        return value
+
+
 class ProRequestCreateSerializer(serializers.Serializer):
     reason = serializers.CharField(max_length=500, allow_blank=True, default='')
 

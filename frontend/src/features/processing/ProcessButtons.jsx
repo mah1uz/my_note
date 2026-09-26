@@ -3,41 +3,38 @@ import { processAll, summarizeResults } from '../../api/processApi'
 import { useAiKey } from '../../context/AiKeyContext'
 
 /**
- * Bulk processing actions shared by the layout banner and the dashboard
- * queue. Analyze All is fully automatic: it analyzes and confirms every
- * backlog note with no per-note review step. Verify & Review analyzes
- * only and leaves drafts for manual per-note review.
+ * Manual backlog verification, shown only in the All Notes section.
+ * Verify & Review analyzes each backlog note and leaves drafts for
+ * per-note review. (Automatic organization now runs on every save, and
+ * per-note retry lives on the note card and detail page.)
  */
 export default function ProcessButtons({ compact = false, onDone }) {
   const { groqApiKey, trialActive } = useAiKey()
-  const [running, setRunning] = useState('')
+  const [running, setRunning] = useState(false)
   const [summary, setSummary] = useState(null)
   const [error, setError] = useState('')
 
-  const run = async (mode) => {
+  const runVerify = async () => {
     if (running) return
-    setRunning(mode)
+    setRunning(true)
     setError('')
     setSummary(null)
     try {
-      const data = await processAll(mode, { apiKey: groqApiKey, trial: trialActive })
+      const data = await processAll('verify', { apiKey: groqApiKey, trial: trialActive })
       setSummary(summarizeResults(data))
       if (onDone) await onDone(data)
     } catch (requestError) {
       setError(requestError.message)
     } finally {
-      setRunning('')
+      setRunning(false)
     }
   }
 
   return (
     <div className={compact ? 'process-buttons compact' : 'process-buttons'}>
       <div className="process-actions">
-        <button className="button button-primary" disabled={Boolean(running)} onClick={() => run('analyze')}>
-          {running === 'analyze' ? 'Analyzing…' : 'Analyze All'}
-        </button>
-        <button className="button button-ghost" disabled={Boolean(running)} onClick={() => run('verify')}>
-          {running === 'verify' ? 'Reviewing…' : 'Verify & Review'}
+        <button className="button button-ghost" disabled={running} onClick={runVerify}>
+          {running ? 'Reviewing…' : 'Verify & Review'}
         </button>
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}

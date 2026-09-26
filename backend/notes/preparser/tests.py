@@ -79,3 +79,50 @@ class NotePreparserTests(SimpleTestCase):
             with self.subTest(text=text):
                 self.assertTrue(parse_note_evidence(text)['obligation_hint'])
         self.assertFalse(parse_note_evidence('buy shampoo')['obligation_hint'])
+
+    def test_due_today_hint_fires_only_on_explicit_today(self):
+        for text in (
+            'I have work today',
+            'finish report tonight',
+            'meeting this morning at 10',
+            'submit by today',
+            'before tonight complete homework',
+            'end of day review',
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(parse_note_evidence(text)['due_today_hint'])
+        for text in ('buy shampoo', 'do it soon', 'do it later', 'next week work'):
+            with self.subTest(text=text):
+                self.assertFalse(parse_note_evidence(text)['due_today_hint'])
+
+    def test_timed_meeting_hint_fires_on_gathering_plus_time(self):
+        for text in (
+            'i have to attend a meeting at 11pm',
+            'class at 10am tomorrow',
+            'appointment 23:00 with dentist',
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(parse_note_evidence(text)['timed_meeting_hint'])
+        for text in ('meet friends someday', 'buy milk at 5pm', 'call mom tonight'):
+            with self.subTest(text=text):
+                self.assertFalse(parse_note_evidence(text)['timed_meeting_hint'])
+
+    def test_work_duty_hint_marks_vague_work(self):
+        for text in ('i have work today', 'night shift tomorrow', 'homework due Friday'):
+            with self.subTest(text=text):
+                self.assertTrue(parse_note_evidence(text)['work_duty_hint'])
+        for text in ('buy shampoo', 'attend a meeting at 11pm', 'call mom tonight'):
+            with self.subTest(text=text):
+                self.assertFalse(parse_note_evidence(text)['work_duty_hint'])
+
+    def test_shopping_acquire_hint_fires_on_verb_plus_price(self):
+        for text in (
+            'get a brush for 150 taka',
+            'buy rice 50 tk',
+            'order cables for $20',
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(parse_note_evidence(text)['shopping_acquire_hint'])
+        for text in ('brush 150', 'get some rest', 'buy happiness'):
+            with self.subTest(text=text):
+                self.assertFalse(parse_note_evidence(text)['shopping_acquire_hint'])

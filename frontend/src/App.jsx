@@ -5,7 +5,7 @@ import { useAuth } from './context/AuthContext'
 import { useNotes } from './context/NotesContext'
 import { confirmPasswordReset, requestPasswordReset } from './api/authApi'
 import { apiRequest } from './api/http'
-import { listItems, analyzeNote, confirmAnalysis } from './api/itemsApi'
+import { listItems } from './api/itemsApi'
 import { LogoutIcon, MenuIcon, NavIcon, NotesIcon, PlacesIcon, SearchIcon, SparkleIcon, TasksIcon } from './components/icons'
 import Reveal from './components/Reveal'
 import Tilt from './components/Tilt'
@@ -28,9 +28,12 @@ import OnboardingPage from './features/onboarding/OnboardingPage'
 import SearchFeaturePage from './features/search/SearchPage'
 import ProcessButtons from './features/processing/ProcessButtons'
 import QueueProgress from './features/processing/QueueProgress'
-import { NOTE_TABS, NOTE_MAX_LENGTH, groupItemsByNote, isDueToday, useConfirmedItems } from './features/notes/noteTaxonomy'
+import { NOTE_TABS, groupItemsByNote, isDueToday } from './features/notes/noteTaxonomy'
+import { NOTE_MAX_WORDS, countWords, previewNote } from './features/notes/noteText'
+import { formatNoteStamp, getGreeting } from './features/dashboard/datetime'
+import { useConfirmedItems } from './context/ItemsContext'
 import { SingleTick } from './features/notes/TabItemRow'
-import { itemForm, itemPayload } from './features/items/itemForm'
+import { autoOrganize, isAiConfigured, useAutoOrganize } from './features/processing/autoOrganize'
 import { useNotifications } from './features/notifications/useNotifications'
 import { backlogNotes } from './api/processApi'
 
@@ -63,17 +66,17 @@ function MobileNav() {
 }
 
 function AiNotices() {
-  const { groqApiKey, trialActive } = useAiKey()
-  const { notes, refresh } = useNotes()
+  const { groqApiKey, storedKey, trialActive } = useAiKey()
+  const { notes } = useNotes()
   const [setupDismissed, setSetupDismissed] = useState(false)
-  const configured = Boolean(groqApiKey || trialActive)
+  const configured = isAiConfigured({ groqApiKey, storedKey, trialActive })
   if (!configured) {
     if (setupDismissed) return null
-    return <div className="notice-banner notice-setup" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>AI organization is off.</strong><span> Add a Groq key or turn on the free trial in Settings to process notes.</span></div><Link className="button button-primary" to="/app/settings">Open Settings</Link><button className="text-button" onClick={() => setSetupDismissed(true)}>Dismiss</button></div>
+    return <div className="notice-banner notice-setup" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>AI organization is off.</strong><span> Add a Groq key or turn on the free trial in Settings to organize notes automatically.</span></div><Link className="button button-primary" to="/app/settings">Open Settings</Link><button className="text-button" onClick={() => setSetupDismissed(true)}>Dismiss</button></div>
   }
   const backlog = backlogNotes(notes)
   if (!backlog.length) return null
-  return <div className="notice-banner" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>{backlog.length} note{backlog.length === 1 ? '' : 's'} need{backlog.length === 1 ? 's' : ''} processing.</strong><span> Process them all at once, or draft them for manual review.</span></div><ProcessButtons compact onDone={refresh} /></div>
+  return <div className="notice-banner" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>{backlog.length} note{backlog.length === 1 ? '' : 's'} need{backlog.length === 1 ? 's' : ''} review.</strong><span> New notes organize automatically; retry these from All Notes.</span></div><Link className="button button-primary" to="/app/notes">Review in All Notes</Link></div>
 }
 
 function HeaderSearch() {
@@ -157,34 +160,61 @@ function AppLayout({ children }) {
 
 function QuickCapture({ compact = false }) {
   const { addNote } = useNotes()
+  const { organize, configured } = useAutoOrganize()
   const navigate = useNavigate()
   const [text, setText] = useState('')
   const [saved, setSaved] = useState(false)
   const [savedNoteId, setSavedNoteId] = useState(null)
+  const [organizing, setOrganizing] = useState(false)
+  const [organized, setOrganized] = useState(false)
+  const [organizeError, setOrganizeError] = useState(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const save = async (event) => {
     event.preventDefault()
     if (!text.trim() || saving) return
-    if (text.trim().length > NOTE_MAX_LENGTH) { setError(`Keep notes to ${NOTE_MAX_LENGTH} characters or fewer.`); return }
+    if (countWords(text) > NOTE_MAX_WORDS) { setError(`Keep notes to ${NOTE_MAX_WORDS} words or fewer.`); return }
     setSaving(true)
     try {
       const note = await addNote(text)
       setSavedNoteId(note.id)
       setText('')
       setError('')
+      setOrganizeError(null)
+      setOrganized(false)
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2400)
+      if (configured) {
+        setOrganizing(true)
+        try {
+          await organize(note)
+          setOrganized(true)
+        } catch (requestError) {
+          const code = requestError?.data?.code
+          setOrganizeError({
+            message: requestError?.message || 'Saved, but automatic organization failed.',
+            showSettings: code === 'trial_exhausted' || code === 'invalid_key',
+          })
+        } finally {
+          setOrganizing(false)
+        }
+      }
     } catch (requestError) {
       setError(requestError.message)
     } finally {
       setSaving(false)
     }
   }
+  const saveMessage = organizing ? 'Saved — organizing…'
+    : organized ? 'Saved and organized ✓'
+      : saved ? 'Saved as an unprocessed note'
+        : 'Try: “I need eggs from Agora.”'
   return <form className={`capture-card ${compact ? 'capture-compact' : ''}`} onSubmit={save}>
     <div className="capture-heading"><span className="capture-icon"><SparkleIcon /></span><div><h2>Quick capture</h2><p>Get it out of your head. We&apos;ll help organize it.</p></div></div>
-    <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="What do you want to remember?" rows={compact ? 3 : 4} maxLength={NOTE_MAX_LENGTH} aria-label="What do you want to remember?" aria-describedby="quick-capture-count" />
-    {error && <p className="form-error">{error}</p>}<div className="capture-footer"><span className={saved ? 'save-message visible' : 'save-message'}>{saved ? 'Saved as an unprocessed note' : 'Try: “I need eggs from Agora.”'}</span><span id="quick-capture-count" className="char-count">{text.length}/{NOTE_MAX_LENGTH}</span><div className="capture-actions">{savedNoteId && <Link className="button button-ghost" to={`/app/notes/${savedNoteId}`}>Review saved note</Link>}<button className="button button-ghost" type="button" onClick={() => navigate('/app/notes/new')}>Open full editor</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save note'} <span>↗</span></button></div></div>
+    <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="What do you want to remember?" rows={compact ? 3 : 4} aria-label="What do you want to remember?" aria-describedby="quick-capture-count" />
+    {error && <p className="form-error">{error}</p>}
+    {organizeError && <p className="form-error" role="alert">{organizeError.message}{organizeError.showSettings && <> <Link className="text-link" to="/app/settings">Open Settings</Link></>}</p>}
+    <div className="capture-footer"><span className={saved || organizing || organized ? 'save-message visible' : 'save-message'}>{saveMessage}</span><span id="quick-capture-count" className="char-count">{countWords(text)}/{NOTE_MAX_WORDS} words</span><div className="capture-actions">{savedNoteId && <Link className="button button-ghost" to={`/app/notes/${savedNoteId}`}>Review saved note</Link>}<button className="button button-ghost" type="button" onClick={() => navigate('/app/notes/new')}>Open full editor</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save note'} <span>↗</span></button></div></div>
   </form>
 }
 
@@ -202,25 +232,40 @@ function timeAgo(iso) {
 
 function DashboardPage() {
   const { currentUser } = useAuth()
-  const { notes, refresh } = useNotes()
+  const { notes } = useNotes()
   const backlog = backlogNotes(notes)
   const [dueToday, setDueToday] = useState([])
+  const [dueEpoch, setDueEpoch] = useState(0)
+  const accountTimeZone = currentUser?.timezone || undefined
+  useEffect(() => {
+    const onItemsChanged = () => setDueEpoch((value) => value + 1)
+    window.addEventListener('rememberly:items-changed', onItemsChanged)
+    return () => window.removeEventListener('rememberly:items-changed', onItemsChanged)
+  }, [])
   useEffect(() => {
     let active = true
-    listItems('type=TASK').then(
-      (items) => { if (active) setDueToday((Array.isArray(items) ? items : []).filter((item) => isDueToday(item)).slice(0, 5)) },
+    const noteCreatedById = new Map((notes || []).map((note) => [String(note.id), note.createdAt]))
+    Promise.all([listItems('type=TASK'), listItems('type=EVENT')]).then(
+      ([tasks, events]) => {
+        if (!active) return
+        const all = [...(Array.isArray(tasks) ? tasks : []), ...(Array.isArray(events) ? events : [])]
+        setDueToday(all.filter((item) => isDueToday(item, new Date(), {
+          timeZone: accountTimeZone, noteCreatedAt: noteCreatedById.get(String(item.note)),
+        })).slice(0, 5))
+      },
       () => { if (active) setDueToday([]) },
     )
     return () => { active = false }
-  }, [currentUser?.id, notes.length])
+  }, [currentUser?.id, notes.length, dueEpoch])
   const recentNotes = [...notes]
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
     .slice(0, 5)
   const today = new Date()
   const eyebrowDate = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(today).toUpperCase()
+  const greeting = getGreeting(today, accountTimeZone)
   return <>
     <div className="dash-intro">
-      <div><span className="eyebrow">{eyebrowDate}</span><h1>Good morning, {currentUser?.name || 'there'}</h1><p>A calm place for everything you want to remember.</p></div>
+      <div><span className="eyebrow">{eyebrowDate}</span><h1>{greeting}, {currentUser?.name || 'there'}</h1><p>A calm place for everything you want to remember.</p></div>
       <blockquote className="dash-quote"><p>&ldquo;Capture first. Organize automatically.&rdquo;</p></blockquote>
     </div>
     <Tilt><QuickCapture /></Tilt>
@@ -258,11 +303,17 @@ function DashboardPage() {
         </section></Tilt>
       </Reveal>
     </div>
-    {backlog.length > 0 && <section className="section-block queue-panel" aria-label="Bulk processing"><div className="section-heading"><div><span className="eyebrow">Capture to confirmed</span><h2>Process the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><ProcessButtons onDone={refresh} /></section>}
+    {backlog.length > 0 && <section className="section-block queue-panel" aria-label="Backlog"><div className="section-heading"><div><span className="eyebrow">Needs review</span><h2>Process the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><p className="field-help">New notes organize automatically. Retry the waiting ones from All Notes.</p><Link className="button button-primary" to="/app/notes">Review in All Notes</Link></section>}
   </>
 }
 
-function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = () => {}, auto = null }) {
+function NoteStamp({ iso, timeZone }) {
+  const { date, time } = formatNoteStamp(iso, timeZone)
+  if (!date) return null
+  return <span className="note-stamp"><span className="note-date">{date}</span>{time && <span className="note-time">{time}</span>}</span>
+}
+
+function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = () => {}, auto = null, timeZone }) {
   const open = (event) => {
     if (event.target.closest('a,button')) return
     onPeek(note)
@@ -280,8 +331,8 @@ function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = (
     <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
       <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} auto={auto} onPeek={onPeek} />
     </div>
-    <p className="note-title note-clamp">{note.originalText}</p>
-    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
+    <p className="note-title note-clamp">{previewNote(note.originalText)}</p>
+    <div className="note-card-bottom"><NoteStamp iso={note.createdAt} timeZone={timeZone} />{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
   </article>
 }
 
@@ -297,7 +348,7 @@ function CardTick({ note, items, single, onChanged, onTicked, auto, onPeek }) {
   return null
 }
 
-function NoteCategoryCard({ note, tab, items, onChanged, onTicked, auto, onPeek }) {
+function NoteCategoryCard({ note, tab, items, onChanged, onTicked, auto, onPeek, timeZone }) {
   const open = (event) => {
     if (event.target.closest('a,button')) return
     onPeek(note)
@@ -311,18 +362,22 @@ function NoteCategoryCard({ note, tab, items, onChanged, onTicked, auto, onPeek 
     <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
       <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} auto={auto} onPeek={onPeek} />
     </div>
-    <p className="note-title note-clamp">{note.originalText}</p>
-    <div className="note-card-bottom"><span className="note-date">{new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
+    <p className="note-title note-clamp">{previewNote(note.originalText)}</p>
+    <div className="note-card-bottom"><NoteStamp iso={note.createdAt} timeZone={timeZone} />{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
   </article>
 }
 
 function NotesPage() {
+  const { currentUser } = useAuth()
   const { notes, loading, error, deleteNote, refresh: refreshNotes } = useNotes()
-  const { groqApiKey, trialActive } = useAiKey()
+  const { groqApiKey, trialActive, storedKey } = useAiKey()
+  const accountTimeZone = currentUser?.timezone || undefined
   const [tab, setTab] = useState('all')
   const [peekId, setPeekId] = useState(null)
   const [autoId, setAutoId] = useState(null)
-  const { items, loading: catsLoading, refresh: refreshCats, patchLocal } = useConfirmedItems()
+  const [autoError, setAutoError] = useState('')
+  const autoRunningRef = useRef(false)
+  const { items, loading: catsLoading, refresh: refreshCats, patchLocal, commitItem } = useConfirmedItems()
   const groups = groupItemsByNote(items)
   const totalByNote = useMemo(() => {
     const map = new Map()
@@ -339,44 +394,49 @@ function NotesPage() {
       : tab === 'events' ? item.item_type === 'EVENT'
         : (item.item_type === 'TASK' && (item.domains || []).includes('shopping'))))
   const visible = tab === 'all' ? notes : notes.filter((note) => groups[String(note.id)]?.[tab])
+  const backlog = backlogNotes(notes)
   const peekNote = peekId == null ? null : notes.find((note) => String(note.id) === String(peekId)) || null
   const tabHint = { tasks: 'task', events: 'event', shopping: 'shopping' }[tab]
-  const onTicked = (id, status) => patchLocal(id, { status })
+  const onTicked = (id, status, saved) => saved ? commitItem(saved) : patchLocal(id, { status })
   // Backlog notes (UNPROCESSED/FAILED) with zero confirmed items offer an
-  // automatic analyze+confirm run on tick — the same fully-automatic path
-  // as bulk Analyze All. Anything else keeps manual ticks or review.
+  // automatic analyze+confirm run on tick. Anything else keeps manual
+  // ticks or review.
   const autoFor = (note) => {
     const can = (note.processingStatus === 'UNPROCESSED' || note.processingStatus === 'FAILED')
       && (totalByNote.get(String(note.id)) || 0) === 0
     return { can, running: autoId === String(note.id), run: runAuto }
   }
   const runAuto = async (note) => {
-    if (!(groqApiKey || trialActive)) { setPeekId(note.id); return }
-    if (autoId) return
+    if (!isAiConfigured({ groqApiKey, storedKey, trialActive })) { setPeekId(note.id); return }
+    // Ref-based single-flight: state updates are async, so two rapid clicks
+    // would both pass an autoId check. The ref blocks the second run.
+    if (autoRunningRef.current) return
+    autoRunningRef.current = true
     setAutoId(note.id)
+    setAutoError('')
     try {
-      const reviewed = await analyzeNote(note.id, note.revision, groqApiKey, trialActive)
-      const drafts = (reviewed.items || []).filter((item) => !item.is_confirmed)
-      if (!drafts.length) { setPeekId(note.id); return }
-      await confirmAnalysis(note.id, reviewed.note.revision, drafts.map((draft) => itemPayload(itemForm(draft))))
+      const result = await autoOrganize(note, { apiKey: groqApiKey, trial: trialActive })
+      if (result.status === 'no-drafts') { setPeekId(note.id); return }
+      // confirmAnalysis already notifies the shared items cache, so only the
+      // notes list needs an explicit refresh here (one refresh, not two).
       refreshNotes()
-      refreshCats()
-    } catch {
-      setPeekId(note.id)
+    } catch (requestError) {
+      setAutoError(requestError?.message || 'Automatic organization failed. Open the note to review and retry.')
     } finally {
+      autoRunningRef.current = false
       setAutoId(null)
     }
   }
   return <><PageHeader eyebrow="Your memory" title="All Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
+    {backlog.length > 0 && <section className="section-block queue-panel" aria-label="Manual verification"><div className="section-heading"><div><span className="eyebrow">Capture to drafts</span><h2>Verify the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><p className="field-help">Drafts each waiting note for per-note review without confirming anything.</p><ProcessButtons onDone={refreshNotes} /></section>}
     <section className="notes-box" aria-label="All Notes by category">
-      <div className="notes-tabs" role="tablist" aria-label="Filter notes by category">
-        {NOTE_TABS.map((entry) => <button key={entry.key} role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'notes-tab active' : 'notes-tab'} onClick={() => setTab(entry.key)}>{entry.label} ({countFor(entry.key)})</button>)}
-      </div>
+      <div className="notes-filter"><label htmlFor="notes-category">Category</label><select id="notes-category" value={tab} onChange={(event) => setTab(event.target.value)}>{NOTE_TABS.map((entry) => <option key={entry.key} value={entry.key}>{entry.label}{catsLoading && entry.key !== 'all' ? '' : ` (${countFor(entry.key)})`}</option>)}</select>{catsLoading && <span role="status">Loading categories…</span>}</div>
+      {autoError && <p className="form-error" role="alert">{autoError}</p>}
       {loading ? <div className="loading-state">Loading your notes…</div> : error ? <div className="form-error">{error}</div>
-        : tab !== 'all' && catsLoading ? <><p role="status" className="sr-only">Loading categories…</p><div className="notes-list notes-grid" aria-hidden="true">{[0, 1, 2, 3, 4, 5].map((index) => <div key={index} className="note-card glow-note note-skeleton"><div className="skeleton-line" /><div className="skeleton-line short" /></div>)}</div></>
+        : tab !== 'all' && catsLoading ? <p className="loading-state">Loading categories…</p>
           : visible.length ? <div key={tab} className="notes-list notes-grid notes-enter">{visible.map((note) => tab === 'all'
-            ? <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} items={itemsForAll(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} />
-            : <NoteCategoryCard key={note.id} note={note} tab={tab} items={itemsFor(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} onPeek={(item) => setPeekId(item.id)} />)}</div>
+            ? <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} items={itemsForAll(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} timeZone={accountTimeZone} />
+            : <NoteCategoryCard key={note.id} note={note} tab={tab} items={itemsFor(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} onPeek={(item) => setPeekId(item.id)} timeZone={accountTimeZone} />)}</div>
             : notes.length ? <EmptyState title={`No ${tab} notes`} text={`Notes appear here once they hold confirmed ${tabHint} items. Drafts stay on their source note until confirmed; other categories live under their own tabs.`} />
               : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}
     </section>
@@ -386,12 +446,15 @@ function NotesPage() {
 
 function NewNotePage() {
   const { addNote } = useNotes()
+  const { organize } = useAutoOrganize()
   const navigate = useNavigate()
   const [text, setText] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const save = async (event) => { event.preventDefault(); if (!text.trim()) { setError('A note cannot be empty.'); return } if (text.trim().length > NOTE_MAX_LENGTH) { setError(`Keep notes to ${NOTE_MAX_LENGTH} characters or fewer.`); return } if (saving) return; setSaving(true); try { const note = await addNote(text); navigate(`/app/notes/${note.id}`) } catch (requestError) { setError(requestError.message); setSaving(false) } }
-  return <><PageHeader eyebrow="Capture first" title="New note" description="Write naturally. No categories or forms to fill out first." /><div className="editor-layout"><form className="editor-card" onSubmit={save}><label htmlFor="note-editor">Your thought</label><textarea id="note-editor" value={text} onChange={(event) => setText(event.target.value)} placeholder="I have an EM quiz on September 23..." rows="12" maxLength={NOTE_MAX_LENGTH} autoFocus />{error && <p className="form-error">{error}</p>}<div className="editor-footer"><span>{text.length}/{NOTE_MAX_LENGTH} characters</span><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save note'} <span>↗</span></button></div></form><div className="editor-tip"><span className="tip-icon"><SparkleIcon /></span><h3>Captured now, organized later</h3><p>Save first, then analyze with AI or organize manually. Review and correct suggested items before confirming them.</p><div className="example-note">“Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.”</div></div></div></>
+  // The detail page shows live organization state (review panel reads the
+  // saved review and surfaces failures), so auto-organize runs silently here.
+  const save = async (event) => { event.preventDefault(); if (!text.trim()) { setError('A note cannot be empty.'); return } if (countWords(text) > NOTE_MAX_WORDS) { setError(`Keep notes to ${NOTE_MAX_WORDS} words or fewer.`); return } if (saving) return; setSaving(true); try { const note = await addNote(text); navigate(`/app/notes/${note.id}`); organize(note).catch(() => {}) } catch (requestError) { setError(requestError.message); setSaving(false) } }
+  return <><PageHeader eyebrow="Capture first" title="New note" description="Write naturally. No categories or forms to fill out first." /><div className="editor-layout"><form className="editor-card" onSubmit={save}><label htmlFor="note-editor">Your thought</label><textarea id="note-editor" value={text} onChange={(event) => setText(event.target.value)} placeholder="I have an EM quiz on September 23..." rows="12" autoFocus />{error && <p className="form-error">{error}</p>}<div className="editor-footer"><span>{countWords(text)}/{NOTE_MAX_WORDS} words</span><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save note'} <span>↗</span></button></div></form><div className="editor-tip"><span className="tip-icon"><SparkleIcon /></span><h3>Captured now, organized later</h3><p>Save first, then analyze with AI or organize manually. Review and correct suggested items before confirming them.</p><div className="example-note">“Tomorrow class at 10, buy eggs afterwards, and spent ৳250 on books.”</div></div></div></>
 }
 
 function NoteDetailPage() {
@@ -423,9 +486,9 @@ function NoteDetailPage() {
   if (loading || detailLoading) return <div className="loading-state">Loading note…</div>
   if (missing || (!detailError && !note)) return <EmptyState title="Note not found" text="This note may have been deleted or is no longer available." />
   if (detailError) return <div className="empty-state"><div className="empty-icon"><SparkleIcon /></div><h3>Couldn&apos;t load this note</h3><p>{detailError}</p><button className="button button-primary" onClick={() => setReloadTick((value) => value + 1)}>Retry</button></div>
-  const save = async () => { if (!text.trim()) { setError('A note cannot be empty.'); return } if (text.trim().length > NOTE_MAX_LENGTH) { setError(`Keep notes to ${NOTE_MAX_LENGTH} characters or fewer.`); return } if (pendingAction) return; setPendingAction('save'); try { await updateNote(note.id, text, note.revision); setEditing(false); setError('') } catch (requestError) { setError(requestError.message) } finally { setPendingAction('') } }
+  const save = async () => { if (!text.trim()) { setError('A note cannot be empty.'); return } if (countWords(text) > NOTE_MAX_WORDS) { setError(`Keep notes to ${NOTE_MAX_WORDS} words or fewer.`); return } if (pendingAction) return; setPendingAction('save'); try { await updateNote(note.id, text, note.revision); setEditing(false); setError('') } catch (requestError) { setError(requestError.message) } finally { setPendingAction('') } }
   const remove = async () => { if (pendingAction) return; setPendingAction('delete'); try { await deleteNote(note.id); navigate('/app/notes') } catch (requestError) { setError(requestError.message); setPendingAction('') } }
-  return <><Link to="/app/notes" className="back-link">← Back to notes</Link><div className="detail-header"><div><span className="eyebrow">Note detail</span><h1>Captured thought</h1><p>{new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="header-actions"><button className="button button-ghost" onClick={() => setEditing(!editing)} disabled={Boolean(pendingAction)}>{editing ? 'Cancel' : 'Edit'}</button><button className="button button-danger" onClick={remove} disabled={Boolean(pendingAction)}>{pendingAction === 'delete' ? 'Deleting…' : 'Delete'}</button></div></div>{error && <p className="form-error">{error}</p>}<div className="detail-card"><div className="original-note"><span className="eyebrow">Original note</span>{editing ? <textarea aria-label="Original note text" value={text} onChange={(event) => setText(event.target.value)} rows="5" maxLength={NOTE_MAX_LENGTH} /> : <p>{note.originalText}</p>}{editing && <><p className="field-help">Saving edits discards unconfirmed drafts. Previously confirmed facts stay unchanged. {text.length}/{NOTE_MAX_LENGTH} characters.</p><button className="button button-primary" onClick={save} disabled={Boolean(pendingAction)}>{pendingAction === 'save' ? 'Saving…' : 'Save changes'}</button></>}</div><div className="detail-meta"><Pill tone="success">{note.processingStatus}</Pill><span>Owned by your account</span></div></div><AIReviewPanel note={note} disabled={editing || Boolean(pendingAction)} onNoteChanged={() => loadNote(note.id)} /></>
+  return <><Link to="/app/notes" className="back-link">← Back to notes</Link><div className="detail-header"><div><span className="eyebrow">Note detail</span><h1>Captured thought</h1><p>{new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="header-actions"><button className="button button-ghost" onClick={() => setEditing(!editing)} disabled={Boolean(pendingAction)}>{editing ? 'Cancel' : 'Edit'}</button><button className="button button-danger" onClick={remove} disabled={Boolean(pendingAction)}>{pendingAction === 'delete' ? 'Deleting…' : 'Delete'}</button></div></div>{error && <p className="form-error">{error}</p>}<div className="detail-card"><div className="original-note"><span className="eyebrow">Original note</span>{editing ? <textarea aria-label="Original note text" value={text} onChange={(event) => setText(event.target.value)} rows="5" /> : <p>{note.originalText}</p>}{editing && <><p className="field-help">Saving edits discards unconfirmed drafts. Previously confirmed facts stay unchanged. {countWords(text)}/{NOTE_MAX_WORDS} words.</p><button className="button button-primary" onClick={save} disabled={Boolean(pendingAction)}>{pendingAction === 'save' ? 'Saving…' : 'Save changes'}</button></>}</div><div className="detail-meta"><Pill tone="success">{note.processingStatus}</Pill><span>Owned by your account</span></div></div><AIReviewPanel note={note} disabled={editing || Boolean(pendingAction)} onNoteChanged={() => loadNote(note.id)} /></>
 }
 
 function PlacesPage() {

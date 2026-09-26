@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createNote, editNote, getNote, listNotes, removeNote } from '../api/notesApi'
 import { useAuth } from './AuthContext'
+import { ItemsProvider } from './ItemsContext'
+import { notifyItemsChanged } from '../api/itemsApi'
 
 const NotesContext = createContext(null)
 
@@ -79,6 +81,7 @@ export function NotesProvider({ children }) {
     const accountId = accountIdRef.current
     try {
       await removeNote(id)
+      notifyItemsChanged()
       if (accountIdRef.current !== accountId) throw new Error('The authenticated account changed. Please try again.')
       setNotes((current) => current.filter((note) => note.id !== id))
       setError('')
@@ -92,7 +95,7 @@ export function NotesProvider({ children }) {
     notes, loading, error, addNote, loadNote, updateNote, deleteNote,
     refresh: () => setEpoch((value) => value + 1),
   }), [notes, loading, error])
-  return <NotesContext.Provider value={value}>{children}</NotesContext.Provider>
+  return <NotesContext.Provider value={value}><ItemsProvider>{children}</ItemsProvider></NotesContext.Provider>
 }
 
 export function useNotes() {

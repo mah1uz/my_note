@@ -77,9 +77,9 @@ export function useTaskCompletion(item, onChanged) {
     setBusy(true)
     setError('')
     try {
-      await patchItem(item.id, item.revision, changes)
+      const saved = await patchItem(item.id, item.revision, changes)
       if (active.current) onChanged()
-      return true
+      return saved
     } catch (requestError) {
       if (active.current) setError(requestErrorText(requestError))
       return false

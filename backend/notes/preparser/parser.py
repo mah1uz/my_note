@@ -36,6 +36,68 @@ OBLIGATION_DATE_RE = re.compile(
     re.I,
 )
 
+# Same-day intent: any explicit indication the work is for today.
+# Conservative: only fires on explicit today tokens, never on vague
+# "soon/later". Used as a fallback signal when the provider leaves
+# a TASK/EVENT undated.
+DUE_TODAY_RE = re.compile(
+    r'\b(today|tonight|this\s+morning|this\s+afternoon|this\s+evening|'
+    r'by\s+today|by\s+tonight|before\s+tonight|end\s+of\s+day|eod)\b',
+    re.I,
+)
+
+# Explicit clock time: "11pm", "11 pm", "11:30pm", "23:00".
+TIME_RE = re.compile(
+    r'\b(?:[01]?\d(?::[0-5]\d)?\s*(?:am|pm)|(?:[01]?\d|2[0-3]):[0-5]\d)\b',
+    re.I,
+)
+
+# Timed gathering: meeting/class/appointment near an explicit time.
+# Narrow verbs keep "meet friends someday" from matching.
+TIMED_MEETING_RE = re.compile(
+    r'\b(meeting|class|appointment|interview|lecture|exam|seminar|session)\b'
+    r'[\w\s,]{0,30}?'
+    r'(?:[01]?\d(?::[0-5]\d)?\s*(?:am|pm)|(?:[01]?\d|2[0-3]):[0-5]\d)\b'
+    r'|(?:[01]?\d(?::[0-5]\d)?\s*(?:am|pm)|(?:[01]?\d|2[0-3]):[0-5]\d)'
+    r'[\w\s,]{0,30}?\b(meeting|class|appointment|interview|lecture|exam|seminar|session)\b',
+    re.I,
+)
+
+# Shopping acquisition: get/buy/pick up/purchase/order near explicit money.
+# Catches "get a brush for 150 taka" where the verb alone is generic but
+# the price makes the purchase intent explicit.
+SHOPPING_ACQUIRE_RE = re.compile(
+    r'\b(buy|get|pick\s+up|purchase|order)\b'
+    r'[\w\s,]{0,40}?'
+    r'(?:\u09f3|\$|BDT\s*|USD\s*)?\d+(?:\.\d+)?\s*'
+    r'(?:k|thousand|lakh|lac|dollars?|taka|tk)?',
+    re.I,
+)
+
+# Work duty nouns: "work", "shift", "duty", "homework". Used only together
+# with an explicit today signal to rescue vague "i have work today" items
+# the provider files as INFORMATION.
+WORK_DUTY_RE = re.compile(r'\b(work|shift|duty|homework)\b', re.I)
+
+# Gathering nouns: checked against a single item's own text so a meeting
+# clause is never "corrected" into a task and vice versa.
+EVENT_NOUN_RE = re.compile(
+    r'\b(meeting|class|appointment|interview|lecture|exam|seminar|session)\b',
+    re.I,
+)
+
+# Any other explicit date reference (tomorrow, weekday, month, calendar
+# date). Guards the note-level due-today fallback: an item whose own text
+# points at another day must not be forced onto today in multi-clause notes
+# ("work today ... meeting tomorrow"). Bare clock numbers are excluded so
+# quantities ("2 onions") do not count; require a date word or full date.
+OTHER_DATE_RE = re.compile(
+    r'\b(tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|'
+    r'january|february|march|april|may|june|july|august|september|october|november|december|'
+    r'\d{4}-\d{2}-\d{2}|\d{1,2}(st|nd|rd|th))\b',
+    re.I,
+)
+
 
 def _amount(number, scale):
     try:
@@ -90,4 +152,8 @@ def parse_note_evidence(text):
         'event_hint': bool(re.search(r'\b(on|at|meeting|class|appointment|exam)\b', text, re.I)),
         'obligation_hint': bool(OBLIGATION_DATE_RE.search(text)),
         'shopping_hint': bool(re.search(r'\b(buy|bought|shopping|groceries|pick up)\b', text, re.I)),
+        'due_today_hint': bool(DUE_TODAY_RE.search(text)),
+        'timed_meeting_hint': bool(TIMED_MEETING_RE.search(text)),
+        'shopping_acquire_hint': bool(SHOPPING_ACQUIRE_RE.search(text)),
+        'work_duty_hint': bool(WORK_DUTY_RE.search(text)),
     }

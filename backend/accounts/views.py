@@ -5,8 +5,10 @@ from rest_framework.views import APIView
 from django.utils import timezone
 
 from .models import AppUser, UserAiEntitlement, UserPreference
-from .serializers import AiEntitlementSerializer, AppUserSerializer, PreferenceSerializer, ProRequestCreateSerializer, ProRequestSerializer
+from .serializers import AiEntitlementSerializer, AppUserSerializer, PreferenceSerializer, ProRequestCreateSerializer, ProRequestSerializer, UserGroqKeySerializer
 from .services.pro_requests import create_pro_request
+from .services import trial_keys
+from .services import user_keys
 
 
 def _require_app_user(request):
@@ -127,6 +129,37 @@ class AiEntitlementView(APIView):
             return denied
         entitlement, _ = UserAiEntitlement.objects.get_or_create(user=request.user)
         return Response(AiEntitlementSerializer(entitlement).data)
+
+
+class UserGroqKeyView(APIView):
+    """Per-user encrypted personal Groq key. Plaintext is never returned."""
+
+    def get(self, request):
+        denied = _require_app_user(request)
+        if denied:
+            return denied
+        return Response(user_keys.user_key_status(request.user))
+
+    def post(self, request):
+        denied = _require_app_user(request)
+        if denied:
+            return denied
+        serializer = UserGroqKeySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            row = user_keys.save_user_key(request.user, serializer.validated_data['key'])
+        except ValueError as error:
+            return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        except trial_keys.KeyMisconfigured as error:
+            return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(user_keys.user_key_status(request.user), status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        denied = _require_app_user(request)
+        if denied:
+            return denied
+        user_keys.delete_user_key(request.user)
+        return Response({'has_key': False, 'masked': '', 'updated_at': None})
 
 
 class OnboardingCompleteView(APIView):

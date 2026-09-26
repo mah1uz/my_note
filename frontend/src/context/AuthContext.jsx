@@ -30,7 +30,10 @@ export function AuthProvider({ children }) {
     const restorePromise = restoreSession()
     restorePromiseRef.current = restorePromise
     restorePromise.then((user) => {
-      if (active) setCurrentUser(user)
+      if (active) {
+        setCurrentUser(user)
+        window.dispatchEvent(new Event('rememberly:auth-changed'))
+      }
     }).catch(() => {
       if (active) setCurrentUser(null)
     }).finally(() => {
@@ -43,6 +46,7 @@ export function AuthProvider({ children }) {
     await restorePromiseRef.current.catch(() => {})
     const user = await loginAccount(identity, password)
     setCurrentUser(user)
+    window.dispatchEvent(new Event('rememberly:auth-changed'))
     return user
   }
 
@@ -50,6 +54,7 @@ export function AuthProvider({ children }) {
     await restorePromiseRef.current.catch(() => {})
     const user = await registerAccount(details)
     setCurrentUser(user)
+    window.dispatchEvent(new Event('rememberly:auth-changed'))
     return user
   }
 

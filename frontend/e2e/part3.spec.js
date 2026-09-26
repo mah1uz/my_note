@@ -9,7 +9,7 @@ async function register(page) {
   await page.getByLabel('Password', { exact: true }).fill('Synthetic!Cedar9426')
   await page.getByLabel('Confirm password', { exact: true }).fill('Synthetic!Cedar9426')
   await page.getByRole('button', { name: /create account/i }).click()
-  await expect(page.getByRole('heading', { name: /good morning/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening|night)/i })).toBeVisible()
 }
 
 async function capture(page, text) {

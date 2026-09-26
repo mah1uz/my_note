@@ -13,4 +13,6 @@ class NoteSerializer(serializers.ModelSerializer):
         value = value.strip()
         if not value:
             raise serializers.ValidationError('A note cannot be empty.')
+        if len(value.split()) > 300:
+            raise serializers.ValidationError('Keep notes to 300 words or fewer.')
         return value

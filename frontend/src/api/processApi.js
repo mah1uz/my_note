@@ -1,4 +1,5 @@
 import { apiRequest } from './http'
+import { notifyItemsChanged } from './itemsApi'
 
 export const BACKLOG_STATUSES = ['UNPROCESSED', 'FAILED']
 
@@ -8,9 +9,9 @@ export function backlogNotes(notes) {
 }
 
 /** Sequentially process the owned backlog. Mode is 'analyze' or 'verify'. */
-export function processAll(mode, credentials = {}, signal) {
+export async function processAll(mode, credentials = {}, signal) {
   const { apiKey = '', trial = false } = credentials
-  return apiRequest('/notes/process-all/', {
+  const result = await apiRequest('/notes/process-all/', {
     method: 'POST',
     body: JSON.stringify({ mode }),
     headers: apiKey ? { 'X-Groq-Api-Key': apiKey } : trial ? { 'X-Groq-Trial': 'true' } : undefined,
@@ -18,6 +19,11 @@ export function processAll(mode, credentials = {}, signal) {
     // A backlog holds the request open across many provider calls.
     timeout: 300000,
   })
+  // Bulk runs confirm items server-side but no single-item endpoint runs, so
+  // nothing else notifies the shared items cache. Without this, category
+  // tabs and Today's tasks stay stale until a hard refresh.
+  notifyItemsChanged()
+  return result
 }
 
 export function getAiEntitlement(signal) {

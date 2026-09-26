@@ -122,7 +122,7 @@ class NoteItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.C
 
     def get_queryset(self):
         # Drafts are available only through their owned Note's review endpoint.
-        queryset = NoteItem.objects.filter(note__app_user=self.request.user, is_confirmed=True).select_related('note', 'analysis_log').prefetch_related('domains')
+        queryset = NoteItem.objects.filter(note__app_user=self.request.user, is_confirmed=True).select_related('note').prefetch_related('domains')
         if self.action == 'list':
             queryset = queryset.filter(note__is_archived=False).exclude(status='ARCHIVED')
             for param, field, allowed in (

@@ -148,6 +148,27 @@ class UserAiEntitlement(models.Model):
         ]
 
 
+class UserGroqKey(models.Model):
+    """Per-user personal Groq key, Fernet-encrypted with SERVER_KEY_SECRET.
+
+    Plaintext is never stored, logged, or returned. Only a masked hint
+    plus metadata travel over the API.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name='groq_key')
+    key_encrypted = models.TextField()
+    key_hint = models.CharField(max_length=12, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_groq_keys'
+
+    def __str__(self):
+        return f'personal key (••••{self.key_hint})'
+
+
 class AdminProfile(models.Model):
     class Role(models.TextChoices):
         ADMIN = 'ADMIN', 'Admin'

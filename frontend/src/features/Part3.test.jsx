@@ -255,7 +255,7 @@ describe('Part 3 review and confirmed-item integration', () => {
     renderApp()
     await user.click(await screen.findByRole('button', { name: 'Analyze note' }))
     await user.click(screen.getAllByRole('link', { name: /rememberly/i })[0])
-    expect(await screen.findByRole('heading', { name: /good morning/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /good (morning|afternoon|evening|night)/i })).toBeInTheDocument()
     await act(async () => resolve())
     await waitFor(() => expect(screen.queryByLabelText('Title')).not.toBeInTheDocument())
   })

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { NOTE_MAX_LENGTH } from '../features/notes/noteTaxonomy'
+import { Link } from 'react-router-dom'
+import { NOTE_MAX_WORDS, countWords } from '../features/notes/noteText'
 import { PlusIcon } from './icons'
 import { useNotes } from '../context/NotesContext'
+import { useAutoOrganize } from '../features/processing/autoOrganize'
 import useBodyScrollLock from './useBodyScrollLock'
 
 export function AddNoteFab({ onOpen }) {
@@ -27,6 +29,7 @@ const CATEGORIES = ['General', 'Task', 'Event', 'Shopping', 'Idea']
  */
 export function AddNotePopup({ open, onClose }) {
   const { addNote } = useNotes()
+  const { organize, configured } = useAutoOrganize()
   const [text, setText] = useState('')
   const [category, setCategory] = useState(CATEGORIES[0])
   const [bold, setBold] = useState(false)
@@ -34,6 +37,9 @@ export function AddNotePopup({ open, onClose }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  const [organizing, setOrganizing] = useState(false)
+  const [organized, setOrganized] = useState(false)
+  const [organizeError, setOrganizeError] = useState(null)
   const dialogRef = useRef(null)
   const previousFocus = useRef(null)
   useBodyScrollLock(open)
@@ -45,6 +51,9 @@ export function AddNotePopup({ open, onClose }) {
     setError('')
     setSaved(false)
     setSaving(false)
+    setOrganizing(false)
+    setOrganized(false)
+    setOrganizeError(null)
     const dialog = dialogRef.current
     dialog?.querySelector('textarea')?.focus()
     const onKey = (event) => {
@@ -79,14 +88,31 @@ export function AddNotePopup({ open, onClose }) {
   const save = async (event) => {
     event.preventDefault()
     if (!text.trim() || saving) return
-    if (text.trim().length > NOTE_MAX_LENGTH) { setError(`Keep notes to ${NOTE_MAX_LENGTH} characters or fewer.`); return }
+    if (countWords(text) > NOTE_MAX_WORDS) { setError(`Keep notes to ${NOTE_MAX_WORDS} words or fewer.`); return }
     setSaving(true)
     setError('')
     try {
       // Toolbar state is cosmetic: only the raw text is ever persisted.
-      await addNote(text.trim())
+      const note = await addNote(text.trim())
       setSaved(true)
       setText('')
+      setOrganizeError(null)
+      setOrganized(false)
+      if (configured) {
+        setOrganizing(true)
+        try {
+          await organize(note)
+          setOrganized(true)
+        } catch (requestError) {
+          const code = requestError?.data?.code
+          setOrganizeError({
+            message: requestError?.message || 'Saved, but automatic organization failed.',
+            showSettings: code === 'trial_exhausted' || code === 'invalid_key',
+          })
+        } finally {
+          setOrganizing(false)
+        }
+      }
     } catch (requestError) {
       setError(requestError.message)
     } finally {
@@ -140,13 +166,13 @@ export function AddNotePopup({ open, onClose }) {
             value={text}
             onChange={(event) => setText(event.target.value)}
             placeholder="What do you want to remember?"
-            maxLength={NOTE_MAX_LENGTH}
             aria-describedby="popup-note-count"
             className={`popup-textarea${bold ? ' is-bold' : ''}${heading ? ' is-heading' : ''}`}
           />
-          <p id="popup-note-count" className="char-count">{text.length}/{NOTE_MAX_LENGTH}</p>
+          <p id="popup-note-count" className="char-count">{countWords(text)}/{NOTE_MAX_WORDS} words</p>
           {error && <p className="form-error" role="alert">{error}</p>}
-          {saved && <p className="form-success" role="status">Note saved.</p>}
+          {organizeError && <p className="form-error" role="alert">{organizeError.message}{organizeError.showSettings && <> <Link className="text-link" to="/app/settings">Open Settings</Link></>}</p>}
+          {saved && !organizeError && <p className="form-success" role="status">{organizing ? 'Note saved — organizing…' : organized ? 'Note saved and organized ✓' : 'Note saved.'}</p>}
           <div className="modal-actions">
             <button type="button" className="button button-ghost" onClick={onClose}>Cancel</button>
             <button type="submit" className="button button-primary" disabled={saving || !text.trim()}>

@@ -14,9 +14,11 @@ from ai.services import groq_service
 from accounts.services.ai_config import get_server_ai_enabled
 from accounts.services.entitlement import TrialUnavailable, consume_trial
 from accounts.services.trial_keys import has_usable_server_key
+from accounts.services.user_keys import get_user_key_plaintext
 from .item_serializers import ItemInputSerializer, NoteItemSerializer
 from .models import AIProcessingLog, Note, NoteItem
 from .preparser import parse_note_evidence
+from .preparser.parser import EVENT_NOUN_RE, OTHER_DATE_RE, WORK_DUTY_RE
 
 
 class Conflict(APIException):
@@ -57,6 +59,60 @@ def tense_conflict_flag(predicted, evidence):
             'This looks like money already spent. Consider changing it to an expense.'
         )}
     return {}
+
+
+def correct_predicted_type_and_domains(predicted, evidence):
+    """Deterministic auto-correct for clear-cut provider misclassifications.
+
+    Only fires on explicit regex evidence, never on vague text:
+    - Timed gathering ("attend a meeting at 11pm") emitted as TASK becomes
+      EVENT, moving any due_* date into the matching start_* field. Skipped
+      when the item already carries the shopping domain or explicit money,
+      since a dated shopping TASK (buy milk at 5pm) is legitimate.
+    - Acquisition with explicit price ("get a brush for 150 taka") missing
+      the shopping domain gains it. An INFORMATION item with the same
+      evidence becomes a shopping TASK, since a priced purchase intent is
+      actionable.
+    - Vague work duty filed as INFORMATION ("i have work today") with an
+      explicit today signal becomes a TASK. Scoped to the item's own text
+      (must mention work duty, must not mention a gathering), so other
+      clauses in multi-item notes are untouched.
+    Returns a corrections dict (empty when nothing changed) for review metadata.
+    """
+    corrections = {}
+    ptype = predicted.get('type')
+    domains = list(predicted.get('domains') or [])
+    has_money = bool(evidence.get('money'))
+    item_has_money = predicted.get('amount') is not None
+    item_text = ' '.join(str(predicted.get(field) or '') for field in ('title', 'summary', 'normalized_text'))
+    if (ptype == 'INFORMATION' and evidence.get('due_today_hint')
+            and WORK_DUTY_RE.search(item_text) and not EVENT_NOUN_RE.search(item_text)):
+        predicted['type'] = 'TASK'
+        corrections['from_type'] = 'INFORMATION'
+        corrections['to_type'] = 'TASK'
+        corrections['reason'] = 'work_duty_today'
+    if ptype == 'TASK' and evidence.get('timed_meeting_hint') and 'shopping' not in domains and not item_has_money:
+        predicted['type'] = 'EVENT'
+        corrections['from_type'] = 'TASK'
+        corrections['to_type'] = 'EVENT'
+        corrections['reason'] = 'timed_meeting'
+        for due_field, start_field in (('due_date', 'start_date'), ('due_datetime', 'start_datetime')):
+            if predicted.get(due_field) and not predicted.get(start_field):
+                predicted[start_field] = predicted[due_field]
+                predicted[due_field] = None
+                corrections[f'moved_{due_field}_to_{start_field}'] = True
+    current = predicted.get('type')
+    if evidence.get('shopping_acquire_hint') and has_money and 'shopping' not in domains:
+        if current in ('TASK', 'INFORMATION'):
+            domains = [*domains, 'shopping']
+            predicted['domains'] = domains
+            corrections['added_shopping_domain'] = True
+        if current == 'INFORMATION':
+            predicted['type'] = 'TASK'
+            corrections['from_type'] = 'INFORMATION'
+            corrections['to_type'] = 'TASK'
+            corrections['reason'] = 'shopping_acquire'
+    return corrections
 
 
 def split_item_ids(items, evidence):
@@ -124,15 +180,33 @@ def record_confirmation(note, source_log=None, operation='CONFIRM'):
     )
 
 
+def _user_now_and_tz(user):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    tz_name = getattr(user, 'timezone', '') or settings.TIME_ZONE
+    try:
+        zone = ZoneInfo(str(tz_name))
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        zone = ZoneInfo(settings.TIME_ZONE)
+        tz_name = settings.TIME_ZONE
+    return timezone.now().astimezone(zone), str(tz_name)
+
+
 def analyze(note, revision, user_api_key=None, trial=False):
     if len(note.raw_text) > settings.AI_MAX_NOTE_CHARACTERS:
         raise ValidationError({'detail': 'This note is too long for AI analysis. Split it or organize manually.'})
-    if not user_api_key and not trial:
+    stored_key = None
+    if not user_api_key:
+        try:
+            stored_key = get_user_key_plaintext(note.app_user)
+        except Exception:
+            stored_key = None
+    effective_key = user_api_key or stored_key
+    if not effective_key and not trial:
         raise ValidationError({
             'detail': 'Start the free trial or enter a personal API key to use AI organization.',
             'code': 'credential_required',
         })
-    if trial and not user_api_key and (not get_server_ai_enabled() or not has_usable_server_key()):
+    if trial and not effective_key and (not get_server_ai_enabled() or not has_usable_server_key()):
         raise groq_service.ProviderFailure(
             'trial_unavailable',
             'Free trial is not available right now. Enter a personal API key instead.',
@@ -140,13 +214,24 @@ def analyze(note, revision, user_api_key=None, trial=False):
         )
     if analysis_is_running(note):
         raise Conflict('Analysis is already running. Wait, then reload the review.')
+    if (note.items.filter(is_confirmed=True).exists()
+            and not note.items.filter(is_confirmed=False).exists()
+            and note.ai_logs.filter(
+                operation='ANALYZE', status__in=['SUCCESS', 'EMPTY'], input_text=note.raw_text,
+            ).exists()):
+        # Idempotency guard: this exact text was already fully organized (every
+        # draft confirmed, none pending). Analyzing again would append a duplicate
+        # generation of items on the next confirm. Retry-with-drafts still works:
+        # while unconfirmed drafts exist, analyze replaces them as before. Edit
+        # the note (new text) to re-analyze legitimately.
+        raise Conflict('This note is already organized. Review the confirmed items instead of analyzing again.')
     with transaction.atomic():
         claim_revision(note, revision, processing_status='PROCESSING', analysis_started_at=timezone.now())
         # Quota is consumed inside the claim transaction: a rejected trial,
         # a running analysis, or a stale revision burns neither quota,
         # revision, nor note state (all roll back together). Consumed quota
         # is not refunded on later provider failure (documented charge policy).
-        if trial and not user_api_key:
+        if trial and not effective_key:
             try:
                 consume_trial(note.app_user)
             except TrialUnavailable as error:
@@ -162,23 +247,42 @@ def analyze(note, revision, user_api_key=None, trial=False):
     payload = None
     failure = None
     deterministic_evidence = parse_note_evidence(note.raw_text)
+    user_now, user_tz = _user_now_and_tz(note.app_user)
+    today_iso = user_now.date().isoformat()
     try:
-        if user_api_key:
-            provider_response = groq_service.analyze_note(note.raw_text, timezone.localtime(), api_key=user_api_key)
+        if effective_key:
+            provider_response = groq_service.analyze_note(note.raw_text, user_now, api_key=effective_key, tz_name=user_tz)
         else:
-            provider_response = groq_service.analyze_note(note.raw_text, timezone.localtime())
-        raw = groq_service.redact(provider_response, extra_key=user_api_key)
+            provider_response = groq_service.analyze_note(note.raw_text, user_now, tz_name=user_tz)
+        raw = groq_service.redact(provider_response, extra_key=effective_key)
         payload = parse_analysis(raw)
         split_ids = split_item_ids(payload['items'], deterministic_evidence)
         validated = []
         for predicted in payload['items']:
+            auto_corrections = correct_predicted_type_and_domains(predicted, deterministic_evidence)
             data = {key: value for key, value in predicted.items() if key not in ('type', 'confidence')}
             data['item_type'] = predicted['type']
+            # Same-day safety net: explicit today tokens mean due today even
+            # when the provider leaves a TASK/EVENT undated. Scoped per item:
+            # an item whose own text points at another day (e.g. a "tomorrow"
+            # clause in a multi-item note) is left alone.
+            if deterministic_evidence.get('due_today_hint'):
+                has_any_date = any(data.get(field) for field in (
+                    'due_date', 'due_datetime', 'start_date', 'start_datetime'))
+                item_text = ' '.join(str(data.get(field) or '') for field in (
+                    'title', 'summary', 'normalized_text'))
+                if not has_any_date and not OTHER_DATE_RE.search(item_text):
+                    if predicted.get('type') == 'TASK':
+                        data['due_date'] = today_iso
+                    elif predicted.get('type') == 'EVENT':
+                        data['start_date'] = today_iso
             # Keep explicit parser evidence visible for review; never replace provider values.
             data['metadata'] = {
                 'deterministic_evidence': deterministic_evidence,
                 **tense_conflict_flag(predicted, deterministic_evidence),
             }
+            if auto_corrections:
+                data['metadata']['auto_corrected'] = auto_corrections
             if id(predicted) in split_ids:
                 data['metadata']['possible_split'] = (
                     'One amount in your note produced several items here. '
@@ -343,12 +447,18 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
     """
     if mode not in ('analyze', 'verify'):
         raise ValidationError({'mode': 'Use analyze or verify.'})
-    if not user_api_key and not trial:
+    stored_backlog_key = None
+    if not user_api_key:
+        try:
+            stored_backlog_key = get_user_key_plaintext(user)
+        except Exception:
+            stored_backlog_key = None
+    if not user_api_key and not stored_backlog_key and not trial:
         raise ValidationError({
             'detail': 'Start the free trial or enter a personal API key to use AI organization.',
             'code': 'credential_required',
         })
-    if trial and not user_api_key and (not get_server_ai_enabled() or not has_usable_server_key()):
+    if trial and not user_api_key and not stored_backlog_key and (not get_server_ai_enabled() or not has_usable_server_key()):
         raise groq_service.ProviderFailure(
             'trial_unavailable',
             'Free trial is not available right now. Enter a personal API key instead.',

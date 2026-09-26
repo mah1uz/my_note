@@ -17,7 +17,7 @@ from ai.services.groq_service import ProviderFailure
 from notes.test_fixtures import EXAMPLES, example_output
 
 
-def mock_analysis(raw_text, now, api_key=None):
+def mock_analysis(raw_text, now, api_key=None, **kwargs):
     # Only this explicitly launched disposable E2E process uses a mock provider.
     # No application setting, request parameter, or production route enables it.
     if raw_text == 'E2E simulate AI timeout':

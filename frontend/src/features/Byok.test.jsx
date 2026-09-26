@@ -71,6 +71,29 @@ describe('session-only Groq BYOK', () => {
     expect(screen.getByText(/no key configured/i)).toBeInTheDocument()
   })
 
+  it('shows an actionable message when server key storage is unconfigured', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn(async (input, options = {}) => {
+      const url = new URL(input)
+      if (url.pathname.endsWith('/auth/ai/key/') && (options.method || 'GET') === 'GET') {
+        return new Response(JSON.stringify({ has_key: false, masked: '', updated_at: null }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.pathname.endsWith('/auth/ai/key/') && options.method === 'POST') {
+        return new Response(JSON.stringify({ detail: 'SERVER_KEY_SECRET is not configured. Set it to use admin-managed trial keys.' }), {
+          status: 503, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    render(<AiKeyProvider><AiProviderCard /></AiKeyProvider>)
+    await user.type(screen.getByLabelText('Groq API Key'), 'gsk_synthetic_personal_key_1234567890')
+    await user.click(screen.getByRole('button', { name: /save key/i }))
+    expect(await screen.findByText(/key storage is not configured on the server yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/use.*use for this session.*meanwhile/i)).toBeInTheDocument()
+  })
+
   it('sends the trial flag only to analyze when no personal key is set', async () => {
     setAccessToken('test-access')
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }))

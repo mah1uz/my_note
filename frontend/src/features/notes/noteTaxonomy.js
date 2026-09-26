@@ -1,7 +1,3 @@
-import { useEffect, useRef, useState } from 'react'
-import { listItems } from '../../api/itemsApi'
-import { useAuth } from '../../context/AuthContext'
-
 export const NOTE_TABS = [
   { key: 'all', label: 'All' },
   { key: 'tasks', label: 'Tasks' },
@@ -9,8 +5,6 @@ export const NOTE_TABS = [
   { key: 'shopping', label: 'Shopping' },
 ]
 
-/** Abuse barrier: notes are capped at 100 characters in every input. */
-export const NOTE_MAX_LENGTH = 100
 
 function localDayString(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -50,60 +44,60 @@ export function groupItemsByNote(items) {
   return groups
 }
 
+export const DUE_TODAY_RE = /\b(today|tonight|this\s+morning|this\s+afternoon|this\s+evening|by\s+today|by\s+tonight|before\s+tonight|end\s+of\s+day|eod)\b/i
+
+function dayStringInTimezone(date, timeZone) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
+    const get = (type) => parts.find((part) => part.type === type)?.value
+    return `${get('year')}-${get('month')}-${get('day')}`
+  } catch {
+    return localDayString(date)
+  }
+}
+
+export function todayString(now = new Date(), timeZone) {
+  if (!timeZone) return localDayString(now)
+  return dayStringInTimezone(now, timeZone)
+}
+
 /**
- * True when a PENDING task is due at some point today (local calendar day).
- * Accepts date-only facts (due_date) and timed facts (due_datetime).
- * Completed/cancelled tasks are never "today's tasks".
+ * True when a PENDING task/event is due at some point today.
+ * - TASK (including shopping): due_date / due_datetime == today.
+ * - EVENT: start_date / start_datetime == today.
+ * - Fallback: undated PENDING TASK from a note created today.
+ * Completed/cancelled/archived items are never "today's tasks".
  */
-export function isDueToday(item, now = new Date()) {
-  if (!item || item.item_type !== 'TASK' || item.status !== 'PENDING') return false
-  const today = localDayString(now)
-  if (item.due_date) return item.due_date === today
-  if (item.due_datetime) {
-    const parsed = new Date(item.due_datetime)
-    if (Number.isNaN(parsed.getTime())) return false
-    return localDayString(parsed) === today
+export function isDueToday(item, now = new Date(), options = {}) {
+  if (!item || item.status !== 'PENDING') return false
+  const timeZone = options.timeZone
+  const today = todayString(now, timeZone)
+  const toDay = (value) => {
+    if (!value) return null
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return String(value)
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return null
+    return timeZone ? dayStringInTimezone(parsed, timeZone) : localDayString(parsed)
+  }
+  if (item.item_type === 'TASK') {
+    if (item.due_date && item.due_date === today) return true
+    if (item.due_datetime && toDay(item.due_datetime) === today) return true
+    if (!item.due_date && !item.due_datetime && options.noteCreatedAt) {
+      const createdDay = toDay(options.noteCreatedAt)
+      if (createdDay === today) return true
+    }
+    return false
+  }
+  if (item.item_type === 'EVENT') {
+    if (item.start_date && item.start_date === today) return true
+    if (item.start_datetime && toDay(item.start_datetime) === today) return true
+    if (item.due_date && item.due_date === today) return true
+    if (item.due_datetime && toDay(item.due_datetime) === today) return true
+    return false
   }
   return false
 }
 
-/**
- * Fetch all confirmed items once and expose the per-note category map
- * plus the raw items. Scoped to the current account like every list.
- *
- * Refreshes are silent: only the first load flashes loading (and clears);
- * later refetches reconcile in place so ticks never remount the grid.
- * patchLocal applies an optimistic flip instantly; the next refresh
- * confirms or reverts it from server truth.
- */
-export function useConfirmedItems() {
-  const { currentUser } = useAuth()
-  const [state, setState] = useState({ loading: true, items: [], error: '' })
-  const [epoch, setEpoch] = useState(0)
-  const initialized = useRef(false)
-  useEffect(() => {
-    const controller = new AbortController()
-    const first = !initialized.current
-    if (first) setState({ loading: true, items: [], error: '' })
-    listItems('', { signal: controller.signal }).then(
-      (items) => {
-        if (controller.signal.aborted) return
-        initialized.current = true
-        setState({ loading: false, items: Array.isArray(items) ? items : [], error: '' })
-      },
-      () => {
-        if (controller.signal.aborted) return
-        initialized.current = true
-        setState((current) => ({ loading: false, items: first ? [] : current.items, error: 'Categories are unavailable right now.' }))
-      },
-    )
-    return () => controller.abort()
-  }, [currentUser?.id, epoch])
-  const patchLocal = (id, changes) => {
-    setState((current) => ({
-      ...current,
-      items: current.items.map((item) => String(item.id) === String(id) ? { ...item, ...changes } : item),
-    }))
-  }
-  return { ...state, refresh: () => setEpoch((value) => value + 1), patchLocal }
+export function hasDueTodayHint(text) {
+  return DUE_TODAY_RE.test(String(text || ''))
 }

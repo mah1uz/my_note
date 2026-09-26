@@ -11,7 +11,7 @@ test('user can register and complete persistent Notes CRUD', async ({ page }) =>
   await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByLabel('Confirm password').fill(password)
   await page.getByRole('button', { name: /create account/i }).click()
-  await expect(page.getByRole('heading', { name: /good morning, browser tester/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening|night), browser tester/i })).toBeVisible()
 
   await page.getByRole('link', { name: /notes$/i }).first().click()
   await page.getByRole('link', { name: /new note/i }).click()
@@ -43,5 +43,5 @@ test('user can register and complete persistent Notes CRUD', async ({ page }) =>
   await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: /log in/i }).click()
-  await expect(page.getByRole('heading', { name: /good morning, browser tester/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /good (morning|afternoon|evening|night), browser tester/i })).toBeVisible()
 })

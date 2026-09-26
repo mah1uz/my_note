@@ -360,6 +360,87 @@ class IntelligenceApiTests(APITestCase):
         ])
         self.assertNotIn('tense_conflict', shopping.items.get().metadata)
 
+    def test_reported_note_auto_corrects_meeting_to_event_and_brush_to_shopping(self):
+        # Reported note: "i have to attend a meeting at 11pm, and get a brush
+        # for 150 taka". Provider misfires both: meeting as TASK, brush as
+        # plain TASK. Deterministic evidence must auto-correct.
+        note = self.analyze_text('i have to attend a meeting at 11pm, and get a brush for 150 taka', [
+            prediction(type='TASK', title='Attend meeting', domains=['work']),
+            prediction(type='TASK', title='Get brush', amount=150, currency='BDT',
+                       domains=['personal']),
+        ])
+        items = {item.title: item for item in note.items.all()}
+        meeting = items['Attend meeting']
+        self.assertEqual(meeting.item_type, 'EVENT')
+        self.assertEqual(meeting.metadata.get('auto_corrected', {}).get('to_type'), 'EVENT')
+        brush = items['Get brush']
+        self.assertEqual(brush.item_type, 'TASK')
+        self.assertIn('shopping', list(brush.domains.values_list('slug', flat=True)))
+        self.assertEqual(brush.metadata.get('auto_corrected', {}).get('added_shopping_domain'), True)
+
+    def test_reanalyze_of_already_organized_text_is_rejected_without_duplicating(self):
+        note = self.analyze_text('i have to buy shampoo for 100 taka', [
+            prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
+                       domains=['shopping']),
+        ])
+        draft = note.items.get()
+        confirm_response = self.client.post(
+            f'/api/v1/notes/{note.pk}/confirm-analysis/',
+            {'revision': note.revision, 'items': [{
+                'id': draft.pk, 'item_type': 'TASK', 'title': 'Buy shampoo',
+                'amount': '100', 'currency': 'BDT', 'domains': ['shopping'],
+            }]}, format='json',
+        )
+        self.assertEqual(confirm_response.status_code, 200)
+        note.refresh_from_db()
+        retry = self.client.post(
+            f'/api/v1/notes/{note.pk}/analyze/', {'revision': note.revision},
+            format='json', HTTP_X_GROQ_TRIAL='true',
+        )
+        self.assertEqual(retry.status_code, 409)
+        self.assertIn('already organized', retry.data['detail'])
+        self.assertEqual(note.items.filter(is_confirmed=True).count(), 1)
+        self.assertEqual(note.items.filter(is_confirmed=False).count(), 0)
+
+    def test_reported_multi_clause_note_dates_work_today_without_touching_tomorrow_meeting(self):
+        today = str(timezone.localtime(timezone.now()).date())
+        note = self.analyze_text('i have work today and then a meeting at 9pm tomorrow', [
+            prediction(type='INFORMATION', title='Work', domains=['personal']),
+            prediction(type='EVENT', title='Meeting', domains=['work'],
+                       start_datetime='2026-09-27T21:00:00+06:00'),
+        ])
+        items = {item.title: item for item in note.items.all()}
+        work = items['Work']
+        self.assertEqual(work.item_type, 'TASK')
+        self.assertEqual(str(work.due_date), today)
+        self.assertEqual(work.metadata.get('auto_corrected', {}).get('reason'), 'work_duty_today')
+        meeting = items['Meeting']
+        self.assertEqual(meeting.item_type, 'EVENT')
+        self.assertEqual(
+            meeting.start_datetime.astimezone(timezone.get_current_timezone()).isoformat(),
+            '2026-09-27T21:00:00+06:00',
+        )
+        self.assertNotIn('auto_corrected', meeting.metadata)
+
+    def test_today_fallback_skips_items_pointing_at_another_day(self):
+        note = self.analyze_text('i have work today and then a meeting tomorrow', [
+            prediction(type='EVENT', title='Meeting', summary='tomorrow at 9pm', domains=['work']),
+        ])
+        meeting = note.items.get()
+        self.assertEqual(meeting.item_type, 'EVENT')
+        self.assertIsNone(meeting.start_date)
+        self.assertIsNone(meeting.start_datetime)
+
+    def test_dated_shopping_task_at_time_is_not_converted_to_event(self):
+        # Guard: "buy milk at 5pm" is a legitimate dated shopping TASK.
+        note = self.analyze_text('buy milk at 5pm', [
+            prediction(type='TASK', title='Buy milk', due_date='2026-09-26',
+                       domains=['shopping']),
+        ])
+        item = note.items.get()
+        self.assertEqual(item.item_type, 'TASK')
+        self.assertNotIn('auto_corrected', item.metadata)
+
     def test_verify_mode_leaves_everything_for_manual_review(self):
         note = self.analyze_text('i have to buy shampoo for 100 taka', [
             prediction(type='TASK', title='Buy shampoo', amount=100, currency='BDT',
@@ -578,7 +659,7 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(self.client.patch(url, {'revision': 0, 'status': 'COMPLETED'}, format='json').status_code, 409)
 
     def test_inflight_note_edit_discards_stale_ai_result(self):
-        def edit_during_call(*args):
+        def edit_during_call(*args, **kwargs):
             self.client.patch(self.base, {'raw_text': 'New source'}, format='json')
             return json.dumps(example_output(self.text))
         self.provider.side_effect = edit_during_call
@@ -590,7 +671,7 @@ class IntelligenceApiTests(APITestCase):
         self.assertEqual(self.note.ai_logs.get().status, 'SUPERSEDED')
 
     def test_inflight_delete_does_not_resurrect_note_or_logs(self):
-        def delete_during_call(*args):
+        def delete_during_call(*args, **kwargs):
             self.client.delete(self.base)
             return json.dumps(example_output(self.text))
         self.provider.side_effect = delete_during_call
@@ -721,7 +802,7 @@ class BulkProcessTests(APITestCase):
         self.addCleanup(patch.stopall)
         self.texts = list(EXAMPLES)
 
-    def fixture(self, raw_text, now, api_key=None):
+    def fixture(self, raw_text, now, api_key=None, **kwargs):
         return json.dumps(example_output(raw_text))
 
     def make(self, text, status='UNPROCESSED', owner=None, archived=False):
