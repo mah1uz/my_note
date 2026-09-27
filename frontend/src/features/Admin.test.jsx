@@ -166,6 +166,6 @@ describe('Admin dashboard', () => {
     expect(within(pool).queryByText('gsk_testkey_7890')).not.toBeInTheDocument()
     expect(within(pool).getByLabelText('New trial key value')).toHaveValue('')
     const posts = fetch.mock.calls.filter(([url, options]) => url.endsWith('/admin/trial-keys/') && options?.method === 'POST')
-    expect(JSON.parse(posts[0][1].body)).toEqual({ label: 'key-2', key: 'gsk_testkey_7890' })
+    expect(JSON.parse(posts[0][1].body)).toEqual({ label: 'key-2', key: 'gsk_testkey_7890', provider: 'groq' })
   })
 })

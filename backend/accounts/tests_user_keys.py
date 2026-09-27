@@ -35,19 +35,37 @@ class UserKeyServiceTests(TestCase):
         user = make_user()
         row = user_keys.save_user_key(user, 'gsk_synthetic_personal_key_1234567890')
         self.assertEqual(row.key_hint, '7890')
+        self.assertEqual(row.provider, 'groq')
         self.assertNotIn('gsk_synthetic', row.key_encrypted)
         self.assertEqual(user_keys.get_user_key_plaintext(user), 'gsk_synthetic_personal_key_1234567890')
         status = user_keys.user_key_status(user)
-        self.assertEqual(status, {'has_key': True, 'masked': '••••7890', 'updated_at': status['updated_at']})
+        self.assertEqual(status, {'has_key': True, 'masked': '••••7890', 'updated_at': status['updated_at'], 'provider': 'groq'})
         self.assertTrue(status['updated_at'])
         user_keys.delete_user_key(user)
-        self.assertEqual(user_keys.user_key_status(user), {'has_key': False, 'masked': '', 'updated_at': None})
+        self.assertEqual(user_keys.user_key_status(user), {'has_key': False, 'masked': '', 'updated_at': None, 'provider': 'groq'})
 
     def test_rejects_bad_format(self):
         user = make_user('other@example.com')
         with self.assertRaises(ValueError):
             user_keys.save_user_key(user, 'not-a-key')
         self.assertEqual(UserGroqKey.objects.count(), 0)
+
+    def test_gemini_key_is_stored_isolated_from_groq(self):
+        user = make_user('gemini@example.com')
+        gemini_key = 'AIzaSyD-synthetic-gemini-key-123456'
+        row = user_keys.save_user_key(user, gemini_key, provider='gemini')
+        self.assertEqual(row.provider, 'gemini')
+        self.assertEqual(user_keys.get_user_key_plaintext(user, 'gemini'), gemini_key)
+        self.assertIsNone(user_keys.get_user_key_plaintext(user, 'groq'))
+        self.assertTrue(user_keys.user_key_status(user, 'gemini')['has_key'])
+        self.assertFalse(user_keys.user_key_status(user, 'groq')['has_key'])
+        user_keys.delete_user_key(user, 'gemini')
+        self.assertFalse(user_keys.user_key_status(user, 'gemini')['has_key'])
+
+    def test_unknown_provider_is_rejected(self):
+        user = make_user('bad-provider@example.com')
+        with self.assertRaises(ValueError):
+            user_keys.save_user_key(user, 'gsk_synthetic_personal_key_1234567890', provider='openai')
 
 
 @override_settings(SERVER_KEY_SECRET=USER_SECRET, GROQ_API_KEY='')
@@ -57,7 +75,7 @@ class UserKeyApiTests(APITestCase):
 
     def test_key_crud_returns_masked_only(self):
         auth_client(self, self.user)
-        self.assertEqual(self.client.get('/api/v1/auth/ai/key/').data, {'has_key': False, 'masked': '', 'updated_at': None})
+        self.assertEqual(self.client.get('/api/v1/auth/ai/key/').data, {'has_key': False, 'masked': '', 'updated_at': None, 'provider': 'groq'})
         bad = self.client.post('/api/v1/auth/ai/key/', {'key': 'nope'}, format='json')
         self.assertEqual(bad.status_code, 400)
         created = self.client.post('/api/v1/auth/ai/key/', {'key': 'gsk_synthetic_personal_key_1234567890'}, format='json')
@@ -69,6 +87,20 @@ class UserKeyApiTests(APITestCase):
         deleted = self.client.delete('/api/v1/auth/ai/key/')
         self.assertEqual(deleted.data['has_key'], False)
         self.assertEqual(self.client.get('/api/v1/auth/ai/key/').data['has_key'], False)
+
+    def test_key_crud_is_scoped_per_provider(self):
+        auth_client(self, self.user)
+        gemini_key = 'AIzaSyD-synthetic-gemini-key-123456'
+        created = self.client.post(
+            '/api/v1/auth/ai/key/', {'key': gemini_key, 'provider': 'gemini'}, format='json')
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data['provider'], 'gemini')
+        self.assertTrue(self.client.get('/api/v1/auth/ai/key/?provider=gemini').data['has_key'])
+        self.assertFalse(self.client.get('/api/v1/auth/ai/key/?provider=groq').data['has_key'])
+        self.assertEqual(self.client.get('/api/v1/auth/ai/key/?provider=openai').status_code, 400)
+        deleted = self.client.delete('/api/v1/auth/ai/key/?provider=gemini')
+        self.assertEqual(deleted.data['has_key'], False)
+        self.assertFalse(self.client.get('/api/v1/auth/ai/key/?provider=gemini').data['has_key'])
 
 
 @override_settings(SERVER_KEY_SECRET=USER_SECRET, GROQ_API_KEY='')

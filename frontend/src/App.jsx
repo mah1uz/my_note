@@ -66,14 +66,14 @@ function MobileNav() {
 }
 
 function AiNotices() {
-  const { groqApiKey, storedKey, trialActive } = useAiKey()
+  const { aiProvider, sessionKey, storedKeys, trialActive } = useAiKey()
   const { notes } = useNotes()
   const { activeOrganizeIds } = useAutoOrganize()
   const [setupDismissed, setSetupDismissed] = useState(false)
-  const configured = isAiConfigured({ groqApiKey, storedKey, trialActive })
+  const configured = isAiConfigured({ sessionKey, storedKeys, provider: aiProvider, trialActive })
   if (!configured) {
     if (setupDismissed) return null
-    return <div className="notice-banner notice-setup" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>AI organization is off.</strong><span> Add a Groq key or turn on the free trial in Settings to organize notes automatically.</span></div><Link className="button button-primary" to="/app/settings">Open Settings</Link><button className="text-button" onClick={() => setSetupDismissed(true)}>Dismiss</button></div>
+    return <div className="notice-banner notice-setup" role="status"><span className="notice-icon"><SparkleIcon /></span><div><strong>AI organization is off.</strong><span> Add a Groq or Gemini key, or turn on the free trial in Settings to organize notes automatically.</span></div><Link className="button button-primary" to="/app/settings">Open Settings</Link><button className="text-button" onClick={() => setSetupDismissed(true)}>Dismiss</button></div>
   }
   // Split by live state: notes being organized right now (in-flight runs or
   // PROCESSING status) read differently from settled notes awaiting review.
@@ -382,7 +382,7 @@ function NoteCategoryCard({ note, tab, items, onChanged, onTicked, auto, onPeek,
 function NotesPage() {
   const { currentUser } = useAuth()
   const { notes, loading, error, deleteNote, refresh: refreshNotes } = useNotes()
-  const { groqApiKey, trialActive, storedKey } = useAiKey()
+  const { aiProvider, sessionKey, storedKeys, trialActive } = useAiKey()
   const accountTimeZone = currentUser?.timezone || undefined
   const [tab, setTab] = useState('all')
   const [peekId, setPeekId] = useState(null)
@@ -419,7 +419,7 @@ function NotesPage() {
     return { can, running: autoId === String(note.id), run: runAuto }
   }
   const runAuto = async (note) => {
-    if (!isAiConfigured({ groqApiKey, storedKey, trialActive })) { setPeekId(note.id); return }
+    if (!isAiConfigured({ sessionKey, storedKeys, provider: aiProvider, trialActive })) { setPeekId(note.id); return }
     // Ref-based single-flight: state updates are async, so two rapid clicks
     // would both pass an autoId check. The ref blocks the second run.
     if (autoRunningRef.current) return
@@ -427,7 +427,7 @@ function NotesPage() {
     setAutoId(note.id)
     setAutoError('')
     try {
-      const result = await autoOrganize(note, { apiKey: groqApiKey, trial: trialActive })
+      const result = await autoOrganize(note, { apiKey: sessionKey, trial: trialActive, provider: aiProvider })
       if (result.status === 'no-drafts') { setPeekId(note.id); return }
       // confirmAnalysis already notifies the shared items cache, so only the
       // notes list needs an explicit refresh here (one refresh, not two).

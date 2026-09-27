@@ -207,7 +207,7 @@ function renderApp(path = '/') {
 function renderAppWithTrial(path = '/') {
   window.history.pushState({}, '', path)
   return render(
-    <AiKeyContext.Provider value={{ groqApiKey: '', setGroqApiKey: () => {}, clearGroqApiKey: () => {}, trialActive: true, startTrial: () => {}, endTrial: () => {} }}>
+    <AiKeyContext.Provider value={{ aiProvider: 'groq', setAiProvider: () => {}, sessionKeys: { groq: '', gemini: '' }, sessionKey: '', setSessionKey: () => {}, clearSessionKeys: () => {}, storedKeys: null, storedLoading: false, savePersonalKey: async () => {}, removePersonalKey: async () => {}, refreshStoredKeys: async () => {}, trialActive: true, startTrial: () => {}, endTrial: () => {} }}>
       <AuthProvider>
         <NotesProvider>
           <AppStateProvider><App /></AppStateProvider>

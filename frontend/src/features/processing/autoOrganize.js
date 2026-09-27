@@ -25,8 +25,10 @@ export function getActiveOrganizeIds() {
 }
 
 /** True when AI can run: personal key (session or saved) or trial. */
-export function isAiConfigured({ groqApiKey = '', storedKey = null, trialActive = false } = {}) {
-  return Boolean(groqApiKey || storedKey?.has_key || trialActive)
+export function isAiConfigured({ sessionKey = '', groqApiKey = '', storedKeys = null, storedKey = null, provider = 'groq', trialActive = false } = {}) {
+  const key = sessionKey || groqApiKey
+  const stored = storedKeys ? storedKeys[provider]?.has_key : storedKey?.has_key
+  return Boolean(key || stored || trialActive)
 }
 
 /**
@@ -36,8 +38,8 @@ export function isAiConfigured({ groqApiKey = '', storedKey = null, trialActive 
  * Throws the API error on failure. Refreshing the notes list is the
  * caller's job; the shared items cache is notified by confirmAnalysis.
  */
-export async function autoOrganize(note, { apiKey = '', trial = false } = {}) {
-  const reviewed = await analyzeNote(note.id, note.revision, apiKey, trial)
+export async function autoOrganize(note, { apiKey = '', trial = false, provider = 'groq' } = {}) {
+  const reviewed = await analyzeNote(note.id, note.revision, apiKey, trial, provider)
   const drafts = (reviewed.items || []).filter((item) => !item.is_confirmed)
   if (!drafts.length) return { status: 'no-drafts', review: reviewed }
   const confirmed = await confirmAnalysis(
@@ -52,7 +54,7 @@ export async function autoOrganize(note, { apiKey = '', trial = false } = {}) {
  * automatic confirm would silently stack a duplicate generation.
  */
 export function useAutoOrganize() {
-  const { groqApiKey, storedKey, trialActive } = useAiKey()
+  const { aiProvider, sessionKey, storedKeys, trialActive } = useAiKey()
   const { refresh } = useNotes()
   const runningRef = useRef(new Set())
   const [activeIds, setActiveIds] = useState(() => getActiveOrganizeIds())
@@ -60,14 +62,14 @@ export function useAutoOrganize() {
   useEffect(() => subscribeActiveOrganize(setActiveIds), [])
 
   const organize = useCallback((note) => {
-    const credentials = { groqApiKey, storedKey, trialActive }
+    const credentials = { sessionKey, storedKeys, provider: aiProvider, trialActive }
     if (!isAiConfigured(credentials)) return Promise.resolve({ status: 'skipped-no-credential' })
     const key = String(note.id)
     if (runningRef.current.has(key)) return Promise.resolve({ status: 'already-running' })
     runningRef.current.add(key)
     activeOrganizeIds.add(key)
     emitActiveOrganize()
-    return autoOrganize(note, { apiKey: groqApiKey, trial: trialActive })
+    return autoOrganize(note, { apiKey: sessionKey, trial: trialActive, provider: aiProvider })
       .then((result) => {
         refresh()
         return result
@@ -82,11 +84,11 @@ export function useAutoOrganize() {
         activeOrganizeIds.delete(key)
         emitActiveOrganize()
       })
-  }, [groqApiKey, storedKey, trialActive, refresh])
+  }, [sessionKey, storedKeys, aiProvider, trialActive, refresh])
 
   return {
     organize,
-    configured: isAiConfigured({ groqApiKey, storedKey, trialActive }),
+    configured: isAiConfigured({ sessionKey, storedKeys, provider: aiProvider, trialActive }),
     activeOrganizeIds: activeIds,
   }
 }

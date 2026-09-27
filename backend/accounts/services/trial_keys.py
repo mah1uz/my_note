@@ -1,4 +1,4 @@
-"""Server-owned Groq key pool for the free trial.
+"""Server-owned key pools for the free trial, one pool per AI provider.
 
 Plaintext keys live only in transit: they arrive over the admin API,
 are Fernet-encrypted before the first write, and are decrypted only
@@ -50,40 +50,56 @@ def masked(key):
     return f'••••{key.key_hint}' if key.key_hint else '••••'
 
 
-def validate_format(raw):
-    """Cheap shape check only — no provider call, no quota spent."""
+def validate_format(raw, provider=None):
+    """Cheap shape check only — no provider call, no quota spent.
+
+    Deliberately generic across providers: any 20–200 character key is
+    accepted. The Settings UI tells users which prefix to expect per
+    provider, but the backend does not hard-block on prefixes.
+    """
     value = str(raw or '').strip()
-    if len(value) < 20 or len(value) > 200:
-        return False
-    return value.startswith('gsk_')
+    return 20 <= len(value) <= 200
 
 
 @transaction.atomic
-def add_key(label, raw, admin_profile=None):
+def add_key(label, raw, admin_profile=None, provider='groq'):
+    from ai.services.providers import normalize_provider
+
+    provider = normalize_provider(provider)
     value = str(raw or '').strip()
-    if not validate_format(value):
-        raise ValueError('That does not look like a Groq API key.')
+    if not validate_format(value, provider):
+        raise ValueError('That does not look like a valid API key.')
     return GroqServerKey.objects.create(
         label=str(label or '').strip()[:80] or 'Trial key',
         key_encrypted=encrypt_key(value),
         key_hint=value[-4:],
+        provider=provider,
         created_by_admin=admin_profile,
     )
 
 
-def active_keys():
+def active_keys(provider='groq'):
     """Active pool in round-robin order: never-used first, then least-recently-used."""
+    from ai.services.providers import normalize_provider
+
+    provider = normalize_provider(provider)
     return list(
-        GroqServerKey.objects.filter(is_active=True).order_by(
+        GroqServerKey.objects.filter(is_active=True, provider=provider).order_by(
             F('last_used_at').asc(nulls_first=True), 'created_at', 'id',
         )
     )
 
 
-def has_usable_server_key():
-    if getattr(settings, 'GROQ_API_KEY', ''):
+def has_usable_server_key(provider='groq'):
+    from ai.services.providers import normalize_provider
+
+    provider = normalize_provider(provider)
+    if provider == 'gemini':
+        if getattr(settings, 'GEMINI_API_KEY', ''):
+            return True
+    elif getattr(settings, 'GROQ_API_KEY', ''):
         return True
-    return GroqServerKey.objects.filter(is_active=True).exists()
+    return GroqServerKey.objects.filter(is_active=True, provider=provider).exists()
 
 
 @transaction.atomic

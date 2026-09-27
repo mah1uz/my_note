@@ -266,7 +266,7 @@ function TrialKeysManager() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
-  const [form, setForm] = useState({ label: '', key: '' })
+  const [form, setForm] = useState({ label: '', key: '', provider: 'groq' })
 
   useEffect(() => {
     if (!canManageAdmins) { setLoading(false); return }
@@ -281,9 +281,9 @@ function TrialKeysManager() {
     setBusy(true)
     setError('')
     try {
-      const created = await createTrialKey({ label: form.label.trim(), key: form.key.trim() })
+      const created = await createTrialKey({ label: form.label.trim(), key: form.key.trim(), provider: form.provider })
       setKeys((rows) => [...rows, created])
-      setForm({ label: '', key: '' })
+      setForm({ label: '', key: '', provider: 'groq' })
     } catch (requestError) {
       setError(requestError.message)
     } finally {
@@ -323,16 +323,21 @@ function TrialKeysManager() {
     <p className="field-help">Server keys for the Free trial, used least-recently-used first. When one hits its limit, add the next here — no redeploy. Values are encrypted and never shown again after saving.</p>
     <form className="inline-form" onSubmit={add}>
       <input value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} placeholder="Label (e.g. key-2)" aria-label="New trial key label" maxLength={80} />
-      <input type="password" value={form.key} onChange={(event) => setForm({ ...form, key: event.target.value })} placeholder="gsk_…" aria-label="New trial key value" required autoComplete="new-password" />
+      <select value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })} aria-label="New trial key provider">
+        <option value="groq">Groq</option>
+        <option value="gemini">Gemini</option>
+      </select>
+      <input type="password" value={form.key} onChange={(event) => setForm({ ...form, key: event.target.value })} placeholder="gsk_… / AIza…" aria-label="New trial key value" required autoComplete="new-password" />
       <button className="button button-primary" disabled={busy}>Add key</button>
     </form>
     <ErrorText error={error} />
     {loading ? <div className="loading-state">Loading trial keys…</div> : keys.length === 0 ? <p className="field-help">No pool keys yet — trials fall back to the server .env key.</p> : (
       <table className="admin-table">
-        <thead><tr><th>Label</th><th>Key</th><th>Active</th><th>Uses</th><th>Failures</th><th>Last used</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Label</th><th>Provider</th><th>Key</th><th>Active</th><th>Uses</th><th>Failures</th><th>Last used</th><th>Actions</th></tr></thead>
         <tbody>
           {keys.map((key) => <tr key={key.id}>
             <td>{key.label}{key.disabled_reason && <small> · auto-disabled: {key.disabled_reason}</small>}</td>
+            <td>{key.provider || 'groq'}</td>
             <td><span className="mono">{key.masked}</span></td>
             <td>{key.is_active ? 'Yes' : 'No'}</td>
             <td>{key.use_count}</td>

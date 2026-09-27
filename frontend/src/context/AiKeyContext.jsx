@@ -1,15 +1,28 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { deleteStoredKey, getStoredKeyStatus, saveStoredKey } from '../api/aiKeyApi'
+import { AI_PROVIDERS, DEFAULT_AI_PROVIDER, deleteStoredKey, getStoredKeyStatus, saveStoredKey } from '../api/aiKeyApi'
+
+const STORAGE_KEY = 'rememberly-ai-provider'
+
+function initialProvider() {
+  try {
+    const saved = window.localStorage?.getItem(STORAGE_KEY)
+    if (AI_PROVIDERS.includes(saved)) return saved
+  } catch { /* Storage unavailable; fall through to default. */ }
+  return DEFAULT_AI_PROVIDER
+}
 
 const emptyContext = {
-  groqApiKey: '',
-  storedKey: null,
+  aiProvider: DEFAULT_AI_PROVIDER,
+  setAiProvider: () => {},
+  sessionKeys: { groq: '', gemini: '' },
+  sessionKey: '',
+  setSessionKey: () => {},
+  clearSessionKeys: () => {},
+  storedKeys: null,
   storedLoading: false,
-  setGroqApiKey: () => {},
-  clearGroqApiKey: () => {},
   savePersonalKey: async () => {},
   removePersonalKey: async () => {},
-  refreshStoredKey: async () => {},
+  refreshStoredKeys: async () => {},
   trialActive: false,
   startTrial: () => {},
   endTrial: () => {},
@@ -17,73 +30,96 @@ const emptyContext = {
 const AiKeyContext = createContext(emptyContext)
 
 export { AiKeyContext }
-let clearActiveGroqKey = () => {}
+let clearActiveKeys = () => {}
 
 export function clearSessionGroqKey() {
-  clearActiveGroqKey()
+  clearActiveKeys()
 }
 
 export function AiKeyProvider({ children }) {
-  const [groqApiKey, setGroqApiKeyState] = useState('')
-  const [storedKey, setStoredKey] = useState(null)
+  const [aiProvider, setAiProviderState] = useState(initialProvider)
+  const [sessionKeys, setSessionKeys] = useState({ groq: '', gemini: '' })
+  const [storedKeys, setStoredKeys] = useState(null)
   const [storedLoading, setStoredLoading] = useState(false)
   const [trialActive, setTrialActive] = useState(false)
-  const setGroqApiKey = (key) => setGroqApiKeyState(String(key || '').trim())
-  const clearGroqApiKey = () => {
-    setGroqApiKeyState('')
+
+  const setAiProvider = (provider) => {
+    if (!AI_PROVIDERS.includes(provider)) return
+    setAiProviderState(provider)
+    try { window.localStorage?.setItem(STORAGE_KEY, provider) } catch { /* ignore */ }
+  }
+  const setSessionKey = (key) => setSessionKeys((current) => ({ ...current, [aiProvider]: String(key || '').trim() }))
+  const clearSessionKeys = () => {
+    setSessionKeys({ groq: '', gemini: '' })
     setTrialActive(false)
   }
-  const refreshStoredKey = async () => {
+
+  const loadStatuses = async (signal) => {
+    const entries = await Promise.all(AI_PROVIDERS.map(async (provider) => {
+      try {
+        const status = await getStoredKeyStatus(provider, signal)
+        return [provider, status]
+      } catch {
+        return [provider, null]
+      }
+    }))
+    return Object.fromEntries(entries)
+  }
+
+  const refreshStoredKeys = async () => {
     setStoredLoading(true)
     try {
-      const status = await getStoredKeyStatus()
-      if (status && typeof status.has_key !== 'undefined') setStoredKey(status)
-      return status
+      const statuses = await loadStatuses()
+      setStoredKeys(statuses)
+      return statuses
     } catch {
       return null
     } finally {
       setStoredLoading(false)
     }
   }
-  const savePersonalKey = async (key) => {
-    const status = await saveStoredKey(String(key || '').trim())
-    setStoredKey(status)
-    setGroqApiKeyState('')
+
+  const savePersonalKey = async (key, provider = aiProvider) => {
+    const status = await saveStoredKey(String(key || '').trim(), provider)
+    setStoredKeys((current) => ({ ...(current || {}), [status.provider || provider]: status }))
+    setSessionKeys((current) => ({ ...current, [provider]: '' }))
     return status
   }
-  const removePersonalKey = async () => {
+
+  const removePersonalKey = async (provider = aiProvider) => {
     try {
-      await deleteStoredKey()
+      await deleteStoredKey(provider)
     } catch {
       // Backend delete is idempotent; still clear local state.
     } finally {
-      setStoredKey({ has_key: false, masked: '', updated_at: null })
-      setGroqApiKeyState('')
+      setStoredKeys((current) => ({ ...(current || {}), [provider]: { has_key: false, masked: '', updated_at: null, provider } }))
+      setSessionKeys((current) => ({ ...current, [provider]: '' }))
       setTrialActive(false)
     }
   }
+
   const startTrial = () => {
-    setGroqApiKeyState('')
+    setSessionKeys({ groq: '', gemini: '' })
     setTrialActive(true)
   }
   const endTrial = () => setTrialActive(false)
 
   useEffect(() => {
-    clearActiveGroqKey = () => {
-      setGroqApiKeyState('')
-      setStoredKey(null)
+    clearActiveKeys = () => {
+      setSessionKeys({ groq: '', gemini: '' })
+      setStoredKeys(null)
       setTrialActive(false)
     }
     return () => {
-      clearActiveGroqKey = () => {}
+      clearActiveKeys = () => {}
     }
   }, [])
 
   useEffect(() => {
     let active = true
     const load = () => {
-      getStoredKeyStatus().then((status) => {
-        if (active && status && typeof status.has_key !== 'undefined') setStoredKey(status)
+      loadStatuses().then((statuses) => {
+        if (active) setStoredKeys(statuses)
       }).catch(() => {})
         .finally(() => { if (active) setStoredLoading(false) })
     }
@@ -98,8 +134,14 @@ export function AiKeyProvider({ children }) {
   }, [])
 
   const value = useMemo(
-    () => ({ groqApiKey, storedKey, storedLoading, setGroqApiKey, clearGroqApiKey, savePersonalKey, removePersonalKey, refreshStoredKey, trialActive, startTrial, endTrial }),
-    [groqApiKey, storedKey, storedLoading, trialActive],
+    () => ({
+      aiProvider, setAiProvider, sessionKeys, sessionKey: sessionKeys[aiProvider] || '',
+      setSessionKey, clearSessionKeys, storedKeys, storedLoading,
+      savePersonalKey, removePersonalKey, refreshStoredKeys, trialActive, startTrial, endTrial,
+      // Legacy read aliases for the Groq-only era (tests/external harnesses).
+      groqApiKey: sessionKeys.groq || '', storedKey: storedKeys?.groq || null,
+    }),
+    [aiProvider, sessionKeys, storedKeys, storedLoading, trialActive],
   )
   return <AiKeyContext.Provider value={value}>{children}</AiKeyContext.Provider>
 }

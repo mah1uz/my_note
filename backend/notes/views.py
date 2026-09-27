@@ -6,11 +6,41 @@ from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
 from ai.services.groq_service import ProviderFailure
+from ai.services.providers import normalize_provider, provider_label
 from . import services
 from .constants import DOMAINS, ITEM_STATUSES, ITEM_TYPES
 from .item_serializers import ConfirmationSerializer, ItemInputSerializer, ItemUpdateSerializer, NoteItemSerializer, RevisionSerializer
 from .models import Domain, Note, NoteItem
 from .serializers import NoteSerializer
+
+
+def _resolve_ai_credentials(request):
+    """Provider + personal key + trial flag for analyze endpoints.
+
+    New headers (X-AI-Provider / X-AI-Api-Key / X-AI-Trial) win; legacy
+    X-Groq-* headers are accepted as Groq aliases. Returns
+    (provider, user_api_key, trial) or a DRF Response on invalid input.
+    """
+    headers = request.headers
+    raw_provider = headers.get('X-AI-Provider', '').strip()
+    legacy_key = headers.get('X-Groq-Api-Key', '').strip()
+    if not raw_provider and legacy_key:
+        raw_provider = 'groq'
+    try:
+        provider = normalize_provider(raw_provider or 'groq')
+    except ValueError as error:
+        return Response({'detail': str(error), 'code': 'invalid_provider'}, status=400)
+    user_api_key = headers.get('X-AI-Api-Key', '').strip() or legacy_key or None
+    if user_api_key and len(user_api_key) > 200:
+        return Response({
+            'detail': f'The {provider_label(provider)} API key is invalid. Enter a valid key and try again.',
+            'code': 'invalid_key',
+        }, status=400)
+    trial = (
+        headers.get('X-AI-Trial', '').strip().lower()
+        or headers.get('X-Groq-Trial', '').strip().lower()
+    ) in ('1', 'true', 'yes', 'on')
+    return provider, user_api_key, trial
 
 
 class AnalyzeThrottle(UserRateThrottle):
@@ -66,15 +96,12 @@ class NoteViewSet(viewsets.ModelViewSet):
         note = self.get_object()
         serializer = RevisionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user_api_key = request.headers.get('X-Groq-Api-Key', '').strip() or None
-        if user_api_key and len(user_api_key) > 200:
-            return Response({
-                'detail': 'The Groq API key is invalid. Enter a valid key and try again.',
-                'code': 'invalid_key',
-            }, status=400)
-        trial = request.headers.get('X-Groq-Trial', '').strip().lower() in ('1', 'true', 'yes', 'on')
+        credentials = _resolve_ai_credentials(request)
+        if isinstance(credentials, Response):
+            return credentials
+        provider, user_api_key, trial = credentials
         try:
-            services.analyze(note, serializer.validated_data['revision'], user_api_key=user_api_key, trial=trial)
+            services.analyze(note, serializer.validated_data['revision'], user_api_key=user_api_key, trial=trial, provider=provider)
         except ProviderFailure as error:
             return Response({
                 'detail': f'AI organization failed. Your note is saved. {error}',
@@ -100,15 +127,12 @@ class NoteViewSet(viewsets.ModelViewSet):
         as single-note analysis: personal key or trial, never stored.
         """
         mode = str(request.data.get('mode') or 'analyze').strip().lower()
-        user_api_key = request.headers.get('X-Groq-Api-Key', '').strip() or None
-        if user_api_key and len(user_api_key) > 200:
-            return Response({
-                'detail': 'The Groq API key is invalid. Enter a valid key and try again.',
-                'code': 'invalid_key',
-            }, status=400)
-        trial = request.headers.get('X-Groq-Trial', '').strip().lower() in ('1', 'true', 'yes', 'on')
+        credentials = _resolve_ai_credentials(request)
+        if isinstance(credentials, Response):
+            return credentials
+        provider, user_api_key, trial = credentials
         try:
-            return Response(services.process_backlog(request.user, mode, user_api_key=user_api_key, trial=trial))
+            return Response(services.process_backlog(request.user, mode, user_api_key=user_api_key, trial=trial, provider=provider))
         except ProviderFailure as error:
             detail = 'Bulk processing could not start. ' if mode in ('analyze', 'verify') else 'Bulk processing failed. '
             return Response({

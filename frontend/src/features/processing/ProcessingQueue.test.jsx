@@ -117,7 +117,8 @@ describe('processing queue', () => {
     await user.click(await screen.findByRole('button', { name: /verify & review/i }))
     await waitFor(() => expect(bulkCalls.length).toBe(1))
     expect(bulkCalls[0].body).toEqual({ mode: 'verify' })
-    expect(bulkCalls[0].headers['X-Groq-Trial']).toBe('true')
+    expect(bulkCalls[0].headers['X-AI-Provider']).toBe('groq')
+    expect(bulkCalls[0].headers['X-AI-Trial']).toBe('true')
     expect(await screen.findByText(/drafted for review 1/i)).toBeInTheDocument()
   })
 
@@ -149,7 +150,8 @@ describe('processing queue', () => {
     vi.stubGlobal('fetch', fetchMock)
     await processAll('verify', { apiKey: 'personal-session-key', trial: true })
     const headers = fetchMock.mock.calls[0][1].headers
-    expect(headers['X-Groq-Api-Key']).toBe('personal-session-key')
-    expect(headers['X-Groq-Trial']).toBeUndefined()
+    expect(headers['X-AI-Provider']).toBe('groq')
+    expect(headers['X-AI-Api-Key']).toBe('personal-session-key')
+    expect(headers['X-AI-Trial']).toBeUndefined()
   })
 })

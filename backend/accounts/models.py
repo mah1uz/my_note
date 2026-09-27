@@ -149,14 +149,16 @@ class UserAiEntitlement(models.Model):
 
 
 class UserGroqKey(models.Model):
-    """Per-user personal Groq key, Fernet-encrypted with SERVER_KEY_SECRET.
+    """Per-user personal AI key (one row per user+provider), Fernet-encrypted.
 
-    Plaintext is never stored, logged, or returned. Only a masked hint
-    plus metadata travel over the API.
+    The class/table names predate multi-provider support and are kept for
+    data continuity. Plaintext is never stored, logged, or returned. Only
+    a masked hint plus metadata travel over the API.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name='groq_key')
+    user = models.ForeignKey(AppUser, on_delete=models.CASCADE, related_name='ai_keys')
+    provider = models.CharField(max_length=16, default='groq')
     key_encrypted = models.TextField()
     key_hint = models.CharField(max_length=12, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -164,9 +166,12 @@ class UserGroqKey(models.Model):
 
     class Meta:
         db_table = 'user_groq_keys'
+        constraints = [
+            models.UniqueConstraint(fields=('user', 'provider'), name='user_ai_key_user_provider_unique'),
+        ]
 
     def __str__(self):
-        return f'personal key (••••{self.key_hint})'
+        return f'personal key ({self.provider} ••••{self.key_hint})'
 
 
 class AdminProfile(models.Model):
@@ -209,7 +214,7 @@ class SystemSetting(models.Model):
 
 
 class GroqServerKey(models.Model):
-    """Pool of server-owned Groq keys for the free trial.
+    """Pool of server-owned keys for the free trial, one pool per provider.
 
     Values are Fernet-encrypted with SERVER_KEY_SECRET; the plaintext is
     never stored, logged, or returned by any API. Round-robin selection
@@ -218,6 +223,7 @@ class GroqServerKey(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     label = models.CharField(max_length=80)
+    provider = models.CharField(max_length=16, default='groq')
     key_encrypted = models.TextField()
     key_hint = models.CharField(max_length=12, blank=True, default='')
     is_active = models.BooleanField(default=True)
@@ -237,7 +243,7 @@ class GroqServerKey(models.Model):
         ordering = ('created_at', 'id')
 
     def __str__(self):
-        return f'{self.label} (••••{self.key_hint})'
+        return f'{self.label} ({self.provider} ••••{self.key_hint})'
 
 
 class AdminAuditEvent(models.Model):

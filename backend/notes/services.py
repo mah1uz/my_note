@@ -11,6 +11,7 @@ from rest_framework.exceptions import APIException, ValidationError
 
 from ai.schema import InvalidAnalysis, parse_analysis
 from ai.services import groq_service
+from ai.services import providers as llm
 from accounts.services.ai_config import get_server_ai_enabled
 from accounts.services.entitlement import TrialUnavailable, consume_trial
 from accounts.services.trial_keys import has_usable_server_key
@@ -191,13 +192,17 @@ def _user_now_and_tz(user):
     return timezone.now().astimezone(zone), str(tz_name)
 
 
-def analyze(note, revision, user_api_key=None, trial=False):
+def analyze(note, revision, user_api_key=None, trial=False, provider='groq'):
+    try:
+        provider = llm.normalize_provider(provider)
+    except ValueError as error:
+        raise ValidationError({'provider': str(error)})
     if len(note.raw_text) > settings.AI_MAX_NOTE_CHARACTERS:
         raise ValidationError({'detail': 'This note is too long for AI analysis. Split it or organize manually.'})
     stored_key = None
     if not user_api_key:
         try:
-            stored_key = get_user_key_plaintext(note.app_user)
+            stored_key = get_user_key_plaintext(note.app_user, provider)
         except Exception:
             stored_key = None
     effective_key = user_api_key or stored_key
@@ -206,7 +211,7 @@ def analyze(note, revision, user_api_key=None, trial=False):
             'detail': 'Start the free trial or enter a personal API key to use AI organization.',
             'code': 'credential_required',
         })
-    if trial and not effective_key and (not get_server_ai_enabled() or not has_usable_server_key()):
+    if trial and not effective_key and (not get_server_ai_enabled() or not has_usable_server_key(provider)):
         raise groq_service.ProviderFailure(
             'trial_unavailable',
             'Free trial is not available right now. Enter a personal API key instead.',
@@ -240,7 +245,7 @@ def analyze(note, revision, user_api_key=None, trial=False):
         note.ai_logs.filter(status='STARTED').update(status='SUPERSEDED', completed_at=timezone.now())
         log = AIProcessingLog.objects.create(
             note=note, note_revision=note.revision, input_text=note.raw_text,
-            model_name=settings.GROQ_MODEL, prompt_version=groq_service.PROMPT_VERSION, status='STARTED',
+            model_name=llm.model_name(provider), prompt_version=llm.prompt_version(provider), status='STARTED',
         )
     attempt_revision = note.revision
     raw = ''
@@ -251,10 +256,10 @@ def analyze(note, revision, user_api_key=None, trial=False):
     today_iso = user_now.date().isoformat()
     try:
         if effective_key:
-            provider_response = groq_service.analyze_note(note.raw_text, user_now, api_key=effective_key, tz_name=user_tz)
+            provider_response = llm.analyze_note(note.raw_text, user_now, api_key=effective_key, provider=provider, tz_name=user_tz)
         else:
-            provider_response = groq_service.analyze_note(note.raw_text, user_now, tz_name=user_tz)
-        raw = groq_service.redact(provider_response, extra_key=effective_key)
+            provider_response = llm.analyze_note(note.raw_text, user_now, provider=provider, tz_name=user_tz)
+        raw = llm.redact(provider_response, extra_key=effective_key)
         payload = parse_analysis(raw)
         split_ids = split_item_ids(payload['items'], deterministic_evidence)
         validated = []
@@ -440,7 +445,7 @@ def confirm_all_drafts(note, skip_flagged=True):
         return confirmed, skipped
 
 
-def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT):
+def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT, provider='groq'):
     """Sequentially process every backlog note (UNPROCESSED + FAILED).
 
     Analyze mode is fully automatic: it analyzes and confirms every draft
@@ -452,10 +457,14 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
     """
     if mode not in ('analyze', 'verify'):
         raise ValidationError({'mode': 'Use analyze or verify.'})
+    try:
+        provider = llm.normalize_provider(provider)
+    except ValueError as error:
+        raise ValidationError({'provider': str(error)})
     stored_backlog_key = None
     if not user_api_key:
         try:
-            stored_backlog_key = get_user_key_plaintext(user)
+            stored_backlog_key = get_user_key_plaintext(user, provider)
         except Exception:
             stored_backlog_key = None
     if not user_api_key and not stored_backlog_key and not trial:
@@ -463,7 +472,7 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
             'detail': 'Start the free trial or enter a personal API key to use AI organization.',
             'code': 'credential_required',
         })
-    if trial and not user_api_key and not stored_backlog_key and (not get_server_ai_enabled() or not has_usable_server_key()):
+    if trial and not user_api_key and not stored_backlog_key and (not get_server_ai_enabled() or not has_usable_server_key(provider)):
         raise groq_service.ProviderFailure(
             'trial_unavailable',
             'Free trial is not available right now. Enter a personal API key instead.',
@@ -480,7 +489,7 @@ def process_backlog(user, mode, user_api_key=None, trial=False, limit=BULK_LIMIT
             results.append({'id': note.pk, 'status': 'skipped', 'code': 'running'})
             continue
         try:
-            analyze(note, note.revision, user_api_key=user_api_key, trial=trial)
+            analyze(note, note.revision, user_api_key=user_api_key, trial=trial, provider=provider)
         except groq_service.ProviderFailure as error:
             results.append({'id': note.pk, 'status': 'failed', 'code': error.code})
             if error.code == 'trial_exhausted' or getattr(error, 'status_code', 0) == 429:

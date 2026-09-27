@@ -68,7 +68,7 @@ Another user's note is not present in the scoped queryset and therefore returns 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/notes/:id/review/` | Return an owned Note, its draft/confirmed items, and the seeded domain vocabulary |
-| POST | `/notes/:id/analyze/` | Analyze the current raw Note with Groq and create validated unconfirmed drafts. Requires a credential: personal key via `X-Groq-Api-Key` or free trial via `X-Groq-Trial: true` (uses the server key); otherwise `400 credential_required` |
+| POST | `/notes/:id/analyze/` | Analyze the current raw Note with the selected provider (Groq or Gemini) and create validated unconfirmed drafts. Requires a credential: personal key via `X-AI-Api-Key` plus `X-AI-Provider: groq\|gemini`, or free trial via `X-AI-Trial: true` (uses the server key pool for that provider); otherwise `400 credential_required`. Legacy `X-Groq-Api-Key` / `X-Groq-Trial` headers still work as Groq aliases |
 | POST | `/notes/:id/confirm-analysis/` | Validate and persist the user's approved/manual item set |
 
 Analyze payload:
@@ -78,11 +78,12 @@ Analyze payload:
 ```
 
 The optional session-only personal provider credential is sent in the
-`X-Groq-Api-Key` request header on this endpoint only. It is never accepted in
-the JSON body, URL, query string, or any other endpoint. The server-owned
-`GROQ_API_KEY` is an optional fallback when this header is absent. Neither key
-is returned, persisted, or written to processing logs. If neither is available,
-the endpoint returns `503` with code `not_configured`.
+`X-AI-Api-Key` request header (with `X-AI-Provider: groq|gemini`) on this
+endpoint only. It is never accepted in the JSON body, URL, query string, or
+any other endpoint. The server-owned `GROQ_API_KEY` / `GEMINI_API_KEY` env
+fallbacks (Render backend only, never Vercel) apply when this header is
+absent. Neither key is returned, persisted, or written to processing logs.
+If neither is available, the endpoint returns `503` with code `not_configured`.
 
 Confirmation payload contains the current Note revision and full approved
 items. Existing draft IDs may be included; omitting a draft removes it. The

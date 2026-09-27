@@ -7,10 +7,10 @@ import { AiKeyProvider, useAiKey } from '../context/AiKeyContext'
 import AiProviderCard from './notes/AiProviderCard'
 
 function KeyHarness() {
-  const { groqApiKey, clearGroqApiKey } = useAiKey()
+  const { sessionKey, clearSessionKeys } = useAiKey()
   return <>
-    <span>{groqApiKey ? 'active' : 'inactive'}</span>
-    <button onClick={clearGroqApiKey}>logout</button>
+    <span>{sessionKey ? 'active' : 'inactive'}</span>
+    <button onClick={clearSessionKeys}>logout</button>
   </>
 }
 
@@ -100,9 +100,10 @@ describe('session-only Groq BYOK', () => {
     vi.stubGlobal('fetch', fetchMock)
     await analyzeNote('1', 2, '', true)
     await analyzeNote('1', 2)
-    expect(fetchMock.mock.calls[0][1].headers['X-Groq-Trial']).toBe('true')
-    expect(fetchMock.mock.calls[0][1].headers['X-Groq-Api-Key']).toBeUndefined()
-    expect(fetchMock.mock.calls[1][1].headers?.['X-Groq-Trial']).toBeUndefined()
+    expect(fetchMock.mock.calls[0][1].headers['X-AI-Provider']).toBe('groq')
+    expect(fetchMock.mock.calls[0][1].headers['X-AI-Trial']).toBe('true')
+    expect(fetchMock.mock.calls[0][1].headers['X-AI-Api-Key']).toBeUndefined()
+    expect(fetchMock.mock.calls[1][1].headers?.['X-AI-Trial']).toBeUndefined()
   })
 
   it('sends the key only to analyze and never to unrelated item requests', async () => {
@@ -115,8 +116,47 @@ describe('session-only Groq BYOK', () => {
     const analyzeOptions = fetchMock.mock.calls[0][1]
     const unrelatedOptions = fetchMock.mock.calls[1][1]
     const confirmOptions = fetchMock.mock.calls[2][1]
-    expect(analyzeOptions.headers['X-Groq-Api-Key']).toBe('personal-session-key')
-    expect(unrelatedOptions.headers['X-Groq-Api-Key']).toBeUndefined()
-    expect(confirmOptions.headers['X-Groq-Api-Key']).toBeUndefined()
+    expect(analyzeOptions.headers['X-AI-Api-Key']).toBe('personal-session-key')
+    expect(analyzeOptions.headers['X-AI-Provider']).toBe('groq')
+    expect(unrelatedOptions.headers['X-AI-Api-Key']).toBeUndefined()
+    expect(confirmOptions.headers['X-AI-Api-Key']).toBeUndefined()
+  })
+
+  it('routes analyze to the selected provider', async () => {
+    setAccessToken('test-access')
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    await analyzeNote('1', 2, 'AIza-synthetic-gemini-key-1234567890', false, 'gemini')
+    expect(fetchMock.mock.calls[0][1].headers['X-AI-Provider']).toBe('gemini')
+    expect(fetchMock.mock.calls[0][1].headers['X-AI-Api-Key']).toBe('AIza-synthetic-gemini-key-1234567890')
+  })
+
+  it('switches the provider card between Groq and Gemini and saves per provider', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn(async (input, options = {}) => {
+      const url = new URL(input)
+      if (url.pathname.endsWith('/auth/ai/key/') && (options.method || 'GET') === 'GET') {
+        return new Response(JSON.stringify({ has_key: false, masked: '', updated_at: null, provider: url.searchParams.get('provider') || 'groq' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.pathname.endsWith('/auth/ai/key/') && options.method === 'POST') {
+        const body = JSON.parse(options.body)
+        return new Response(JSON.stringify({ has_key: true, masked: '••••7890', updated_at: '2026-09-27T00:00:00Z', provider: body.provider }), {
+          status: 201, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    render(<AiKeyProvider><AiProviderCard /></AiKeyProvider>)
+    expect(screen.getByText('Groq API Key', { selector: 'h2' })).toBeInTheDocument()
+    expect(screen.getByText(/groq keys start with/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Gemini' }))
+    expect(screen.getByText('Gemini API Key', { selector: 'h2' })).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Gemini API Key'), 'AIza-synthetic-gemini-key-1234567890')
+    await user.click(screen.getByRole('button', { name: /save key/i }))
+    expect(await screen.findByText(/personal gemini key saved/i)).toBeInTheDocument()
+    const post = fetch.mock.calls.find(([url, options]) => new URL(url).pathname.endsWith('/auth/ai/key/') && options?.method === 'POST')
+    expect(JSON.parse(post[1].body)).toMatchObject({ provider: 'gemini' })
   })
 })

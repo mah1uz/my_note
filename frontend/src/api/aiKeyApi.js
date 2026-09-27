@@ -1,9 +1,14 @@
 import { apiRequest } from './http'
 
-export const getStoredKeyStatus = (signal) => apiRequest('/auth/ai/key/', { signal })
+export const AI_PROVIDERS = ['groq', 'gemini']
+export const DEFAULT_AI_PROVIDER = 'groq'
 
-export const saveStoredKey = (key) => apiRequest('/auth/ai/key/', {
-  method: 'POST', body: JSON.stringify({ key }),
+export const getStoredKeyStatus = (provider = DEFAULT_AI_PROVIDER, signal) =>
+  apiRequest(`/auth/ai/key/?provider=${provider}`, { signal })
+
+export const saveStoredKey = (key, provider = DEFAULT_AI_PROVIDER) => apiRequest('/auth/ai/key/', {
+  method: 'POST', body: JSON.stringify({ key, provider }),
 })
 
-export const deleteStoredKey = () => apiRequest('/auth/ai/key/', { method: 'DELETE' })
+export const deleteStoredKey = (provider = DEFAULT_AI_PROVIDER) =>
+  apiRequest(`/auth/ai/key/?provider=${provider}`, { method: 'DELETE' })

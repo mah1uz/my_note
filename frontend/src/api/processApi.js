@@ -10,11 +10,11 @@ export function backlogNotes(notes) {
 
 /** Sequentially process the owned backlog. Mode is 'analyze' or 'verify'. */
 export async function processAll(mode, credentials = {}, signal) {
-  const { apiKey = '', trial = false } = credentials
+  const { apiKey = '', trial = false, provider = 'groq' } = credentials
   const result = await apiRequest('/notes/process-all/', {
     method: 'POST',
     body: JSON.stringify({ mode }),
-    headers: apiKey ? { 'X-Groq-Api-Key': apiKey } : trial ? { 'X-Groq-Trial': 'true' } : undefined,
+    headers: { 'X-AI-Provider': provider, ...(apiKey ? { 'X-AI-Api-Key': apiKey } : trial ? { 'X-AI-Trial': 'true' } : {}) },
     signal,
     // A backlog holds the request open across many provider calls.
     timeout: 300000,

@@ -9,7 +9,7 @@ import { useAiKey } from '../../context/AiKeyContext'
  * per-note retry lives on the note card and detail page.)
  */
 export default function ProcessButtons({ compact = false, onDone }) {
-  const { groqApiKey, trialActive } = useAiKey()
+  const { aiProvider, sessionKey, trialActive } = useAiKey()
   const [running, setRunning] = useState(false)
   const [summary, setSummary] = useState(null)
   const [error, setError] = useState('')
@@ -20,7 +20,7 @@ export default function ProcessButtons({ compact = false, onDone }) {
     setError('')
     setSummary(null)
     try {
-      const data = await processAll('verify', { apiKey: groqApiKey, trial: trialActive })
+      const data = await processAll('verify', { apiKey: sessionKey, trial: trialActive, provider: aiProvider })
       setSummary(summarizeResults(data))
       if (onDone) await onDone(data)
     } catch (requestError) {

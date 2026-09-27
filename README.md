@@ -26,8 +26,9 @@ Edit ignored `backend/.env` with your Supabase values (see
   (URL-encode special characters in the password), plus
   `DATABASE_SSL_REQUIRE=true`
 - `SUPABASE_URL`, `SUPABASE_JWT_AUDIENCE=authenticated`, `SUPABASE_JWKS_URL`
-- Optional `GROQ_API_KEY` — enables the in-app Free trial; keep it
-  backend-only and never put it in frontend environment variables
+- Optional `GROQ_API_KEY` / `GEMINI_API_KEY` — enable the in-app Free trial
+  per provider; keep them backend-only (Render env, never Vercel/Vite
+  frontend environment variables)
 
 Then:
 

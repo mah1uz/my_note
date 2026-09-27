@@ -835,7 +835,7 @@ class IntelligenceApiTests(APITestCase):
     def test_trial_uses_server_fallback_without_personal_key(self):
         response = self.analyze()
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn('api_key', self.provider.call_args.kwargs)
+        self.assertIsNone(self.provider.call_args.kwargs['api_key'])
 
     def test_analyze_without_trial_or_key_is_rejected_before_provider_call(self):
         self.note.refresh_from_db()

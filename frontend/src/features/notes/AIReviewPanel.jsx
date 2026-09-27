@@ -7,7 +7,7 @@ import { itemDate, itemForm, itemPayload, requestErrorText } from '../items/item
 
 export default function AIReviewPanel({ note, onNoteChanged, disabled = false }) {
   const { currentUser } = useAuth()
-  const { groqApiKey, trialActive, clearGroqApiKey } = useAiKey()
+  const { aiProvider, sessionKey, trialActive, clearSessionKeys } = useAiKey()
   const [review, setReview] = useState(null)
   const [drafts, setDrafts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -44,7 +44,7 @@ export default function AIReviewPanel({ note, onNoteChanged, disabled = false })
     setMessage('')
     try {
       const data = action === 'analyze'
-         ? await analyzeNote(note.id, review.note.revision, groqApiKey, trialActive)
+         ? await analyzeNote(note.id, review.note.revision, sessionKey, trialActive, aiProvider)
         : await confirmAnalysis(note.id, review.note.revision, drafts.map(itemPayload))
       if (version !== generation.current) return
       applyReview(data)
@@ -52,7 +52,7 @@ export default function AIReviewPanel({ note, onNoteChanged, disabled = false })
       await onNoteChanged()
     } catch (requestError) {
       if (version !== generation.current) return
-      if (requestError?.data?.code === 'invalid_key') clearGroqApiKey()
+      if (requestError?.data?.code === 'invalid_key') clearSessionKeys()
       setError(requestErrorText(requestError))
       // Provider failures increment the revision; fetch the saved review before retry/manual work.
       // Validation/conflict errors preserve local edits until the user explicitly reloads.

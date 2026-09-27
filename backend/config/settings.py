@@ -120,7 +120,7 @@ CORS_ALLOWED_ORIGINS = env_list(
     'http://localhost:5173,http://127.0.0.1:5173',
 )
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_HEADERS = (*default_headers, 'x-groq-api-key', 'x-groq-trial')
+CORS_ALLOW_HEADERS = (*default_headers, 'x-groq-api-key', 'x-groq-trial', 'x-ai-provider', 'x-ai-api-key', 'x-ai-trial')
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 REST_FRAMEWORK = {
@@ -142,15 +142,19 @@ EMAIL_BACKEND = os.getenv(
 DEFAULT_FROM_EMAIL = 'Rememberly <no-reply@rememberly.local>'
 
 # AI is optional: ordinary Notes CRUD and manual organization need no key.
+# All LLM keys live server-side only (Render backend env, never Vercel/Vite).
 GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 # Fernet key (urlsafe base64, 44 chars) encrypting admin-managed trial keys
 # in the database. Generate once and back it up: losing it orphans stored
 # keys (re-add them). Without it, key CRUD is disabled with a clear error
-# while the .env GROQ_API_KEY fallback keeps working.
+# while the .env GROQ_API_KEY / GEMINI_API_KEY fallbacks keep working.
 SERVER_KEY_SECRET = os.getenv('SERVER_KEY_SECRET', '')
 # Groq retired llama-3.3-70b-versatile on 2026-08-16; gpt-oss-120b is their
 # recommended replacement. Override per environment with GROQ_MODEL.
 GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
 GROQ_TIMEOUT_SECONDS = float(os.getenv('GROQ_TIMEOUT_SECONDS', '20'))
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
+GEMINI_TIMEOUT_SECONDS = float(os.getenv('GEMINI_TIMEOUT_SECONDS', '20'))
 AI_MAX_NOTE_CHARACTERS = 12000
 AI_ANALYSIS_LEASE_SECONDS = 120

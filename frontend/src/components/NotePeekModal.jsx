@@ -14,7 +14,7 @@ import useBodyScrollLock from './useBodyScrollLock'
  */
 export default function NotePeekModal({ note, onClose, onDelete, items = [], onItemsChanged = () => {}, onTicked = () => {} }) {
   const navigate = useNavigate()
-  const { groqApiKey, trialActive } = useAiKey()
+  const { aiProvider, sessionKey, trialActive } = useAiKey()
   const [deleting, setDeleting] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const headingRef = useRef(null)
@@ -43,7 +43,7 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
     if (analyzing) return
     setAnalyzing(true)
     try {
-      await analyzeNote(note.id, note.revision, groqApiKey, trialActive)
+      await analyzeNote(note.id, note.revision, sessionKey, trialActive, aiProvider)
     } catch {
       // The detail page reloads the saved review and shows the error.
     } finally {

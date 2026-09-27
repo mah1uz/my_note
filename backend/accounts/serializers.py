@@ -133,14 +133,17 @@ class AISettingsSerializer(serializers.Serializer):
 class TrialKeyCreateSerializer(serializers.Serializer):
     label = serializers.CharField(max_length=80, required=False, allow_blank=True, default='')
     key = serializers.CharField(write_only=True, trim_whitespace=False, min_length=20, max_length=200)
+    provider = serializers.ChoiceField(choices=('groq', 'gemini'), required=False, default='groq')
 
     def validate_label(self, value):
         return value.strip()[:80]
 
     def validate_key(self, value):
+        from ai.services.providers import validate_key_format
+
         value = value.strip()
-        if not value.startswith('gsk_'):
-            raise serializers.ValidationError('That does not look like a Groq API key.')
+        if not validate_key_format(value):
+            raise serializers.ValidationError('That does not look like a valid API key.')
         return value
 
 
@@ -156,6 +159,7 @@ def trial_key_representation(key):
     return {
         'id': str(key.id),
         'label': key.label,
+        'provider': getattr(key, 'provider', 'groq'),
         'masked': f'••••{key.key_hint}' if key.key_hint else '••••',
         'is_active': key.is_active,
         'use_count': key.use_count,
@@ -195,11 +199,14 @@ class AiEntitlementSerializer(serializers.ModelSerializer):
 
 class UserGroqKeySerializer(serializers.Serializer):
     key = serializers.CharField(write_only=True, trim_whitespace=False, min_length=20, max_length=200)
+    provider = serializers.ChoiceField(choices=('groq', 'gemini'), required=False, default='groq')
 
     def validate_key(self, value):
+        from ai.services.providers import validate_key_format
+
         value = value.strip()
-        if not value.startswith('gsk_'):
-            raise serializers.ValidationError('That does not look like a Groq API key.')
+        if not validate_key_format(value):
+            raise serializers.ValidationError('That does not look like a valid API key.')
         return value
 
 

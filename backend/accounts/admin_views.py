@@ -301,6 +301,7 @@ class TrialKeyListCreateView(APIView):
                 serializer.validated_data.get('label', ''),
                 serializer.validated_data['key'],
                 admin_profile=_actor(request),
+                provider=serializer.validated_data.get('provider', 'groq'),
             )
         except KeyMisconfigured as error:
             return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

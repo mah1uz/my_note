@@ -132,13 +132,19 @@ class AiEntitlementView(APIView):
 
 
 class UserGroqKeyView(APIView):
-    """Per-user encrypted personal Groq key. Plaintext is never returned."""
+    """Per-user encrypted personal AI key (one per provider). Plaintext is never returned."""
 
     def get(self, request):
+        from ai.services.providers import normalize_provider
+
         denied = _require_app_user(request)
         if denied:
             return denied
-        return Response(user_keys.user_key_status(request.user))
+        try:
+            provider = normalize_provider(request.query_params.get('provider', 'groq'))
+        except ValueError as error:
+            return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(user_keys.user_key_status(request.user, provider))
 
     def post(self, request):
         denied = _require_app_user(request)
@@ -147,19 +153,28 @@ class UserGroqKeyView(APIView):
         serializer = UserGroqKeySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            row = user_keys.save_user_key(request.user, serializer.validated_data['key'])
+            row = user_keys.save_user_key(
+                request.user, serializer.validated_data['key'],
+                serializer.validated_data.get('provider', 'groq'),
+            )
         except ValueError as error:
             return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
         except trial_keys.KeyMisconfigured as error:
             return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        return Response(user_keys.user_key_status(request.user), status=status.HTTP_201_CREATED)
+        return Response(user_keys.user_key_status(request.user, row.provider), status=status.HTTP_201_CREATED)
 
     def delete(self, request):
+        from ai.services.providers import normalize_provider
+
         denied = _require_app_user(request)
         if denied:
             return denied
-        user_keys.delete_user_key(request.user)
-        return Response({'has_key': False, 'masked': '', 'updated_at': None})
+        try:
+            provider = normalize_provider(request.query_params.get('provider', 'groq'))
+        except ValueError as error:
+            return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        user_keys.delete_user_key(request.user, provider)
+        return Response({'has_key': False, 'masked': '', 'updated_at': None, 'provider': provider})
 
 
 class OnboardingCompleteView(APIView):

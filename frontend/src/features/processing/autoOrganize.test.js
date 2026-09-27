@@ -18,9 +18,11 @@ const draft = {
 describe('isAiConfigured', () => {
   it('accepts session keys, saved keys, and trial', () => {
     expect(isAiConfigured({})).toBe(false)
+    expect(isAiConfigured({ sessionKey: 'gsk_x' })).toBe(true)
     expect(isAiConfigured({ groqApiKey: 'gsk_x' })).toBe(true)
+    expect(isAiConfigured({ storedKeys: { groq: { has_key: true } }, provider: 'groq' })).toBe(true)
+    expect(isAiConfigured({ storedKeys: { groq: { has_key: false } }, provider: 'groq' })).toBe(false)
     expect(isAiConfigured({ storedKey: { has_key: true } })).toBe(true)
-    expect(isAiConfigured({ storedKey: { has_key: false } })).toBe(false)
     expect(isAiConfigured({ trialActive: true })).toBe(true)
   })
 })
