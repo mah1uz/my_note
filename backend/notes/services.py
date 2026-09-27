@@ -238,7 +238,7 @@ def analyze(note, revision, user_api_key=None, trial=False, provider='groq'):
         # is not refunded on later provider failure (documented charge policy).
         if trial and not effective_key:
             try:
-                consume_trial(note.app_user)
+                consume_trial(note.app_user, provider)
             except TrialUnavailable as error:
                 raise groq_service.ProviderFailure('trial_exhausted', str(error), 429) from error
         # A crashed worker can leave a STARTED attempt. A new lease supersedes it.

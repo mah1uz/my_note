@@ -108,6 +108,16 @@ class GeminiServiceTests(SimpleTestCase):
                 self.assertEqual(raised.exception.code, 'invalid_key')
                 self.assertEqual(raised.exception.status_code, 502)
 
+    def test_restricted_or_blocked_key_maps_to_invalid_key_with_hint(self):
+        from ai.services import gemini_service
+
+        body = '{"error": {"message": "This API key is unrestricted. Restrict the key to the Gemini API."}}'
+        with patch.object(gemini_service.urllib.request, 'urlopen', side_effect=http_error(400, body)):
+            with self.assertRaises(ProviderFailure) as raised:
+                gemini_service.analyze_note('Buy eggs', timezone.now(), api_key='AIza-test-key-12345678901234567890')
+        self.assertEqual(raised.exception.code, 'invalid_key')
+        self.assertIn('restrict', str(raised.exception).lower())
+
     def test_rate_limit_timeout_network_mapped(self):
         from ai.services import gemini_service
 

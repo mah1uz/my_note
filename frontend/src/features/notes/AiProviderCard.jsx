@@ -105,7 +105,7 @@ export default function AiProviderCard() {
     </div>
     <form className="provider-form" onSubmit={save}>
       <label htmlFor="ai-api-key">{providerName} API Key</label>
-      <p className="field-help">Groq keys start with <code>gsk_</code> · Gemini API keys start with <code>AIza</code> · any 20–200 character key is accepted — just make sure the matching provider is selected above.</p>
+      <p className="field-help">Groq keys start with <code>gsk_</code> · Gemini API keys start with <code>AIza</code> · any 20–200 character key is accepted — just make sure the matching provider is selected above. In AI Studio, restrict Gemini keys to the Gemini API only: Google rejects unrestricted keys.</p>
       <div className="provider-input-row">
         <input
           id="ai-api-key"

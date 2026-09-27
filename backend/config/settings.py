@@ -144,7 +144,8 @@ DEFAULT_FROM_EMAIL = 'Rememberly <no-reply@rememberly.local>'
 # AI is optional: ordinary Notes CRUD and manual organization need no key.
 # All LLM keys live server-side only (Render backend env, never Vercel/Vite).
 GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+# GOOGLE_API_KEY is honored as a fallback: Google's own SDKs prefer it when both are set.
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '') or os.getenv('GOOGLE_API_KEY', '')
 # Fernet key (urlsafe base64, 44 chars) encrypting admin-managed trial keys
 # in the database. Generate once and back it up: losing it orphans stored
 # keys (re-add them). Without it, key CRUD is disabled with a clear error
@@ -154,7 +155,9 @@ SERVER_KEY_SECRET = os.getenv('SERVER_KEY_SECRET', '')
 # recommended replacement. Override per environment with GROQ_MODEL.
 GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
 GROQ_TIMEOUT_SECONDS = float(os.getenv('GROQ_TIMEOUT_SECONDS', '20'))
-GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
+# gemini-2.0-flash was retired by Google; gemini-3.8-flash is the current
+# Flash default per their docs. Override per environment with GEMINI_MODEL.
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.8-flash')
 GEMINI_TIMEOUT_SECONDS = float(os.getenv('GEMINI_TIMEOUT_SECONDS', '20'))
 AI_MAX_NOTE_CHARACTERS = 12000
 AI_ANALYSIS_LEASE_SECONDS = 120

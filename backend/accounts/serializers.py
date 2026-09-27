@@ -187,14 +187,23 @@ class PreferenceSerializer(serializers.ModelSerializer):
 
 class AiEntitlementSerializer(serializers.ModelSerializer):
     remaining = serializers.SerializerMethodField()
+    remaining_groq = serializers.SerializerMethodField()
+    remaining_gemini = serializers.SerializerMethodField()
 
     class Meta:
         model = UserAiEntitlement
-        fields = ('trial_limit', 'trial_used', 'remaining', 'trial_started_at', 'trial_expires_at')
+        fields = ('trial_limit', 'trial_used', 'remaining', 'remaining_groq', 'remaining_gemini',
+                  'trial_gemini_limit', 'trial_gemini_used', 'trial_started_at', 'trial_expires_at')
         read_only_fields = fields
 
     def get_remaining(self, entitlement):
         return max(entitlement.trial_limit - entitlement.trial_used, 0)
+
+    def get_remaining_groq(self, entitlement):
+        return max(entitlement.trial_limit - entitlement.trial_used, 0)
+
+    def get_remaining_gemini(self, entitlement):
+        return max(entitlement.trial_gemini_limit - entitlement.trial_gemini_used, 0)
 
 
 class UserGroqKeySerializer(serializers.Serializer):

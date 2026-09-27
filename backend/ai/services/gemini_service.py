@@ -66,8 +66,20 @@ def _call_provider(raw_text, now, candidate_key, tz_name=None):
             envelope = json.loads(response.read().decode('utf-8'))
     except urllib.error.HTTPError as error:
         body = _error_body(error)
+        lowered = body.lower()
         detail = redact(body)[:200]
-        if error.code in (401, 403) or (error.code == 400 and 'api key' in body.lower()):
+        if error.code == 400 and any(token in lowered for token in ('restrict', 'blocked', 'unrestricted', 'permission')):
+            # Google rejects unrestricted, dormant-blocked, or mis-scoped keys.
+            # Checked before the generic invalid-key branch: restriction
+            # messages also mention "API key". The fix is on the key, not the
+            # request: restrict it to the Gemini API in AI Studio (or mint a
+            # fresh auth key).
+            raise ProviderFailure(
+                'invalid_key',
+                'The Gemini API key was rejected (key restriction or permissions). '
+                'In AI Studio, restrict the key to the Gemini API only, or create a new key, and try again.',
+                502) from error
+        if error.code in (401, 403) or (error.code == 400 and 'api key' in lowered):
             raise ProviderFailure(
                 'invalid_key', 'The Gemini API key was rejected. Enter a valid key and try again.', 502) from error
         if error.code == 429:

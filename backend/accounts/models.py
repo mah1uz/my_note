@@ -127,12 +127,19 @@ class UserPreference(models.Model):
 
 
 class UserAiEntitlement(models.Model):
-    """Backend-authoritative free-trial quota. One row per AppUser."""
+    """Backend-authoritative free-trial quota, tracked per provider.
+
+    One row per AppUser. trial_limit/trial_used are the Groq pair (kept
+    under their original column names for data continuity); the
+    trial_gemini_* pair gives every account a fresh Gemini quota.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(AppUser, on_delete=models.CASCADE, related_name='ai_entitlement')
     trial_limit = models.PositiveIntegerField(default=5)
     trial_used = models.PositiveIntegerField(default=0)
+    trial_gemini_limit = models.PositiveIntegerField(default=5)
+    trial_gemini_used = models.PositiveIntegerField(default=0)
     trial_started_at = models.DateTimeField(null=True, blank=True)
     trial_expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -144,6 +151,10 @@ class UserAiEntitlement(models.Model):
             models.CheckConstraint(
                 condition=models.Q(trial_used__lte=models.F('trial_limit')),
                 name='ai_trial_usage_within_limit',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(trial_gemini_used__lte=models.F('trial_gemini_limit')),
+                name='ai_trial_gemini_usage_within_limit',
             ),
         ]
 

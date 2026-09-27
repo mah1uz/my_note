@@ -97,6 +97,49 @@ class AiEntitlementApiTests(APITestCase):
         self.assertEqual(entitlement.trial_used, 0)
 
 
+@override_settings(GROQ_API_KEY='', GEMINI_API_KEY='')
+class PerProviderQuotaTests(APITestCase):
+    def setUp(self):
+        self.user = AppUser.objects.create(email='quota@example.com')
+        self.client.force_authenticate(self.user)
+
+    def test_groq_and_gemini_quotas_are_independent(self):
+        from .services.entitlement import TrialUnavailable, consume_trial
+
+        consume_trial(self.user, 'groq')
+        consume_trial(self.user, 'groq')
+        entitlement = UserAiEntitlement.objects.get(user=self.user)
+        self.assertEqual((entitlement.trial_used, entitlement.trial_gemini_used), (2, 0))
+        consume_trial(self.user, 'gemini')
+        entitlement.refresh_from_db()
+        self.assertEqual((entitlement.trial_used, entitlement.trial_gemini_used), (2, 1))
+
+    def test_exhausted_groq_still_allows_gemini_trial(self):
+        from .services.entitlement import TrialUnavailable, consume_trial
+
+        entitlement, _ = UserAiEntitlement.objects.get_or_create(user=self.user)
+        entitlement.trial_used = entitlement.trial_limit
+        entitlement.save(update_fields=('trial_used', 'updated_at'))
+        with self.assertRaises(TrialUnavailable):
+            consume_trial(self.user, 'groq')
+        consume_trial(self.user, 'gemini')
+        entitlement.refresh_from_db()
+        self.assertEqual(entitlement.trial_gemini_used, 1)
+        response = self.client.get('/api/v1/auth/ai/entitlement/')
+        self.assertEqual(response.data['remaining_groq'], 0)
+        self.assertEqual(response.data['remaining_gemini'], 4)
+
+    def test_gemini_exhaustion_names_the_provider(self):
+        from .services.entitlement import TrialUnavailable, consume_trial
+
+        entitlement, _ = UserAiEntitlement.objects.get_or_create(user=self.user)
+        entitlement.trial_gemini_used = entitlement.trial_gemini_limit
+        entitlement.save(update_fields=('trial_gemini_used', 'updated_at'))
+        with self.assertRaises(TrialUnavailable) as raised:
+            consume_trial(self.user, 'gemini')
+        self.assertIn('Gemini', str(raised.exception))
+
+
 class OnboardingApiTests(APITestCase):
     def setUp(self):
         self.user = AppUser.objects.create(email='onboarding@example.com')
