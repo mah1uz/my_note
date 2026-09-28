@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  countPendingNotes,
   getNoteHeading,
   getNoteTags,
   groupItemsByNote,
@@ -9,6 +10,23 @@ import {
 } from './noteTaxonomy'
 
 describe('category-first taxonomy helpers', () => {
+  it('counts notes with pending items, not total items or completed notes', () => {
+    const notes = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }]
+    const items = [
+      { note: 1, item_type: 'TASK', domains: ['work'], status: 'PENDING', is_confirmed: true },
+      { note: 1, item_type: 'TASK', domains: ['work'], status: 'PENDING', is_confirmed: true },
+      { note: 2, item_type: 'TASK', domains: ['work'], status: 'COMPLETED', is_confirmed: true },
+      { note: 2, item_type: 'EVENT', domains: ['education'], status: 'PENDING', is_confirmed: true },
+      { note: 3, item_type: 'TASK', domains: ['shopping'], status: 'PENDING', is_confirmed: true },
+      { note: 4, item_type: 'INFORMATION', domains: ['education'], status: 'PENDING', is_confirmed: false },
+      { note: 99, item_type: 'TASK', domains: ['work'], status: 'PENDING', is_confirmed: true },
+    ]
+    expect(countPendingNotes(notes, items, 'tasks')).toBe(1)
+    expect(countPendingNotes(notes, items, 'events')).toBe(1)
+    expect(countPendingNotes(notes, items, 'study')).toBe(1)
+    expect(countPendingNotes(notes, items, 'shopping')).toBe(1)
+    expect(countPendingNotes(notes, items, 'all')).toBe(0)
+  })
   it('groups study notes separately from tasks, events, and shopping', () => {
     const items = [
       { id: 1, note: 1, item_type: 'TASK', domains: ['finance'], is_confirmed: true },

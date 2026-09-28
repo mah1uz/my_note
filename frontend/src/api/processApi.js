@@ -1,11 +1,85 @@
 import { apiRequest } from './http'
-import { notifyItemsChanged } from './itemsApi'
+import { analyzeNote, notifyItemsChanged } from './itemsApi'
+import { listNotes } from './notesApi'
 
 export const BACKLOG_STATUSES = ['UNPROCESSED', 'FAILED']
 
 /** Notes that still need AI processing. Pure helper, unit-tested. */
 export function backlogNotes(notes) {
   return (notes || []).filter((note) => BACKLOG_STATUSES.includes(note.processingStatus))
+}
+
+// Five starts per minute, below the backend's six/minute analyze throttle.
+// Providers may impose stricter token/key quotas; those still stop the run.
+export const ANALYZE_SPACING_MS = 12000
+
+function waitBetweenNotes(ms, signal) {
+  if (signal?.aborted) return Promise.reject(new Error('Analysis cancelled.'))
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new Error('Analysis cancelled.'))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/**
+ * One HTTP request per note, with a pause between starts. Each success only
+ * creates review drafts; no automatic confirmation. A fresh server snapshot
+ * supplies revisions and excludes notes already processed in another tab.
+ * Rate limits stop immediately rather than spending another trial attempt.
+ */
+export async function analyzeBacklog(credentials = {}, { signal, onProgress = () => {}, spacingMs = ANALYZE_SPACING_MS, wait = waitBetweenNotes } = {}) {
+  const { apiKey = '', trial = false, provider = 'groq' } = credentials
+  const candidates = backlogNotes(await listNotes()).filter((note) => !note.isArchived)
+    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')) || String(a.id).localeCompare(String(b.id)))
+  const results = []
+  let stopped = null
+  let consecutiveFailures = 0
+  onProgress({ current: 0, total: candidates.length, results: [] })
+  for (const note of candidates) {
+    if (signal?.aborted) { stopped = 'cancelled'; break }
+    if (results.length > 0) {
+      try { await wait(spacingMs, signal) } catch { stopped = 'cancelled'; break }
+    }
+    onProgress({ current: results.length + 1, total: candidates.length, results: [...results] })
+    try {
+      await analyzeNote(note.id, note.revision, apiKey, trial, provider, signal)
+      results.push({ id: note.id, status: 'analyzed', code: 'ok' })
+      consecutiveFailures = 0
+    } catch (error) {
+      if (signal?.aborted) { stopped = 'cancelled'; break }
+      const code = error?.data?.code || (error?.status === 429 ? 'rate_limit' : 'unexpected')
+      if (error?.status === 409) {
+        results.push({ id: note.id, status: 'skipped', code: 'changed' })
+      } else {
+        results.push({ id: note.id, status: 'failed', code })
+        consecutiveFailures += 1
+      }
+      // No immediate automatic retry: a second provider call would spend
+      // another free-trial attempt and can worsen the rate limit.
+      if (code === 'rate_limit' || code === 'trial_exhausted' || error?.status === 429) {
+        stopped = code === 'trial_exhausted' ? 'trial_exhausted' : 'rate_limit'
+      } else if (code === 'invalid_key' || code === 'credential_required' || code === 'trial_unavailable') {
+        stopped = code
+      } else if (consecutiveFailures >= 3) {
+        stopped = 'provider_unavailable'
+      }
+    }
+    onProgress({ current: results.length, total: candidates.length, results: [...results] })
+    if (stopped) break
+  }
+  if (stopped) {
+    for (const note of candidates.slice(results.length)) {
+      results.push({ id: note.id, status: 'skipped', code: stopped })
+    }
+  }
+  return { mode: 'verify', results, stopped }
 }
 
 /** Sequentially process the owned backlog. Mode is 'analyze' or 'verify'. */

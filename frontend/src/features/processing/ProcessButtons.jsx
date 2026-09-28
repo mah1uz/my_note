@@ -1,34 +1,43 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { processAll, summarizeResults } from '../../api/processApi'
+import { analyzeBacklog, summarizeResults } from '../../api/processApi'
 import { useAiKey } from '../../context/AiKeyContext'
 import { isAiConfigured } from './autoOrganize'
 
 /**
- * Bulk retry for the backlog: analyzes each UNPROCESSED/FAILED note one by
- * one and leaves drafts for per-card Verify & Review (verify mode — never
- * auto-confirms). Per-note review lives on each card/detail page.
+ * Paced, one-note-at-a-time retry. Results stay as review drafts; a provider
+ * rate limit stops before attempting the rest of the backlog.
  */
-export default function ProcessButtons({ compact = false, onDone }) {
+export default function ProcessButtons({ compact = false, backlogCount = 0, onDone }) {
   const { aiProvider, sessionKey, storedKeys, trialActive } = useAiKey()
   const [running, setRunning] = useState(false)
   const [summary, setSummary] = useState(null)
   const [error, setError] = useState('')
   const [needsSetup, setNeedsSetup] = useState(false)
+  const [progress, setProgress] = useState(null)
+  const controller = useRef(null)
+  useEffect(() => () => controller.current?.abort(), [])
 
   const configured = isAiConfigured({ sessionKey, storedKeys, provider: aiProvider, trialActive })
 
   const runAnalyzeAll = async () => {
-    if (running) return
+    if (controller.current) return
+    controller.current = new AbortController()
     setRunning(true)
     setError('')
     setNeedsSetup(false)
     setSummary(null)
+    setProgress(null)
     try {
-      const data = await processAll('verify', { apiKey: sessionKey, trial: trialActive, provider: aiProvider })
+      const data = await analyzeBacklog(
+        { apiKey: sessionKey, trial: trialActive, provider: aiProvider },
+        { signal: controller.current.signal, onProgress: setProgress },
+      )
+      if (controller.current?.signal.aborted) return
       setSummary(summarizeResults(data))
       if (onDone) await onDone(data)
     } catch (requestError) {
+      if (controller.current?.signal.aborted) return
       const code = requestError?.data?.code
       if (code === 'credential_required') {
         setNeedsSetup(true)
@@ -37,6 +46,7 @@ export default function ProcessButtons({ compact = false, onDone }) {
         setError(requestError.message)
       }
     } finally {
+      controller.current = null
       setRunning(false)
     }
   }
@@ -46,14 +56,15 @@ export default function ProcessButtons({ compact = false, onDone }) {
       <div className="process-actions">
         <button
           className="button button-primary"
-          disabled={running || !configured}
+          disabled={running || !configured || backlogCount === 0}
           onClick={runAnalyzeAll}
           title={!configured ? 'Start the free trial or add a personal key in Settings' : 'Analyze each waiting note, leaving drafts for per-card review'}
         >
-          {running ? 'Analyzing…' : 'Analyze all now'}
+          {running ? `Analyzing ${progress?.current || 0} of ${progress?.total || 0}…` : 'Analyze all now'}
         </button>
         {!configured && <span className="field-help">AI is not configured. <Link className="text-link" to="/app/settings">Open Settings</Link> to start the trial or add a key.</span>}
       </div>
+      {running && progress?.total > 0 && <p className="process-summary" role="status">{progress.results.length} of {progress.total} attempted · {progress.results.filter((row) => row.status === 'analyzed').length} drafted. Waiting between notes to reduce rate limits.</p>}
       {error && <p className="form-error" role="alert">{error}{needsSetup && <> <Link className="text-link" to="/app/settings">Open Settings</Link></>}</p>}
       {summary && (
         <p className="process-summary" role="status">
@@ -62,7 +73,9 @@ export default function ProcessButtons({ compact = false, onDone }) {
               Drafted for review {summary.analyzed} · Failed {summary.failed} · Skipped {summary.skipped}
               {summary.failures.length > 0 && <> ({[...new Set(summary.failures)].join(', ')})</>}
               {summary.stopped === 'trial_exhausted' && '. Stopped: free trial exhausted.'}
+              {summary.stopped === 'rate_limit' && '. Stopped: provider rate-limited this run. Wait before retrying the remaining notes; provider limits cannot be bypassed.'}
               {summary.stopped === 'provider_unavailable' && '. Stopped: provider unreachable — skipped notes are untouched.'}
+              {summary.stopped === 'invalid_key' && '. Stopped: check your AI key in Settings.'}
               {summary.analyzed > 0 && ' Open each card to Verify & Review.'}
             </>
           )}

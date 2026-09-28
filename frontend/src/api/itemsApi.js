@@ -6,9 +6,10 @@ export function notifyItemsChanged() {
 
 export const getReview = (noteId) => apiRequest(`/notes/${noteId}/review/`)
 
-export const analyzeNote = (noteId, revision, apiKey = '', trial = false, provider = 'groq') => apiRequest(`/notes/${noteId}/analyze/`, {
+export const analyzeNote = (noteId, revision, apiKey = '', trial = false, provider = 'groq', signal) => apiRequest(`/notes/${noteId}/analyze/`, {
   method: 'POST', body: JSON.stringify({ revision }),
   headers: { 'X-AI-Provider': provider, ...(apiKey ? { 'X-AI-Api-Key': apiKey } : trial ? { 'X-AI-Trial': 'true' } : {}) },
+  signal,
   // Analysis holds the request open for the provider call; keep it well
   // under the server's analysis lease while far above normal API latency.
   timeout: 150000,

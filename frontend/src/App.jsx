@@ -28,7 +28,7 @@ import OnboardingPage from './features/onboarding/OnboardingPage'
 import SearchFeaturePage from './features/search/SearchPage'
 import ProcessButtons from './features/processing/ProcessButtons'
 import QueueProgress from './features/processing/QueueProgress'
-import { NOTE_TABS, getNoteHeading, getNoteTags, groupItemsByNote, isDueToday, primaryCategory } from './features/notes/noteTaxonomy'
+import { NOTE_TABS, countPendingNotes, getNoteHeading, getNoteTags, groupItemsByNote, isDueToday, primaryCategory } from './features/notes/noteTaxonomy'
 import { NOTE_MAX_WORDS, countWords, previewNote } from './features/notes/noteText'
 import { formatNoteStamp, getGreeting } from './features/dashboard/datetime'
 import { useConfirmedItems } from './context/ItemsContext'
@@ -390,6 +390,7 @@ function NotesPage() {
   const [autoError, setAutoError] = useState('')
   const [analyzeIds, setAnalyzeIds] = useState(() => new Set())
   const [analyzeError, setAnalyzeError] = useState('')
+  const [completedBacklogRun, setCompletedBacklogRun] = useState(false)
   const autoRunningRef = useRef(false)
   const { items, loading: catsLoading, refresh: refreshCats, patchLocal, commitItem } = useConfirmedItems()
   // Single shared index — no per-card fetches. Notes list + confirmed items
@@ -418,7 +419,7 @@ function NotesPage() {
   const countFor = (key) => {
     if (key === 'all') return notes.length
     if (key === 'categories') return notes.filter(hasConfirmedItems).length
-    return notes.filter((note) => groups[String(note.id)]?.[key]).length
+    return countPendingNotes(notes, items, key)
   }
   const matchesQuery = (note) => {
     const q = query.trim().toLowerCase()
@@ -489,11 +490,11 @@ function NotesPage() {
   }
   const categoryTabs = NOTE_TABS.filter((entry) => entry.key !== 'all')
   return <><PageHeader eyebrow="Your memory" title="All Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
-    {backlog.length > 0 && <section className="section-block queue-panel" aria-label="Backlog analysis"><div className="section-heading"><div><span className="eyebrow">Capture to drafts</span><h2>Analyze the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><p className="field-help">Analyzes each waiting note one by one without confirming anything. Open each card afterwards to Verify &amp; Review.</p><ProcessButtons onDone={refreshNotes} /></section>}
+    {(backlog.length > 0 || completedBacklogRun) && <section className="section-block queue-panel" aria-label="Backlog analysis"><div className="section-heading"><div><span className="eyebrow">Capture to drafts</span><h2>Analyze the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><p className="field-help">Analyzes each waiting note one by one without confirming anything. Open each card afterwards to Verify &amp; Review.</p><ProcessButtons backlogCount={backlog.length} onDone={() => { setCompletedBacklogRun(true); refreshNotes() }} /></section>}
     <section className="notes-box" aria-label="Notes by category">
       <div className="notes-tabs-row">
         <div className="notes-tabs" role="tablist" aria-label="Note categories">
-          {categoryTabs.map((entry) => <button key={entry.key} role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'notes-tab active' : 'notes-tab'} onClick={() => setTab(entry.key)}>{entry.label}{!catsLoading && <span className="notes-tab-count"> ({countFor(entry.key)})</span>}</button>)}
+          {categoryTabs.map((entry) => <button key={entry.key} role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'notes-tab active' : 'notes-tab'} onClick={() => setTab(entry.key)}>{entry.label}{!catsLoading && <span className="notes-tab-count" title={entry.key === 'categories' ? 'Organized notes' : 'Notes with pending items'}> ({countFor(entry.key)})</span>}</button>)}
         </div>
         <button className={tab === 'all' ? 'button button-primary button-small' : 'button button-ghost button-small'} onClick={() => setTab('all')} aria-pressed={tab === 'all'}>All notes{!catsLoading && ` (${countFor('all')})`}</button>
       </div>

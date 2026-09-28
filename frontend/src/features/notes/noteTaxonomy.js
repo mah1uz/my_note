@@ -59,6 +59,26 @@ export function hasAnyCategory(group) {
   return Boolean(group && (group.tasks || group.events || group.shopping || group.study))
 }
 
+/** Count distinct notes with at least one pending confirmed item in the tab. */
+export function countPendingNotes(notes, items, category) {
+  const match = {
+    tasks: isTaskCategory,
+    events: isEventCategory,
+    study: isStudyCategory,
+    shopping: isShoppingCategory,
+  }[category]
+  if (!match) return 0
+  const visibleIds = new Set((notes || []).map((note) => String(note.id)))
+  const pendingIds = new Set()
+  for (const item of items || []) {
+    const id = String(item?.note ?? item?.note_id ?? '')
+    if (visibleIds.has(id) && item?.is_confirmed !== false && item?.status === 'PENDING' && match(item)) {
+      pendingIds.add(id)
+    }
+  }
+  return pendingIds.size
+}
+
 /**
  * Card heading: prefers the LLM-derived aiTitle persisted on the note,
  * then the first confirmed item title, then the raw-text first line.

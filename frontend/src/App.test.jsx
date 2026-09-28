@@ -598,10 +598,14 @@ describe('Part 2 full-stack UI flows', () => {
     ]
     const user = userEvent.setup()
     renderApp('/app/notes')
+    expect(await screen.findByRole('tab', { name: /tasks \(1\)/i })).toBeInTheDocument()
     await user.click(await screen.findByRole('tab', { name: /tasks/i }))
     await user.click(await screen.findByRole('button', { name: 'Mark File taxes complete' }))
     expect(await screen.findByRole('button', { name: 'Mark File taxes incomplete' })).toBeInTheDocument()
     expect(state.itemsList[0].status).toBe('COMPLETED')
+    expect(await screen.findByRole('tab', { name: /tasks \(0\)/i })).toBeInTheDocument()
+    // The category still contains the completed note; only its pending count changes.
+    expect(screen.getByRole('button', { name: /open note: file taxes friday/i })).toBeInTheDocument()
   })
 
   it('opens a tick popup for multi-item cards and ticks each element inside', async () => {
