@@ -6,6 +6,7 @@ import {
   groupItemsByNote,
   hasAnyCategory,
   isStudyCategory,
+  itemsInNoteTab,
   primaryCategory,
   noteMatchesQuery,
 } from './noteTaxonomy'
@@ -58,6 +59,20 @@ describe('category-first taxonomy helpers', () => {
     expect(hasAnyCategory(undefined)).toBe(false)
     expect(isStudyCategory({ item_type: 'INFORMATION', domains: ['education'] })).toBe(true)
     expect(isStudyCategory({ item_type: 'TASK', domains: ['finance'] })).toBe(false)
+  })
+
+  it('scopes individual items rather than whole notes in category tabs', () => {
+    const items = [
+      { item_type: 'TASK', domains: ['shopping'] },
+      { item_type: 'TASK', domains: ['work'] },
+      { item_type: 'EVENT', domains: ['education'] },
+    ]
+    expect(itemsInNoteTab(items, 'shopping')).toEqual([items[0]])
+    expect(itemsInNoteTab(items, 'tasks')).toEqual([items[1]])
+    expect(itemsInNoteTab(items, 'events')).toEqual([items[2]])
+    expect(itemsInNoteTab(items, 'study')).toEqual([items[2]])
+    expect(itemsInNoteTab(items, 'all')).toEqual(items)
+    expect(itemsInNoteTab(items, 'categories')).toEqual(items)
   })
 
   it('prefers the LLM heading, then item titles, then raw text', () => {

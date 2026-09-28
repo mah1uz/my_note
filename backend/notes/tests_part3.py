@@ -373,17 +373,57 @@ class IntelligenceApiTests(APITestCase):
         for draft in note.items.all():
             self.assertNotIn('possible_split', draft.metadata)
 
-    def test_obligation_task_suggests_event_but_dated_shopping_does_not(self):
+    def test_dated_obligation_task_becomes_event_but_shopping_stays_a_task(self):
         dated = self.analyze_text('have to submit the report on Friday', [
             prediction(type='TASK', title='Submit report', due_date='2026-09-25',
                        domains=['work']),
         ])
-        self.assertIn('event', dated.items.get().metadata.get('tense_conflict', ''))
+        report = dated.items.get()
+        self.assertEqual(report.item_type, 'EVENT')
+        self.assertEqual(str(report.start_date), '2026-09-25')
+        self.assertIsNone(report.due_date)
+        self.assertEqual(report.metadata['auto_corrected']['reason'], 'dated_obligation')
+        self.assertNotIn('tense_conflict', report.metadata)
         shopping = self.analyze_text('buy milk tomorrow', [
             prediction(type='TASK', title='Buy milk', due_date='2026-09-23',
                        domains=['shopping']),
         ])
+        self.assertEqual(shopping.items.get().item_type, 'TASK')
         self.assertNotIn('tense_conflict', shopping.items.get().metadata)
+
+    def test_take_med_tomorrow_is_event_even_when_provider_leaves_date_empty(self):
+        from datetime import timedelta
+
+        note = self.analyze_text('i have to take my med tomorrow', [
+            prediction(type='TASK', title='Take my med', domains=['health']),
+        ])
+        item = note.items.get()
+        self.assertEqual(item.item_type, 'EVENT')
+        self.assertEqual(item.start_date, timezone.localtime(timezone.now()).date() + timedelta(days=1))
+        self.assertEqual(item.metadata['auto_corrected']['reason'], 'dated_obligation')
+        self.assertNotIn('tense_conflict', item.metadata)
+
+    def test_multi_item_obligation_does_not_reclassify_unrelated_task(self):
+        note = self.analyze_text('i have to take my med tomorrow and file my receipts', [
+            prediction(type='TASK', title='Have to take my med tomorrow', domains=['health'],
+                       due_date='2026-09-25'),
+            prediction(type='TASK', title='File receipts', domains=['finance']),
+        ])
+        items = {item.title: item for item in note.items.all()}
+        self.assertEqual(items['Have to take my med tomorrow'].item_type, 'EVENT')
+        self.assertEqual(str(items['Have to take my med tomorrow'].start_date), '2026-09-25')
+        self.assertEqual(items['File receipts'].item_type, 'TASK')
+        self.assertNotIn('tense_conflict', items['File receipts'].metadata)
+
+    def test_timed_meeting_in_multi_item_note_does_not_turn_every_task_into_event(self):
+        note = self.analyze_text('file taxes then attend a meeting at 10pm', [
+            prediction(type='TASK', title='File taxes', domains=['finance']),
+            prediction(type='TASK', title='Attend meeting', domains=['work'], due_datetime='2026-09-25T22:00:00+06:00'),
+        ])
+        items = {item.title: item for item in note.items.all()}
+        self.assertEqual(items['File taxes'].item_type, 'TASK')
+        self.assertEqual(items['Attend meeting'].item_type, 'EVENT')
+        self.assertIsNotNone(items['Attend meeting'].start_datetime)
 
     def test_reported_note_auto_corrects_meeting_to_event_and_brush_to_shopping(self):
         # Reported note: "i have to attend a meeting at 11pm, and get a brush

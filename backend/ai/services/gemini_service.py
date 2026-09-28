@@ -13,7 +13,7 @@ from ai.services.groq_service import SYSTEM_PROMPT
 from ai.services.providers import ProviderFailure, redact, timeout_seconds
 from ai.schema import ANALYSIS_SCHEMA
 
-PROMPT_VERSION = 'v1'
+PROMPT_VERSION = 'v2'
 
 API_HOST = 'https://generativelanguage.googleapis.com'
 

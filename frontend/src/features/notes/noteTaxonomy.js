@@ -32,6 +32,17 @@ export function isStudyCategory(item) {
   return (item?.domains || []).includes('education')
 }
 
+/** Category views show only matching elements; the rollups show the whole note. */
+export function itemsInNoteTab(items = [], tab = 'all') {
+  const match = {
+    tasks: isTaskCategory,
+    events: isEventCategory,
+    study: isStudyCategory,
+    shopping: isShoppingCategory,
+  }[tab]
+  return match ? items.filter(match) : items
+}
+
 /**
  * Group confirmed items by their source note id.
  * Returns { [noteId]: { tasks: bool, events: bool, shopping: bool, study: bool } }.

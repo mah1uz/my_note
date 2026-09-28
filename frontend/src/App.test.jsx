@@ -471,10 +471,51 @@ describe('Part 2 full-stack UI flows', () => {
     expect(screen.queryByRole('button', { name: /open note: buy eggs from agora/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: /shopping/i }))
-    expect(screen.getByRole('button', { name: /open note: buy eggs from agora/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open note: buy eggs$/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /all notes/i }))
     expect(screen.getByRole('button', { name: /open note: team standup at ten/i })).toBeInTheDocument()
+  })
+
+  it('shows only the active category elements on mixed-note cards and in their popup', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'Buy eggs, file taxes, and visit the dentist tomorrow', ai_title: 'Errands and appointment', processing_status: 'PROCESSED' }]
+    state.itemsList = [
+      { id: 11, item_type: 'TASK', title: 'Buy eggs', status: 'PENDING', domains: ['shopping'], note: 1, revision: 0 },
+      { id: 12, item_type: 'TASK', title: 'File taxes', status: 'PENDING', domains: ['finance'], note: 1, revision: 0 },
+      { id: 13, item_type: 'EVENT', title: 'Dentist appointment', status: 'PENDING', start_date: '2026-09-29', domains: ['health'], note: 1, revision: 0 },
+    ]
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    await user.click(await screen.findByRole('tab', { name: /shopping/i }))
+    const card = await screen.findByRole('button', { name: /open note: buy eggs/i })
+    expect(card).toHaveTextContent('Buy eggs')
+    expect(card).not.toHaveTextContent('File taxes')
+    expect(card).not.toHaveTextContent('Dentist appointment')
+    expect(within(card).getByRole('button', { name: 'Mark Buy eggs complete' })).toBeInTheDocument()
+    await user.click(card)
+    let dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getAllByText('Buy eggs').length).toBeGreaterThan(0)
+    expect(dialog).not.toHaveTextContent('File taxes')
+    expect(dialog).not.toHaveTextContent('Dentist appointment')
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+    await user.click(screen.getByRole('tab', { name: /events/i }))
+    await user.click(screen.getByRole('button', { name: /open note: dentist appointment/i }))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getAllByText('Dentist appointment').length).toBeGreaterThan(0)
+    expect(dialog).not.toHaveTextContent('Buy eggs')
+    expect(dialog).not.toHaveTextContent('File taxes')
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+    const search = screen.getByRole('textbox', { name: /search all notes/i })
+    await user.type(search, 'eggs')
+    expect(screen.queryByRole('button', { name: /open note: dentist appointment/i })).not.toBeInTheDocument()
+    await user.clear(search)
+    await user.click(screen.getByRole('button', { name: /all notes/i }))
+    await user.click(screen.getByRole('button', { name: /open note: buy eggs/i }))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getAllByText('Buy eggs').length).toBeGreaterThan(0)
+    expect(within(dialog).getByText('File taxes')).toBeInTheDocument()
+    expect(within(dialog).getByText('Dentist appointment')).toBeInTheDocument()
   })
 
   it('shows one Tasks tag, an estimated extracted date, and price entry on a processed shopping card', async () => {
@@ -602,7 +643,7 @@ describe('Part 2 full-stack UI flows', () => {
     const user = userEvent.setup()
     renderApp('/app/notes')
     await user.click(await screen.findByRole('tab', { name: /tasks/i }))
-    const card = await screen.findByRole('button', { name: /open note: file taxes friday/i })
+    const card = await screen.findByRole('button', { name: /open note: file taxes$/i })
     expect(card.closest('article')).not.toHaveClass('done')
     await user.click(await screen.findByRole('button', { name: 'Mark File taxes complete' }))
     await waitFor(() => expect(card.closest('article')).toHaveClass('done'))
@@ -645,7 +686,7 @@ describe('Part 2 full-stack UI flows', () => {
     expect(state.itemsList[0].status).toBe('COMPLETED')
     expect(await screen.findByRole('tab', { name: /tasks \(0\)/i })).toBeInTheDocument()
     // The category still contains the completed note; only its pending count changes.
-    expect(screen.getByRole('button', { name: /open note: file taxes friday/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open note: file taxes$/i })).toBeInTheDocument()
   })
 
   it('opens a tick popup for multi-item cards and ticks each element inside', async () => {
@@ -659,9 +700,9 @@ describe('Part 2 full-stack UI flows', () => {
     renderApp('/app/notes')
     await user.click(await screen.findByRole('tab', { name: /tasks/i }))
     expect(screen.queryByRole('button', { name: 'Mark Book tickets complete' })).not.toBeInTheDocument()
-    await user.click(await screen.findByRole('button', { name: /choose items to tick in trip prep/i }))
+    await user.click(await screen.findByRole('button', { name: /choose items to tick in book tickets/i }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Tick items in this note')).toBeInTheDocument()
+    expect(within(dialog).getByText('Tick items in tasks')).toBeInTheDocument()
     expect(dialog.parentElement?.parentElement).toBe(document.body)
     expect(document.body.style.overflow).toBe('hidden')
     await user.click(within(dialog).getByRole('button', { name: 'Mark Book tickets complete' }))

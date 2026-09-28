@@ -1,5 +1,6 @@
 """SQLite-friendly revision checks and atomic writes, never a transaction over HTTP."""
 import json
+import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -42,6 +43,7 @@ def tense_conflict_flag(predicted, evidence):
         # No money involved: an obligation with an explicit date belongs on an
         # EVENT, but a dated shopping TASK (buy milk tomorrow) is legitimate.
         if (predicted.get('type') == 'TASK' and evidence.get('obligation_hint')
+                and not evidence.get('shopping_hint')
                 and 'shopping' not in (predicted.get('domains') or [])):
             return {'tense_conflict': (
                 'This has an explicit date. Consider changing it to an event '
@@ -62,10 +64,13 @@ def tense_conflict_flag(predicted, evidence):
     return {}
 
 
-def correct_predicted_type_and_domains(predicted, evidence):
+def correct_predicted_type_and_domains(predicted, evidence, item_evidence=None):
     """Deterministic auto-correct for clear-cut provider misclassifications.
 
     Only fires on explicit regex evidence, never on vague text:
+    - Dated non-shopping obligation ("have to take medicine tomorrow")
+      emitted as TASK becomes EVENT. For multi-item notes the obligation must
+      appear in the item's own text, not just a different clause of the note.
     - Timed gathering ("attend a meeting at 11pm") emitted as TASK becomes
       EVENT, moving any due_* date into the matching start_* field. Skipped
       when the item already carries the shopping domain or explicit money,
@@ -92,11 +97,16 @@ def correct_predicted_type_and_domains(predicted, evidence):
         corrections['from_type'] = 'INFORMATION'
         corrections['to_type'] = 'TASK'
         corrections['reason'] = 'work_duty_today'
-    if ptype == 'TASK' and evidence.get('timed_meeting_hint') and 'shopping' not in domains and not item_has_money:
+    scoped_evidence = item_evidence if item_evidence is not None else evidence
+    dated_obligation = scoped_evidence.get('obligation_hint') and not scoped_evidence.get('shopping_hint')
+    timed_meeting = (evidence.get('timed_meeting_hint') and
+                     (scoped_evidence is evidence or EVENT_NOUN_RE.search(item_text)))
+    if (ptype == 'TASK' and 'shopping' not in domains and not item_has_money
+            and (timed_meeting or dated_obligation)):
         predicted['type'] = 'EVENT'
         corrections['from_type'] = 'TASK'
         corrections['to_type'] = 'EVENT'
-        corrections['reason'] = 'timed_meeting'
+        corrections['reason'] = 'timed_meeting' if timed_meeting else 'dated_obligation'
         for due_field, start_field in (('due_date', 'start_date'), ('due_datetime', 'start_datetime')):
             if predicted.get(due_field) and not predicted.get(start_field):
                 predicted[start_field] = predicted[due_field]
@@ -290,9 +300,21 @@ def analyze(note, revision, user_api_key=None, trial=False, provider='groq'):
         split_ids = split_item_ids(payload['items'], deterministic_evidence)
         validated = []
         for predicted in payload['items']:
-            auto_corrections = correct_predicted_type_and_domains(predicted, deterministic_evidence)
+            item_text = ' '.join(str(predicted.get(field) or '') for field in (
+                'title', 'summary', 'normalized_text'))
+            # Only a one-item note may borrow its note-level obligation/date:
+            # in a mixed note that date could belong to a different item.
+            scoped_evidence = (deterministic_evidence if len(payload['items']) == 1
+                               else parse_note_evidence(item_text))
+            auto_corrections = correct_predicted_type_and_domains(
+                predicted, deterministic_evidence, scoped_evidence)
             data = {key: value for key, value in predicted.items() if key not in ('type', 'confidence')}
             data['item_type'] = predicted['type']
+            if (auto_corrections.get('reason') == 'dated_obligation'
+                    and not any(data.get(field) for field in ('start_date', 'start_datetime', 'due_date', 'due_datetime'))
+                    and re.search(r'\btomorrow\b', note.raw_text if len(payload['items']) == 1 else item_text, re.I)):
+                data['start_date'] = (user_now.date() + timedelta(days=1)).isoformat()
+                auto_corrections['resolved_tomorrow'] = True
             # Same-day safety net: explicit today tokens mean due today even
             # when the provider leaves a TASK/EVENT undated. Scoped per item:
             # an item whose own text points at another day (e.g. a "tomorrow"
@@ -310,7 +332,9 @@ def analyze(note, revision, user_api_key=None, trial=False, provider='groq'):
             # Keep explicit parser evidence visible for review; never replace provider values.
             data['metadata'] = {
                 'deterministic_evidence': deterministic_evidence,
-                **tense_conflict_flag(predicted, deterministic_evidence),
+                **tense_conflict_flag(predicted, {**deterministic_evidence,
+                                                   'obligation_hint': scoped_evidence.get('obligation_hint'),
+                                                   'shopping_hint': scoped_evidence.get('shopping_hint')}),
             }
             if auto_corrections:
                 data['metadata']['auto_corrected'] = auto_corrections

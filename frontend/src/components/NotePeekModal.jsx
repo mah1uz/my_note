@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { analyzeNote } from '../api/itemsApi'
 import { useAiKey } from '../context/AiKeyContext'
 import TabItemRow from '../features/notes/TabItemRow'
+import { getNoteHeading } from '../features/notes/noteTaxonomy'
 import useBodyScrollLock from './useBodyScrollLock'
 
 /**
@@ -12,7 +13,7 @@ import useBodyScrollLock from './useBodyScrollLock'
  * When opened from a category tab with several items, it also lists each
  * element with its own tick for manual ticking.
  */
-export default function NotePeekModal({ note, onClose, onDelete, items = [], onItemsChanged = () => {}, onTicked = () => {} }) {
+export default function NotePeekModal({ note, category = null, onClose, onDelete, items = [], onItemsChanged = () => {}, onTicked = () => {} }) {
   const navigate = useNavigate()
   const { aiProvider, sessionKey, trialActive } = useAiKey()
   const [deleting, setDeleting] = useState(false)
@@ -53,8 +54,8 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
   }
   const stamped = new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 
-  const heading = (note.aiTitle || '').trim() || note.originalText || 'Untitled note'
-  const showOriginal = (note.aiTitle || '').trim() && note.aiTitle.trim() !== (note.originalText || '').trim()
+  const heading = category ? getNoteHeading({ ...note, aiTitle: '' }, items) : (note.aiTitle || '').trim() || note.originalText || 'Untitled note'
+  const showOriginal = !category && (note.aiTitle || '').trim() && note.aiTitle.trim() !== (note.originalText || '').trim()
   // Portal to document.body: escapes every ancestor stacking context
   // (animations, sticky, overflow, will-change) so fixed centering is
   // always viewport-relative, never scroll-dependent.
@@ -67,15 +68,15 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
       <p className="field-help">Status: {note.processingStatus}</p>
       {items.length > 0 && <>
         <hr className="glow-line" />
-        <p className="eyebrow">Tick items in this note</p>
+        <p className="eyebrow">{category ? `Tick items in ${category}` : 'Tick items in this note'}</p>
         <ul className="tab-item-list modal-item-list" aria-label="Items in this note">
           {items.map((item) => <TabItemRow key={`${item.id}-${item.revision}`} item={item} onChanged={onItemsChanged} onTicked={onTicked} showPriceEditor />)}
         </ul>
       </>}
       <div className="modal-actions note-peek-actions">
         <Link className="button button-primary" to={`/app/notes/${note.id}`}>Open full note</Link>
-        <button className="button button-ghost" onClick={analyze} disabled={analyzing || deleting} aria-label={`Analyze ${note.originalText}`}>{analyzing ? 'Analyzing…' : 'Analyze'}</button>
-        <button className="button button-danger" onClick={remove} disabled={deleting || analyzing}>{deleting ? 'Deleting…' : 'Delete'}</button>
+        {!category && <button className="button button-ghost" onClick={analyze} disabled={analyzing || deleting} aria-label={`Analyze ${note.originalText}`}>{analyzing ? 'Analyzing…' : 'Analyze'}</button>}
+        {!category && <button className="button button-danger" onClick={remove} disabled={deleting || analyzing}>{deleting ? 'Deleting…' : 'Delete'}</button>}
         <button className="button button-ghost" onClick={onClose}>Close</button>
       </div>
     </div>
