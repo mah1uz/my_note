@@ -2,6 +2,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny
+from .authentication import SupabaseJWTAuthentication
 from django.utils import timezone
 
 from .models import AppUser, UserAiEntitlement, UserPreference
@@ -18,6 +20,30 @@ def _require_app_user(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
     return None
+
+
+class SessionStartView(APIView):
+    """Exchange a freshly authenticated Supabase JWT for a 72-hour cookie."""
+    authentication_classes = [SupabaseJWTAuthentication]
+
+    def post(self, request):
+        denied = _require_app_user(request)
+        if denied:
+            return denied
+        request.session.flush()
+        request.session['app_user_id'] = str(request.user.pk)
+        request.session['login_at'] = timezone.now().timestamp()
+        request.session.set_expiry(72 * 60 * 60)
+        return Response(AppUserSerializer(request.user).data)
+
+
+class SessionEndView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        request.session.flush()
+        return Response(status=204)
 
 
 class MeView(APIView):

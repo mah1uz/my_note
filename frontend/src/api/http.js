@@ -63,7 +63,7 @@ export async function apiRequest(path, options = {}, retry = true) {
   }
   const timer = setTimeout(() => controller.abort(new TimeoutError()), timeout)
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, { ...fetchOptions, headers, signal: controller.signal })
+    const response = await fetch(`${API_BASE_URL}${path}`, { ...fetchOptions, credentials: 'include', headers, signal: controller.signal })
     if (response.status === 401 && retry) {
       try {
         if (!supabase) throw new Error('Supabase Auth is not configured.')
@@ -76,6 +76,7 @@ export async function apiRequest(path, options = {}, retry = true) {
         unauthorizedHandler()
       }
     }
+    if (response.status === 401 && !retry) unauthorizedHandler()
     return await parseResponse(response)
   } catch (error) {
     // Timeout and caller aborts both surface as a TimeoutError; API

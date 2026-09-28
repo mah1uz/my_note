@@ -1,6 +1,7 @@
 import { apiRequest } from './http'
-import { analyzeNote, notifyItemsChanged } from './itemsApi'
+import { analyzeNote, confirmAnalysis, notifyItemsChanged } from './itemsApi'
 import { listNotes } from './notesApi'
+import { itemForm, itemPayload } from '../features/items/itemForm'
 
 export const BACKLOG_STATUSES = ['UNPROCESSED', 'FAILED']
 
@@ -29,8 +30,9 @@ function waitBetweenNotes(ms, signal) {
 }
 
 /**
- * One HTTP request per note, with a pause between starts. Each success only
- * creates review drafts; no automatic confirmation. A fresh server snapshot
+ * One analysis request per note, with a pause between starts. Safe drafts are
+ * confirmed and categorized; flagged drafts remain available for review.
+ * A fresh server snapshot
  * supplies revisions and excludes notes already processed in another tab.
  * Rate limits stop immediately rather than spending another trial attempt.
  */
@@ -49,8 +51,21 @@ export async function analyzeBacklog(credentials = {}, { signal, onProgress = ()
     }
     onProgress({ current: results.length + 1, total: candidates.length, results: [...results] })
     try {
-      await analyzeNote(note.id, note.revision, apiKey, trial, provider, signal)
-      results.push({ id: note.id, status: 'analyzed', code: 'ok' })
+      const review = await analyzeNote(note.id, note.revision, apiKey, trial, provider, signal)
+      const drafts = (review.items || []).filter((item) => !item.is_confirmed)
+      const flagged = drafts.some((item) => item.metadata?.tense_conflict || item.metadata?.possible_split)
+      if (!drafts.length || flagged) {
+        results.push({ id: note.id, status: 'analyzed', code: flagged ? 'needs_review' : 'empty' })
+      } else {
+        try {
+          await confirmAnalysis(note.id, review.note.revision, drafts.map((item) => itemPayload(itemForm(item))))
+          results.push({ id: note.id, status: 'confirmed', code: 'ok' })
+        } catch {
+          // Drafts are safely stored on the server; let the user verify them
+          // rather than retrying analysis and spending another trial attempt.
+          results.push({ id: note.id, status: 'analyzed', code: 'confirm_failed' })
+        }
+      }
       consecutiveFailures = 0
     } catch (error) {
       if (signal?.aborted) { stopped = 'cancelled'; break }
@@ -79,7 +94,7 @@ export async function analyzeBacklog(credentials = {}, { signal, onProgress = ()
       results.push({ id: note.id, status: 'skipped', code: stopped })
     }
   }
-  return { mode: 'verify', results, stopped }
+  return { mode: 'analyze', results, stopped }
 }
 
 /** Sequentially process the owned backlog. Mode is 'analyze' or 'verify'. */

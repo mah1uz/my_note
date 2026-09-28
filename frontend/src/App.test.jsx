@@ -59,6 +59,8 @@ function installApiMock() {
       if (method === 'PATCH') state.profile = { ...state.profile, ...JSON.parse(options.body) }
       return jsonResponse(state.profile)
     }
+    if (path.endsWith('/auth/session/start/')) return jsonResponse(state.profile)
+    if (path.endsWith('/auth/session/end/')) return jsonResponse(null, 204)
     if (path.endsWith('/auth/preferences/')) {
       if (!state.authenticated) return jsonResponse({ detail: 'Authentication required.' }, 401)
       if (method === 'PATCH') state.prefs = { ...state.prefs, ...JSON.parse(options.body) }
@@ -249,6 +251,13 @@ describe('Part 2 full-stack UI flows', () => {
     expect(await screen.findByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
   })
 
+  it('opens the app without a login form when the remembered session restores', async () => {
+    state.authenticated = true
+    renderApp('/login')
+    expect(await screen.findByRole('heading', { name: /good (morning|afternoon|evening|night)/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /welcome back/i })).not.toBeInTheDocument()
+  })
+
   it('validates login, reports API errors, and opens the dashboard', async () => {
     const user = userEvent.setup()
     renderApp('/login')
@@ -262,6 +271,9 @@ describe('Part 2 full-stack UI flows', () => {
     await user.type(screen.getByLabelText(/^password$/i), 'secret123')
     await user.click(screen.getByRole('button', { name: /log in/i }))
     expect(await screen.findByRole('heading', { name: /good (morning|afternoon|evening|night), maya rahman/i })).toBeInTheDocument()
+    const exchange = fetch.mock.calls.find(([url]) => new URL(url).pathname.endsWith('/auth/session/start/'))
+    expect(exchange).toBeDefined()
+    expect(exchange[1].credentials).toBe('include')
   })
 
   it('registers and logs out through the API', async () => {
@@ -473,8 +485,7 @@ describe('Part 2 full-stack UI flows', () => {
     const user = userEvent.setup()
     renderApp('/app/notes')
     const card = await screen.findByRole('button', { name: /open note: buy eggs by friday/i })
-    expect(within(card).getByText('Estimated outcome date:')).toBeInTheDocument()
-    expect(within(card).getByText(/2026-10-02/).tagName).toBe('STRONG')
+    expect(within(card).queryByText('Estimated outcome date:')).not.toBeInTheDocument()
     expect(within(card).getByRole('button', { name: /set price for buy eggs/i })).toBeInTheDocument()
     const taskCard = screen.getByRole('button', { name: /open note: file taxes by friday/i })
     expect(within(taskCard).getByText('tasks')).toBeInTheDocument()
@@ -482,6 +493,10 @@ describe('Part 2 full-stack UI flows', () => {
     await user.click(within(card).getByRole('button', { name: /set price for buy eggs/i }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(within(card).getByLabelText('Price amount')).toBeInTheDocument()
+    await user.click(card)
+    const modal = await screen.findByRole('dialog')
+    expect(within(modal).getAllByText(/Estimated outcome date:/)).toHaveLength(1)
+    expect(within(modal).getAllByText(/2026-10-02/).some((node) => node.tagName === 'STRONG')).toBe(true)
   })
 
   it('resolveLinkedTransaction finds the ledger row without trusting memory', async () => {
@@ -664,7 +679,7 @@ describe('Part 2 full-stack UI flows', () => {
   })
 
   it('clears and reloads Notes when the authenticated account changes', async () => {
-    state.authenticated = true
+    state.authenticated = false
     const user = userEvent.setup()
     renderApp('/login')
     await user.type(screen.getByLabelText(/^email$/i), 'bob@example.com')

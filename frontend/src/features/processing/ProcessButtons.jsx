@@ -5,8 +5,8 @@ import { useAiKey } from '../../context/AiKeyContext'
 import { isAiConfigured } from './autoOrganize'
 
 /**
- * Paced, one-note-at-a-time retry. Results stay as review drafts; a provider
- * rate limit stops before attempting the rest of the backlog.
+ * Paced, one-note-at-a-time retry. Safe results are confirmed; flagged drafts
+ * still require review. Rate limits stop before attempting the rest.
  */
 export default function ProcessButtons({ compact = false, backlogCount = 0, onDone }) {
   const { aiProvider, sessionKey, storedKeys, trialActive } = useAiKey()
@@ -58,25 +58,25 @@ export default function ProcessButtons({ compact = false, backlogCount = 0, onDo
           className="button button-primary"
           disabled={running || !configured || backlogCount === 0}
           onClick={runAnalyzeAll}
-          title={!configured ? 'Start the free trial or add a personal key in Settings' : 'Analyze each waiting note, leaving drafts for per-card review'}
+          title={!configured ? 'Start the free trial or add a personal key in Settings' : 'Analyze and categorize waiting notes one by one'}
         >
           {running ? `Analyzing ${progress?.current || 0} of ${progress?.total || 0}…` : 'Analyze all now'}
         </button>
         {!configured && <span className="field-help">AI is not configured. <Link className="text-link" to="/app/settings">Open Settings</Link> to start the trial or add a key.</span>}
       </div>
-      {running && progress?.total > 0 && <p className="process-summary" role="status">{progress.results.length} of {progress.total} attempted · {progress.results.filter((row) => row.status === 'analyzed').length} drafted. Waiting between notes to reduce rate limits.</p>}
+      {running && progress?.total > 0 && <p className="process-summary" role="status">{progress.results.length} of {progress.total} attempted · {progress.results.filter((row) => row.status === 'confirmed').length} categorized. Waiting between notes to reduce rate limits.</p>}
       {error && <p className="form-error" role="alert">{error}{needsSetup && <> <Link className="text-link" to="/app/settings">Open Settings</Link></>}</p>}
       {summary && (
         <p className="process-summary" role="status">
           {summary.total === 0 ? 'Nothing to process — the backlog is clear.' : (
             <>
-              Drafted for review {summary.analyzed} · Failed {summary.failed} · Skipped {summary.skipped}
+              Categorized {summary.confirmed} · Needs review {summary.analyzed} · Failed {summary.failed} · Skipped {summary.skipped}
               {summary.failures.length > 0 && <> ({[...new Set(summary.failures)].join(', ')})</>}
               {summary.stopped === 'trial_exhausted' && '. Stopped: free trial exhausted.'}
               {summary.stopped === 'rate_limit' && '. Stopped: provider rate-limited this run. Wait before retrying the remaining notes; provider limits cannot be bypassed.'}
               {summary.stopped === 'provider_unavailable' && '. Stopped: provider unreachable — skipped notes are untouched.'}
               {summary.stopped === 'invalid_key' && '. Stopped: check your AI key in Settings.'}
-              {summary.analyzed > 0 && ' Open each card to Verify & Review.'}
+              {summary.analyzed > 0 && ' Open flagged or empty drafts to Verify & Review.'}
             </>
           )}
         </p>

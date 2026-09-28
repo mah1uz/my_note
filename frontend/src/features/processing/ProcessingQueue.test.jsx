@@ -38,6 +38,12 @@ function installMock() {
     const path = url.pathname
     if (path.endsWith('/auth/me/')) return jsonResponse(state.profile)
     if (path.endsWith('/items/')) return jsonResponse([])
+    if (path.endsWith('/confirm-analysis/')) {
+      const id = Number(path.match(/\/notes\/(\d+)\//)[1])
+      const note = state.notes.find((entry) => entry.id === id)
+      note.processing_status = 'PROCESSED'
+      return jsonResponse({ note: { ...note, revision: 2 }, items: [], domains: [] })
+    }
     const analyzeMatch = path.match(/\/notes\/(\d+)\/analyze\/$/)
     if (analyzeMatch) {
       const id = Number(analyzeMatch[1])
@@ -45,7 +51,7 @@ function installMock() {
       if (id === rateLimitedId) return jsonResponse({ detail: 'Provider rate-limited.', code: 'rate_limit' }, 503)
       const note = state.notes.find((entry) => entry.id === id)
       note.processing_status = 'REVIEW_REQUIRED'
-      return jsonResponse({ note: { ...note, revision: 1 }, items: [], domains: [], analysis_running: false })
+      return jsonResponse({ note: { ...note, revision: 1 }, items: [{ id, item_type: 'TASK', title: 'Remember', summary: '', normalized_text: 'Remember', domains: ['work'], status: 'PENDING', importance: 'NORMAL', start_date: null, due_date: null, start_datetime: null, due_datetime: null, amount: null, currency: null, quantity: null, unit: null, place_hint: null, is_confirmed: false }], domains: [], analysis_running: false })
     }
     if (path.endsWith('/notes/process-all/')) {
       const body = JSON.parse(options.body)
@@ -138,10 +144,11 @@ describe('processing queue', () => {
     expect(bulkCalls[0].body).toEqual({ revision: 0 })
     expect(bulkCalls[0].headers['X-AI-Provider']).toBe('groq')
     expect(bulkCalls[0].headers['X-AI-Trial']).toBe('true')
-    expect(await screen.findByText(/drafted for review 2/i)).toBeInTheDocument()
+    expect(await screen.findByText(/categorized 2/i)).toBeInTheDocument()
+    expect(state.notes.slice(0, 2).every((note) => note.processing_status === 'PROCESSED')).toBe(true)
   })
 
-  it('refreshes the notes after Analyze all without loading items per card', async () => {
+  it('refreshes notes and confirmed categories after each automatic confirmation', async () => {
     const user = userEvent.setup()
     renderApp('/app/notes')
     await user.click(screen.getByRole('button', { name: /enable trial/i }))
@@ -152,19 +159,19 @@ describe('processing queue', () => {
     const beforeNotes = notesCalls()
     expect(before).toBeGreaterThan(0)
     await user.click(await screen.findByRole('button', { name: /analyze all now/i }))
-    expect(await screen.findByText(/drafted for review 2/i)).toBeInTheDocument()
+    expect(await screen.findByText(/categorized 2/i)).toBeInTheDocument()
     await waitFor(() => expect(notesCalls()).toBeGreaterThan(beforeNotes))
-    expect(itemsCalls()).toBe(before)
+    await waitFor(() => expect(itemsCalls()).toBeGreaterThan(before))
   })
 
-  it('runs Analyze all now immediately to draft for manual review', async () => {
+  it('confirms safe drafts without requiring a second review', async () => {
     const user = userEvent.setup()
     renderApp('/app/notes')
     await user.click(screen.getByRole('button', { name: /enable trial/i }))
     await user.click(await screen.findByRole('button', { name: /analyze all now/i }))
     await waitFor(() => expect(bulkCalls.length).toBe(2))
     expect(bulkCalls.map((call) => call.id)).toEqual([1, 2])
-    expect(fetch.mock.calls.some(([url]) => /\/confirm-analysis\/$/.test(new URL(url).pathname))).toBe(false)
+    await waitFor(() => expect(fetch.mock.calls.filter(([url]) => /\/confirm-analysis\/$/.test(new URL(url).pathname))).toHaveLength(2))
   })
 
   it('stops on a provider rate limit, leaving later notes unattempted', async () => {

@@ -49,3 +49,27 @@ class SupabaseJWTAuthentication(authentication.BaseAuthentication):
         except ValueError as error:
             raise exceptions.AuthenticationFailed(str(error)) from error
         return user, claims
+
+
+class RememberedJWTAuthentication(SupabaseJWTAuthentication):
+    """Require both a valid Supabase JWT and the 72-hour server session.
+
+    The cookie alone cannot authenticate API requests, so cross-site form
+    submissions cannot use it as a bearer credential. The exchange endpoint
+    uses SupabaseJWTAuthentication directly and runs only after sign-in.
+    """
+
+    def authenticate(self, request):
+        result = super().authenticate(request)
+        if result is None:
+            return None
+        user, claims = result
+        session = request._request.session
+        if session.get('app_user_id') != str(user.pk) or not session.get('login_at'):
+            raise exceptions.AuthenticationFailed('Your remembered login has expired. Please log in again.')
+        from django.utils import timezone
+
+        if timezone.now().timestamp() - session['login_at'] >= 72 * 60 * 60:
+            session.flush()
+            raise exceptions.AuthenticationFailed('Your remembered login has expired. Please log in again.')
+        return user, claims

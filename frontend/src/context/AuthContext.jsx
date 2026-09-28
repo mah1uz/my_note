@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { loginAccount, logoutAccount, registerAccount, restoreSession } from '../api/authApi'
+import { completeOAuthSession, loginAccount, logoutAccount, registerAccount, restoreSession } from '../api/authApi'
 import { supabase } from '../api/supabaseClient'
 import { setAccessToken, setUnauthorizedHandler } from '../api/http'
 import { clearSessionGroqKey } from './AiKeyContext'
@@ -58,6 +58,14 @@ export function AuthProvider({ children }) {
     return user
   }
 
+  const completeOAuth = async () => {
+    await restorePromiseRef.current.catch(() => {})
+    const user = await completeOAuthSession()
+    setCurrentUser(user)
+    window.dispatchEvent(new Event('rememberly:auth-changed'))
+    return user
+  }
+
   const logout = async () => {
     await restorePromiseRef.current.catch(() => {})
     try {
@@ -68,7 +76,7 @@ export function AuthProvider({ children }) {
     }
   }
 
-  const value = useMemo(() => ({ currentUser, isAuthenticated: Boolean(currentUser), loading, login, register, logout }), [currentUser, loading])
+  const value = useMemo(() => ({ currentUser, isAuthenticated: Boolean(currentUser), loading, login, register, completeOAuth, logout }), [currentUser, loading])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

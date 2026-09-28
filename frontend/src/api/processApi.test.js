@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { analyzeNote } from './itemsApi'
+import { analyzeNote, confirmAnalysis } from './itemsApi'
 import { listNotes } from './notesApi'
 import { ANALYZE_SPACING_MS, analyzeBacklog } from './processApi'
 
-vi.mock('./itemsApi', () => ({ analyzeNote: vi.fn(), notifyItemsChanged: vi.fn() }))
+vi.mock('./itemsApi', () => ({ analyzeNote: vi.fn(), confirmAnalysis: vi.fn(), notifyItemsChanged: vi.fn() }))
 vi.mock('./notesApi', () => ({ listNotes: vi.fn() }))
 
 const note = (id, status, createdAt = `2026-09-${String(id).padStart(2, '0')}`) => ({
@@ -13,14 +13,16 @@ const note = (id, status, createdAt = `2026-09-${String(id).padStart(2, '0')}`) 
 describe('paced backlog analysis', () => {
   beforeEach(() => {
     vi.mocked(analyzeNote).mockReset()
+    vi.mocked(confirmAnalysis).mockReset()
+    vi.mocked(confirmAnalysis).mockResolvedValue({})
     vi.mocked(listNotes).mockReset()
     vi.mocked(listNotes).mockResolvedValue([
       note(2, 'FAILED'), note(3, 'PROCESSED'), note(1, 'UNPROCESSED'), note(4, 'FAILED'),
     ])
-    vi.mocked(analyzeNote).mockResolvedValue({})
+    vi.mocked(analyzeNote).mockResolvedValue({ note: { revision: 4 }, items: [{ id: 11, item_type: 'TASK', title: 'Remember', domains: ['work'], is_confirmed: false }] })
   })
 
-  it('waits for each response and spaces requests oldest-first without confirming', async () => {
+  it('waits for each response, confirms safe drafts and spaces requests oldest-first', async () => {
     expect(ANALYZE_SPACING_MS).toBeGreaterThanOrEqual(10000)
     let releaseFirst
     let releaseWait
@@ -30,7 +32,7 @@ describe('paced backlog analysis', () => {
     await vi.waitFor(() => expect(analyzeNote).toHaveBeenCalledTimes(1))
     expect(analyzeNote).toHaveBeenCalledWith('1', 1, 'personal-key', false, 'groq', undefined)
     expect(wait).not.toHaveBeenCalled()
-    releaseFirst({})
+    releaseFirst({ note: { revision: 2 }, items: [{ id: 11, item_type: 'TASK', title: 'Remember', domains: ['work'], is_confirmed: false }] })
     await vi.waitFor(() => expect(wait).toHaveBeenCalledTimes(1))
     expect(wait).toHaveBeenCalledWith(ANALYZE_SPACING_MS, undefined)
     expect(analyzeNote).toHaveBeenCalledTimes(1)
@@ -42,6 +44,7 @@ describe('paced backlog analysis', () => {
     releaseWait()
     expect((await run).results.map((row) => row.id)).toEqual(['1', '2', '4'])
     expect(analyzeNote).toHaveBeenCalledTimes(3)
+    expect(confirmAnalysis).toHaveBeenCalledTimes(3)
   })
 
   it('stops on a provider rate limit instead of spending trials on later notes', async () => {
@@ -54,6 +57,16 @@ describe('paced backlog analysis', () => {
     ])
     expect(analyzeNote).toHaveBeenCalledTimes(1)
     expect(wait).not.toHaveBeenCalled()
+  })
+
+  it('leaves flagged drafts for review without auto-confirming them', async () => {
+    vi.mocked(listNotes).mockResolvedValue([note(1, 'FAILED')])
+    vi.mocked(analyzeNote).mockResolvedValue({ note: { revision: 2 }, items: [
+      { id: 11, item_type: 'TASK', title: 'Ambiguous', is_confirmed: false, metadata: { possible_split: 'Review first' } },
+    ] })
+    const result = await analyzeBacklog()
+    expect(result.results).toEqual([{ id: '1', status: 'analyzed', code: 'needs_review' }])
+    expect(confirmAnalysis).not.toHaveBeenCalled()
   })
 
   it('does not send more requests after cancellation during a pause', async () => {

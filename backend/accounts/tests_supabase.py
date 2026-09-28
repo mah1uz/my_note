@@ -7,9 +7,49 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from django.test import TestCase, override_settings
 from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
+from rest_framework.test import APITestCase
 
 from .authentication import SupabaseJWTAuthentication
 from .models import AppUser, UserAuthIdentity, UserPreference
+
+
+class RememberedSessionTests(APITestCase):
+    def setUp(self):
+        self.user = AppUser.objects.create(email='remembered@example.com')
+        patcher = patch.object(SupabaseJWTAuthentication, 'authenticate', return_value=(self.user, {}))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_login_restores_for_72_hours_then_expires(self):
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 401)
+        response = self.client.post('/api/v1/auth/session/start/', {}, format='json')
+        self.assertEqual(response.status_code, 200)
+        cookie = response.cookies['sessionid']
+        self.assertTrue(cookie['httponly'])
+        self.assertEqual(int(cookie['max-age']), 72 * 60 * 60)
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 200)
+
+        session = self.client.session
+        from django.utils import timezone
+        session['login_at'] = timezone.now().timestamp() - 71 * 60 * 60
+        session.save()
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 200)
+        session = self.client.session
+        session['login_at'] = timezone.now().timestamp() - 73 * 60 * 60
+        session.save()
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 401)
+
+    def test_logout_invalidates_cookie_and_blocks_other_users(self):
+        self.client.post('/api/v1/auth/session/start/', {}, format='json')
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 200)
+        self.client.post('/api/v1/auth/session/end/', {}, format='json')
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 401)
+
+        self.client.post('/api/v1/auth/session/start/', {}, format='json')
+        session = self.client.session
+        session['app_user_id'] = 'different-user'
+        session.save()
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 401)
 
 
 class SupabaseProvisioningTests(TestCase):

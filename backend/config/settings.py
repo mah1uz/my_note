@@ -120,11 +120,16 @@ CORS_ALLOWED_ORIGINS = env_list(
     'http://localhost:5173,http://127.0.0.1:5173',
 )
 CORS_ALLOW_CREDENTIALS = True
+SESSION_COOKIE_AGE = 72 * 60 * 60
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = not DEBUG
+# Cross-site deployments must set SESSION_COOKIE_SAMESITE=None and use HTTPS.
+SESSION_COOKIE_SAMESITE = os.getenv('SESSION_COOKIE_SAMESITE', 'Lax')
 CORS_ALLOW_HEADERS = (*default_headers, 'x-groq-api-key', 'x-groq-trial', 'x-ai-provider', 'x-ai-api-key', 'x-ai-trial')
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': ('accounts.authentication.SupabaseJWTAuthentication',),
+    'DEFAULT_AUTHENTICATION_CLASSES': ('accounts.authentication.RememberedJWTAuthentication',),
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
     'DEFAULT_RENDERER_CLASSES': ('rest_framework.renderers.JSONRenderer',),
     'DEFAULT_PARSER_CLASSES': ('rest_framework.parsers.JSONParser',),

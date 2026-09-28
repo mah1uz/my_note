@@ -10,6 +10,11 @@ async function supabaseProfile(session) {
   return apiRequest('/auth/me/', {}, false)
 }
 
+async function startRememberedSession(session) {
+  setAccessToken(session?.access_token || null)
+  return apiRequest('/auth/session/start/', { method: 'POST', body: '{}' }, false)
+}
+
 export async function registerAccount(payload) {
   requireSupabase()
   const { data, error } = await supabase.auth.signUp({
@@ -19,7 +24,7 @@ export async function registerAccount(payload) {
   })
   if (error) throw error
   if (!data.session) return null
-  return supabaseProfile(data.session)
+  return startRememberedSession(data.session)
 }
 
 export async function loginAccount(identity, password) {
@@ -28,7 +33,7 @@ export async function loginAccount(identity, password) {
     email: identity.trim().toLowerCase(), password,
   })
   if (error) throw error
-  return supabaseProfile(data.session)
+  return startRememberedSession(data.session)
 }
 
 export async function restoreSession() {
@@ -42,8 +47,16 @@ export async function restoreSession() {
   return supabaseProfile(data.session)
 }
 
+export async function completeOAuthSession() {
+  requireSupabase()
+  const { data, error } = await supabase.auth.getSession()
+  if (error || !data.session) throw error || new Error('No active session.')
+  return startRememberedSession(data.session)
+}
+
 export async function logoutAccount() {
   requireSupabase()
+  try { await apiRequest('/auth/session/end/', { method: 'POST', body: '{}' }, false) } catch { /* Supabase logout still runs. */ }
   const { error } = await supabase.auth.signOut()
   setAccessToken(null)
   if (error) throw error

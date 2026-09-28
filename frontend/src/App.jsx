@@ -33,7 +33,6 @@ import { NOTE_MAX_WORDS, countWords, previewNote } from './features/notes/noteTe
 import { formatNoteStamp, getGreeting } from './features/dashboard/datetime'
 import { useConfirmedItems } from './context/ItemsContext'
 import { CardShoppingPrice, SingleTick } from './features/notes/TabItemRow'
-import ExtractedDate from './features/notes/ExtractedDate'
 import { autoOrganize, isAiConfigured, useAutoOrganize } from './features/processing/autoOrganize'
 import { analyzeNote } from './api/itemsApi'
 import { useNotifications } from './features/notifications/useNotifications'
@@ -355,7 +354,6 @@ function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = (
     <h3 className="note-heading">{heading}</h3>
     {subtitle && subtitle !== heading && <p className="note-subtitle note-clamp">{subtitle}</p>}
     {(primary || tags.length > 0) && <div className="note-tags" aria-label="Discovered tags">{primary && <span className="note-tag note-tag-primary"><span aria-hidden="true">◇ </span>{primary}</span>}{tags.filter((tag) => tag !== primary).map((tag) => <span key={tag} className="note-tag"><span aria-hidden="true">◇ </span>{tag}</span>)}</div>}
-    {items.some((item) => item.start_date || item.start_datetime || item.due_date || item.due_datetime) && <div className="note-outcome-dates">{items.map((item) => <ExtractedDate key={item.id} item={item} showTitle={items.length > 1} />)}</div>}
     {note.processingStatus === 'PROCESSED' && group?.shopping && <div className="note-shopping-prices">{items.filter((item) => item.item_type === 'TASK' && (item.domains || []).includes('shopping')).map((item) => <CardShoppingPrice key={item.id} item={item} onChanged={onChanged} />)}</div>}
     <div className="note-card-bottom"><NoteStamp iso={note.createdAt} timeZone={timeZone} />{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}{analyzing && <small>Analyzing…</small>}</div>
     <div className="note-card-actions">
@@ -485,7 +483,7 @@ function NotesPage() {
   }
   const categoryTabs = NOTE_TABS.filter((entry) => entry.key !== 'all')
   return <><PageHeader eyebrow="Your memory" title="All Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
-    {(backlog.length > 0 || completedBacklogRun) && <section className="section-block queue-panel" aria-label="Backlog analysis"><div className="section-heading"><div><span className="eyebrow">Capture to drafts</span><h2>Analyze the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><p className="field-help">Analyzes each waiting note one by one without confirming anything. Open each card afterwards to Verify &amp; Review.</p><ProcessButtons backlogCount={backlog.length} onDone={() => { setCompletedBacklogRun(true); refreshNotes() }} /></section>}
+    {(backlog.length > 0 || completedBacklogRun) && <section className="section-block queue-panel" aria-label="Backlog analysis"><div className="section-heading"><div><span className="eyebrow">Capture to categories</span><h2>Analyze the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><p className="field-help">Analyzes waiting notes one by one and categorizes safe items automatically. Flagged drafts stay available for review.</p><ProcessButtons backlogCount={backlog.length} onDone={() => { setCompletedBacklogRun(true); refreshNotes() }} /></section>}
     <section className="notes-box" aria-label="Notes by category">
       <div className="notes-tabs-row">
         <div className="notes-tabs" role="tablist" aria-label="Note categories">
@@ -637,8 +635,9 @@ function SettingsPage() {
 }
 
 function LoginPage() {
-  const { login, loading: authLoading } = useAuth()
+  const { login, loading: authLoading, isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  useEffect(() => { if (!authLoading && isAuthenticated) navigate('/app', { replace: true }) }, [authLoading, isAuthenticated, navigate])
   const [identity, setIdentity] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -680,10 +679,13 @@ function ResetPasswordPage() {
 
 function AuthCallbackPage() {
   const navigate = useNavigate()
-  const { loading, isAuthenticated } = useAuth()
+  const { loading, completeOAuth } = useAuth()
+  const started = useRef(false)
   useEffect(() => {
-    if (!loading) navigate(isAuthenticated ? '/app' : '/login', { replace: true })
-  }, [loading, isAuthenticated, navigate])
+    if (loading || started.current) return
+    started.current = true
+    completeOAuth().then(() => navigate('/app', { replace: true })).catch(() => navigate('/login', { replace: true }))
+  }, [loading, completeOAuth, navigate])
   return <div className="route-loading">Completing sign-in…</div>
 }
 

@@ -1,8 +1,10 @@
 from django.urls import path
 
-from .views import AiEntitlementView, MeView, OnboardingCompleteView, PreferenceResetView, PreferenceView, ProRequestView, SettingsView, UserGroqKeyView
+from .views import AiEntitlementView, MeView, OnboardingCompleteView, PreferenceResetView, PreferenceView, ProRequestView, SessionStartView, SessionEndView, SettingsView, UserGroqKeyView
 
 urlpatterns = [
+    path('session/start/', SessionStartView.as_view(), name='session-start'),
+    path('session/end/', SessionEndView.as_view(), name='session-end'),
     path('me/', MeView.as_view(), name='me'),
     path('preferences/', PreferenceView.as_view(), name='preferences'),
     path('preferences/reset/', PreferenceResetView.as_view(), name='preferences-reset'),
