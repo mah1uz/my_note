@@ -81,7 +81,7 @@ class NoteViewSet(viewsets.ModelViewSet):
         except (TypeError, ValueError):
             raise ValidationError({'revision': 'Revision must be an integer.'})
         with transaction.atomic():
-            changes = {'processing_status': 'UNPROCESSED', 'analysis_started_at': None} if text_changed else {}
+            changes = {'processing_status': 'UNPROCESSED', 'analysis_started_at': None, 'ai_title': ''} if text_changed else {}
             services.claim_revision(note, expected, **changes)
             if text_changed:
                 note.items.filter(is_confirmed=False).delete()

@@ -6,8 +6,8 @@ from .models import Note
 class NoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Note
-        fields = ('id', 'raw_text', 'processing_status', 'is_archived', 'created_at', 'updated_at', 'revision')
-        read_only_fields = ('id', 'processing_status', 'created_at', 'updated_at', 'revision')
+        fields = ('id', 'raw_text', 'ai_title', 'processing_status', 'is_archived', 'created_at', 'updated_at', 'revision')
+        read_only_fields = ('id', 'ai_title', 'processing_status', 'created_at', 'updated_at', 'revision')
 
     def validate_raw_text(self, value):
         value = value.strip()

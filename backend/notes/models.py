@@ -17,6 +17,10 @@ class Note(models.Model):
         related_name='notes', db_index=True,
     )
     raw_text = models.TextField()
+    # Short LLM-derived heading for card display (from analysis summary or
+    # first item title). Blank until a successful analysis; cleared on edit
+    # so it can never describe outdated text. Never user-editable.
+    ai_title = models.CharField(max_length=120, blank=True, default='')
     processing_status = models.CharField(max_length=20, choices=ProcessingStatus.choices, default=ProcessingStatus.UNPROCESSED)
     is_archived = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

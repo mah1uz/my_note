@@ -28,12 +28,13 @@ import OnboardingPage from './features/onboarding/OnboardingPage'
 import SearchFeaturePage from './features/search/SearchPage'
 import ProcessButtons from './features/processing/ProcessButtons'
 import QueueProgress from './features/processing/QueueProgress'
-import { NOTE_TABS, groupItemsByNote, isDueToday } from './features/notes/noteTaxonomy'
+import { NOTE_TABS, getNoteHeading, getNoteTags, groupItemsByNote, isDueToday, primaryCategory } from './features/notes/noteTaxonomy'
 import { NOTE_MAX_WORDS, countWords, previewNote } from './features/notes/noteText'
 import { formatNoteStamp, getGreeting } from './features/dashboard/datetime'
 import { useConfirmedItems } from './context/ItemsContext'
 import { SingleTick } from './features/notes/TabItemRow'
 import { autoOrganize, isAiConfigured, useAutoOrganize } from './features/processing/autoOrganize'
+import { analyzeNote } from './api/itemsApi'
 import { useNotifications } from './features/notifications/useNotifications'
 import { backlogNotes } from './api/processApi'
 
@@ -325,7 +326,7 @@ function NoteStamp({ iso, timeZone }) {
   return <span className="note-stamp"><span className="note-date">{date}</span>{time && <span className="note-time">{time}</span>}</span>
 }
 
-function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = () => {}, auto = null, timeZone }) {
+function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = () => {}, auto = null, timeZone, onAnalyze = null, analyzing = false, group = null }) {
   const open = (event) => {
     if (event.target.closest('a,button')) return
     onPeek(note)
@@ -338,13 +339,26 @@ function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = (
   }
   const single = items.length === 1 ? items[0] : null
   const allDone = items.length > 0 && items.every((item) => item.status === 'COMPLETED')
+  const heading = getNoteHeading(note, items)
+  const tags = getNoteTags(items)
+  const primary = primaryCategory(group, tags)
+  const subtitle = previewNote(note.originalText)
+  const needsReview = note.processingStatus === 'REVIEW_REQUIRED'
+  const needsAnalyze = note.processingStatus === 'UNPROCESSED' || note.processingStatus === 'FAILED'
   return <article className={`note-card glow-note${allDone ? ' done' : ''}`} onClick={open} onKeyDown={onKey} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`}>
     <span className="glow-card__border" aria-hidden="true" />
     <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
       <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} auto={auto} onPeek={onPeek} />
     </div>
-    <p className="note-title note-clamp">{previewNote(note.originalText)}</p>
-    <div className="note-card-bottom"><NoteStamp iso={note.createdAt} timeZone={timeZone} />{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
+    <h3 className="note-heading">{heading}</h3>
+    {subtitle && subtitle !== heading && <p className="note-subtitle note-clamp">{subtitle}</p>}
+    {(primary || tags.length > 0) && <div className="note-tags" aria-label="Discovered tags">{primary && <span className="note-tag note-tag-primary"><span aria-hidden="true">◇ </span>{primary}</span>}{tags.filter((tag) => tag !== primary).map((tag) => <span key={tag} className="note-tag"><span aria-hidden="true">◇ </span>{tag}</span>)}</div>}
+    <div className="note-card-bottom"><NoteStamp iso={note.createdAt} timeZone={timeZone} />{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}{analyzing && <small>Analyzing…</small>}</div>
+    <div className="note-card-actions">
+      {needsReview && <Link className="button button-primary button-small" to={`/app/notes/${note.id}`} onClick={(event) => event.stopPropagation()}>Verify &amp; Review</Link>}
+      {needsAnalyze && onAnalyze && <button type="button" className="button button-ghost button-small" disabled={analyzing || auto?.running} onClick={(event) => { event.stopPropagation(); onAnalyze(note) }}>{analyzing ? 'Analyzing…' : note.processingStatus === 'FAILED' ? 'Retry analysis' : 'Analyze'}</button>}
+      {!needsReview && !needsAnalyze && <Link className="text-link" to={`/app/notes/${note.id}`} onClick={(event) => event.stopPropagation()}>Open full note</Link>}
+    </div>
   </article>
 }
 
@@ -360,23 +374,8 @@ function CardTick({ note, items, single, onChanged, onTicked, auto, onPeek }) {
   return null
 }
 
-function NoteCategoryCard({ note, tab, items, onChanged, onTicked, auto, onPeek, timeZone }) {
-  const open = (event) => {
-    if (event.target.closest('a,button')) return
-    onPeek(note)
-  }
-  const single = items.length === 1 ? items[0] : null
-  const allDone = items.length > 0 && items.every((item) => item.status === 'COMPLETED')
-  return <article className={`note-card glow-note${allDone ? ' done' : ''}`} onClick={open} tabIndex={0} role="button" aria-label={`Open note: ${note.originalText || 'Untitled note'}`} onKeyDown={(event) => {
-    if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) { event.preventDefault(); onPeek(note) }
-  }}>
-    <span className="glow-card__border" aria-hidden="true" />
-    <div className="note-card-top"><Pill tone="success">{note.processingStatus}</Pill>
-      <CardTick note={note} items={items} single={single} onChanged={onChanged} onTicked={onTicked} auto={auto} onPeek={onPeek} />
-    </div>
-    <p className="note-title note-clamp">{previewNote(note.originalText)}</p>
-    <div className="note-card-bottom"><NoteStamp iso={note.createdAt} timeZone={timeZone} />{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}</div>
-  </article>
+function NoteCategoryCard({ note, tab, items, onChanged, onTicked, auto, onPeek, timeZone, onAnalyze, analyzing, group }) {
+  return <NoteCard note={note} items={items} onChanged={onChanged} onTicked={onTicked} auto={auto} onPeek={onPeek} timeZone={timeZone} onAnalyze={onAnalyze} analyzing={analyzing} group={group} />
 }
 
 function NotesPage() {
@@ -384,13 +383,28 @@ function NotesPage() {
   const { notes, loading, error, deleteNote, refresh: refreshNotes } = useNotes()
   const { aiProvider, sessionKey, storedKeys, trialActive } = useAiKey()
   const accountTimeZone = currentUser?.timezone || undefined
-  const [tab, setTab] = useState('all')
+  const [tab, setTab] = useState('categories')
+  const [query, setQuery] = useState('')
   const [peekId, setPeekId] = useState(null)
   const [autoId, setAutoId] = useState(null)
   const [autoError, setAutoError] = useState('')
+  const [analyzeIds, setAnalyzeIds] = useState(() => new Set())
+  const [analyzeError, setAnalyzeError] = useState('')
   const autoRunningRef = useRef(false)
   const { items, loading: catsLoading, refresh: refreshCats, patchLocal, commitItem } = useConfirmedItems()
-  const groups = groupItemsByNote(items)
+  // Single shared index — no per-card fetches. Notes list + confirmed items
+  // list arrive once; cards derive heading/tags locally.
+  const groups = useMemo(() => groupItemsByNote(items), [items])
+  const itemsByNote = useMemo(() => {
+    const map = new Map()
+    for (const item of items || []) {
+      const key = String(item.note ?? item.note_id ?? '')
+      if (!key) continue
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(item)
+    }
+    return map
+  }, [items])
   const totalByNote = useMemo(() => {
     const map = new Map()
     for (const item of items) {
@@ -399,16 +413,29 @@ function NotesPage() {
     }
     return map
   }, [items])
-  const countFor = (key) => key === 'all' ? notes.length : notes.filter((note) => groups[String(note.id)]?.[key]).length
-  const itemsForAll = (note) => items.filter((item) => String(item.note) === String(note.id))
-  const itemsFor = (note) => items.filter((item) => String(item.note) === String(note.id)
-    && (tab === 'tasks' ? (item.item_type === 'TASK' && !(item.domains || []).includes('shopping'))
-      : tab === 'events' ? item.item_type === 'EVENT'
-        : (item.item_type === 'TASK' && (item.domains || []).includes('shopping'))))
-  const visible = tab === 'all' ? notes : notes.filter((note) => groups[String(note.id)]?.[tab])
+  const itemsForNote = (note) => itemsByNote.get(String(note.id)) || []
+  const hasConfirmedItems = (note) => (totalByNote.get(String(note.id)) || 0) > 0
+  const countFor = (key) => {
+    if (key === 'all') return notes.length
+    if (key === 'categories') return notes.filter(hasConfirmedItems).length
+    return notes.filter((note) => groups[String(note.id)]?.[key]).length
+  }
+  const matchesQuery = (note) => {
+    const q = query.trim().toLowerCase()
+    if (!q) return true
+    const noteItems = itemsForNote(note)
+    const heading = getNoteHeading(note, noteItems).toLowerCase()
+    if (heading.includes(q)) return true
+    if (String(note.originalText || '').toLowerCase().includes(q)) return true
+    return noteItems.some((item) => String(item.title || '').toLowerCase().includes(q)
+      || (item.domains || []).some((domain) => String(domain).toLowerCase().includes(q)))
+  }
+  const visible = (tab === 'all' ? notes
+    : tab === 'categories' ? notes.filter(hasConfirmedItems)
+    : notes.filter((note) => groups[String(note.id)]?.[tab])).filter(matchesQuery)
   const backlog = backlogNotes(notes)
   const peekNote = peekId == null ? null : notes.find((note) => String(note.id) === String(peekId)) || null
-  const tabHint = { tasks: 'task', events: 'event', shopping: 'shopping' }[tab]
+  const tabHint = { categories: 'categorized', tasks: 'task', events: 'event', study: 'study', shopping: 'shopping', all: '' }[tab]
   const onTicked = (id, status, saved) => saved ? commitItem(saved) : patchLocal(id, { status })
   // Backlog notes (UNPROCESSED/FAILED) with zero confirmed items offer an
   // automatic analyze+confirm run on tick. Anything else keeps manual
@@ -439,20 +466,52 @@ function NotesPage() {
       setAutoId(null)
     }
   }
+  // Per-card analyze-only (never auto-confirms): leaves drafts for the
+  // card's Verify & Review step. Bulk Analyze all uses the same verify mode.
+  const runAnalyzeOnly = async (note) => {
+    if (!isAiConfigured({ sessionKey, storedKeys, provider: aiProvider, trialActive })) { setPeekId(note.id); return }
+    const key = String(note.id)
+    if (analyzeIds.has(key)) return
+    setAnalyzeIds((current) => new Set(current).add(key))
+    setAnalyzeError('')
+    try {
+      await analyzeNote(note.id, note.revision, sessionKey, trialActive, aiProvider)
+      refreshNotes()
+    } catch (requestError) {
+      setAnalyzeError(requestError?.message || 'Analysis failed. The note is saved; try again.')
+    } finally {
+      setAnalyzeIds((current) => {
+        const next = new Set(current)
+        next.delete(key)
+        return next
+      })
+    }
+  }
+  const categoryTabs = NOTE_TABS.filter((entry) => entry.key !== 'all')
   return <><PageHeader eyebrow="Your memory" title="All Notes" description={`${notes.length} thoughts saved to your account.`} action={<Link className="button button-primary" to="/app/notes/new">+ New note</Link>} />
-    {backlog.length > 0 && <section className="section-block queue-panel" aria-label="Manual verification"><div className="section-heading"><div><span className="eyebrow">Capture to drafts</span><h2>Verify the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><p className="field-help">Drafts each waiting note for per-note review without confirming anything.</p><ProcessButtons onDone={refreshNotes} /></section>}
-    <section className="notes-box" aria-label="All Notes by category">
-      <div className="notes-filter"><label htmlFor="notes-category">Category</label><select id="notes-category" value={tab} onChange={(event) => setTab(event.target.value)}>{NOTE_TABS.map((entry) => <option key={entry.key} value={entry.key}>{entry.label}{catsLoading && entry.key !== 'all' ? '' : ` (${countFor(entry.key)})`}</option>)}</select>{catsLoading && <span role="status">Loading categories…</span>}</div>
-      {autoError && <p className="form-error" role="alert">{autoError}</p>}
+    {backlog.length > 0 && <section className="section-block queue-panel" aria-label="Backlog analysis"><div className="section-heading"><div><span className="eyebrow">Capture to drafts</span><h2>Analyze the backlog</h2></div><span className="pill pill-medium">{backlog.length} waiting</span></div><p className="field-help">Analyzes each waiting note one by one without confirming anything. Open each card afterwards to Verify &amp; Review.</p><ProcessButtons onDone={refreshNotes} /></section>}
+    <section className="notes-box" aria-label="Notes by category">
+      <div className="notes-tabs-row">
+        <div className="notes-tabs" role="tablist" aria-label="Note categories">
+          {categoryTabs.map((entry) => <button key={entry.key} role="tab" aria-selected={tab === entry.key} className={tab === entry.key ? 'notes-tab active' : 'notes-tab'} onClick={() => setTab(entry.key)}>{entry.label}{!catsLoading && <span className="notes-tab-count"> ({countFor(entry.key)})</span>}</button>)}
+        </div>
+        <button className={tab === 'all' ? 'button button-primary button-small' : 'button button-ghost button-small'} onClick={() => setTab('all')} aria-pressed={tab === 'all'}>All notes{!catsLoading && ` (${countFor('all')})`}</button>
+      </div>
+      <div className="notes-search-row">
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all notes…" aria-label="Search all notes" className="notes-search" />
+        {backlog.length > 0 && <span className="field-help">{backlog.length} waiting for analysis</span>}
+      </div>
+      {catsLoading && <span role="status" className="field-help">Loading categories…</span>}
+      {(autoError || analyzeError) && <p className="form-error" role="alert">{autoError || analyzeError}</p>}
       {loading ? <div className="loading-state">Loading your notes…</div> : error ? <div className="form-error">{error}</div>
-        : tab !== 'all' && catsLoading ? <p className="loading-state">Loading categories…</p>
-          : visible.length ? <div key={tab} className="notes-list notes-grid notes-enter">{visible.map((note) => tab === 'all'
-            ? <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} items={itemsForAll(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} timeZone={accountTimeZone} />
-            : <NoteCategoryCard key={note.id} note={note} tab={tab} items={itemsFor(note)} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} onPeek={(item) => setPeekId(item.id)} timeZone={accountTimeZone} />)}</div>
-            : notes.length ? <EmptyState title={`No ${tab} notes`} text={`Notes appear here once they hold confirmed ${tabHint} items. Drafts stay on their source note until confirmed; other categories live under their own tabs.`} />
-              : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}
+        : visible.length ? <div key={tab} className="notes-list notes-grid notes-enter">{visible.map((note) => {
+            const noteItems = itemsForNote(note)
+            return <NoteCard key={note.id} note={note} onPeek={(item) => setPeekId(item.id)} items={noteItems} onChanged={refreshCats} onTicked={onTicked} auto={autoFor(note)} timeZone={accountTimeZone} onAnalyze={runAnalyzeOnly} analyzing={analyzeIds.has(String(note.id))} group={groups[String(note.id)] || null} />
+          })}</div>
+          : notes.length ? <EmptyState title={`No ${tab} notes`} text={query.trim() ? `Nothing matches “${query.trim()}”. Try a different search or open All notes.` : `Notes appear here once they hold confirmed ${tabHint} items. Drafts stay on their source note until confirmed; other categories live under their own tabs.`} />
+            : <EmptyState title="No notes yet" text="Start with a quick capture and give your thoughts somewhere to land." />}
     </section>
-    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} items={tab === 'all' ? itemsForAll(peekNote) : itemsFor(peekNote)} onItemsChanged={refreshCats} onTicked={onTicked} />}
+    {peekNote && <NotePeekModal note={peekNote} onClose={() => setPeekId(null)} onDelete={deleteNote} items={itemsForNote(peekNote)} onItemsChanged={refreshCats} onTicked={onTicked} />}
   </>
 }
 

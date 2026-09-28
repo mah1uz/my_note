@@ -110,11 +110,11 @@ describe('processing queue', () => {
     expect(screen.queryByRole('button', { name: /analyze all/i })).not.toBeInTheDocument()
   })
 
-  it('runs Verify & Review with the trial flag and reports drafts', async () => {
+  it('runs Analyze all now with the trial flag and reports drafts', async () => {
     const user = userEvent.setup()
     renderApp('/app/notes')
     await user.click(screen.getByRole('button', { name: /enable trial/i }))
-    await user.click(await screen.findByRole('button', { name: /verify & review/i }))
+    await user.click(await screen.findByRole('button', { name: /analyze all now/i }))
     await waitFor(() => expect(bulkCalls.length).toBe(1))
     expect(bulkCalls[0].body).toEqual({ mode: 'verify' })
     expect(bulkCalls[0].headers['X-AI-Provider']).toBe('groq')
@@ -122,7 +122,7 @@ describe('processing queue', () => {
     expect(await screen.findByText(/drafted for review 1/i)).toBeInTheDocument()
   })
 
-  it('refreshes the shared items cache after Verify without a hard refresh', async () => {
+  it('refreshes the shared items cache after Analyze all without a hard refresh', async () => {
     const user = userEvent.setup()
     renderApp('/app/notes')
     await user.click(screen.getByRole('button', { name: /enable trial/i }))
@@ -130,16 +130,16 @@ describe('processing queue', () => {
     const itemsCalls = () => fetch.mock.calls.filter(([url]) => new URL(url).pathname === '/api/v1/items/').length
     const before = itemsCalls()
     expect(before).toBeGreaterThan(0)
-    await user.click(await screen.findByRole('button', { name: /verify & review/i }))
+    await user.click(await screen.findByRole('button', { name: /analyze all now/i }))
     expect(await screen.findByText(/drafted for review 1/i)).toBeInTheDocument()
     await waitFor(() => expect(itemsCalls()).toBeGreaterThan(before))
   })
 
-  it('runs Verify & Review immediately to draft for manual review', async () => {
+  it('runs Analyze all now immediately to draft for manual review', async () => {
     const user = userEvent.setup()
     renderApp('/app/notes')
     await user.click(screen.getByRole('button', { name: /enable trial/i }))
-    await user.click(await screen.findByRole('button', { name: /verify & review/i }))
+    await user.click(await screen.findByRole('button', { name: /analyze all now/i }))
     await waitFor(() => expect(bulkCalls.length).toBe(1))
     expect(bulkCalls[0].body).toEqual({ mode: 'verify' })
   })

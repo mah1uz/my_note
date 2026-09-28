@@ -53,6 +53,8 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
   }
   const stamped = new Date(note.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 
+  const heading = (note.aiTitle || '').trim() || note.originalText || 'Untitled note'
+  const showOriginal = (note.aiTitle || '').trim() && note.aiTitle.trim() !== (note.originalText || '').trim()
   // Portal to document.body: escapes every ancestor stacking context
   // (animations, sticky, overflow, will-change) so fixed centering is
   // always viewport-relative, never scroll-dependent.
@@ -60,7 +62,8 @@ export default function NotePeekModal({ note, onClose, onDelete, items = [], onI
     <div className="modal-card note-peek note-peek-pop" role="dialog" aria-modal="true" aria-labelledby="note-peek-title" onClick={(event) => event.stopPropagation()}>
       <span className="glow-card__border" aria-hidden="true" />
       <p className="eyebrow">Note · {Number.isNaN(new Date(note.createdAt).getTime()) ? '' : stamped}</p>
-      <h2 id="note-peek-title" ref={headingRef} tabIndex={-1}>{note.originalText || 'Untitled note'}</h2>
+      <h2 id="note-peek-title" ref={headingRef} tabIndex={-1}>{heading}</h2>
+      {showOriginal && <p className="field-help">{note.originalText}</p>}
       <p className="field-help">Status: {note.processingStatus}</p>
       {items.length > 0 && <>
         <hr className="glow-line" />

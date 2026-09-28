@@ -3,6 +3,7 @@ import { apiRequest } from './http'
 const normalizeNote = (note) => ({
   id: String(note.id),
   originalText: note.raw_text,
+  aiTitle: (note.ai_title || '').trim(),
   processingStatus: note.processing_status,
   isArchived: note.is_archived,
   createdAt: note.created_at,

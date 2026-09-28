@@ -40,6 +40,7 @@ function notePayload(note) {
   return {
     id: note.id,
     raw_text: note.raw_text,
+    ai_title: note.ai_title || '',
     processing_status: note.processing_status || 'UNPROCESSED',
     is_archived: false,
     created_at: note.created_at || '2026-09-21T08:00:00Z',
@@ -280,6 +281,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /all notes/i }))
     expect(await screen.findByText('Buy eggs.')).toBeInTheDocument()
     await user.click(screen.getByRole('link', { name: /new note/i }))
     await user.type(screen.getByLabelText(/your thought/i), 'Buy coffee from Agora')
@@ -407,6 +409,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /all notes/i }))
     await user.click(await screen.findByRole('button', { name: /open note: buy eggs\./i }))
     await user.click(await screen.findByRole('button', { name: /analyze buy eggs\./i }))
     expect(await screen.findByRole('heading', { name: /captured thought/i })).toBeInTheDocument()
@@ -435,7 +438,7 @@ describe('Part 2 full-stack UI flows', () => {
     expect(screen.getByRole('heading', { name: 'Processing queue' })).toBeInTheDocument()
   })
 
-  it('filters notes locally with the category dropdown', async () => {
+  it('filters notes locally with the category tabs and All notes', async () => {
     state.authenticated = true
     state.notes = [
       { id: 1, raw_text: 'Buy eggs from Agora', created_at: '2026-09-21T08:00:00Z' },
@@ -446,15 +449,16 @@ describe('Part 2 full-stack UI flows', () => {
     ]
     const user = userEvent.setup()
     renderApp('/app/notes')
+    // Default Categories tab shows only categorized notes.
     expect(await screen.findByRole('button', { name: /open note: buy eggs from agora/i })).toBeInTheDocument()
-    await screen.findByRole('option', { name: /shopping \(1\)/i })
-    await user.selectOptions(screen.getByLabelText('Category'), 'events')
+    expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: /events/i }))
     expect(screen.queryByRole('button', { name: /open note: buy eggs from agora/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
-    await user.selectOptions(screen.getByLabelText('Category'), 'shopping')
+    await user.click(screen.getByRole('tab', { name: /shopping/i }))
     expect(screen.getByRole('button', { name: /open note: buy eggs from agora/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /open note: team standup at ten/i })).not.toBeInTheDocument()
-    await user.selectOptions(screen.getByLabelText('Category'), 'all')
+    await user.click(screen.getByRole('button', { name: /all notes/i }))
     expect(screen.getByRole('button', { name: /open note: team standup at ten/i })).toBeInTheDocument()
   })
 
@@ -480,11 +484,12 @@ describe('Part 2 full-stack UI flows', () => {
     }]
     const user = userEvent.setup()
     renderAppWithTrial('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /all notes/i }))
     await user.click(await screen.findByRole('button', { name: /analyze and confirm file taxes friday automatically/i }))
     await waitFor(() => expect(state.confirmedPayload).not.toBeNull())
     expect(state.confirmedPayload.items).toHaveLength(1)
     expect(state.confirmedPayload.items[0]).toMatchObject({ item_type: 'TASK', title: 'File taxes', due_date: '2026-09-26' })
-    expect(await screen.findByRole('option', { name: /tasks \(1\)/i })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /tasks/i })).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
@@ -495,6 +500,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.analyzeItems = []
     const user = userEvent.setup()
     renderApp('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /all notes/i }))
     await user.click(await screen.findByRole('button', { name: /analyze and confirm file taxes friday automatically/i }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     const analyzes = fetch.mock.calls.filter(([url, options]) => /\/notes\/\d+\/analyze\/$/.test(new URL(url).pathname) && options?.method === 'POST')
@@ -508,6 +514,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.itemsList = []
     const user = userEvent.setup()
     renderAppWithTrial('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /all notes/i }))
     await user.click(await screen.findByRole('button', { name: /analyze and confirm file taxes friday automatically/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/ai organization failed/i)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -519,7 +526,9 @@ describe('Part 2 full-stack UI flows', () => {
     state.notes = [{ id: 1, raw_text: 'File taxes Friday', created_at: '2026-09-21T08:00:00Z' }]
     state.itemsList = []
     state.analyzeItems = []
+    const user = userEvent.setup()
     renderAppWithTrial('/app/notes')
+    await user.click(await screen.findByRole('button', { name: /all notes/i }))
     const button = await screen.findByRole('button', { name: /analyze and confirm file taxes friday automatically/i })
     // Synchronous double dispatch: a state-only guard would let both through.
     fireEvent.click(button)
@@ -538,7 +547,7 @@ describe('Part 2 full-stack UI flows', () => {
     ]
     const user = userEvent.setup()
     renderApp('/app/notes')
-    await user.selectOptions(await screen.findByLabelText('Category'), 'tasks')
+    await user.click(await screen.findByRole('tab', { name: /tasks/i }))
     await user.click(await screen.findByRole('button', { name: 'Mark File taxes complete' }))
     expect(await screen.findByRole('button', { name: 'Mark File taxes incomplete' })).toBeInTheDocument()
     expect(document.querySelector('.note-skeleton')).toBeNull()
@@ -552,7 +561,7 @@ describe('Part 2 full-stack UI flows', () => {
     ]
     const user = userEvent.setup()
     renderApp('/app/notes')
-    await user.selectOptions(await screen.findByLabelText('Category'), 'tasks')
+    await user.click(await screen.findByRole('tab', { name: /tasks/i }))
     const card = await screen.findByRole('button', { name: /open note: file taxes friday/i })
     expect(card.closest('article')).not.toHaveClass('done')
     await user.click(await screen.findByRole('button', { name: 'Mark File taxes complete' }))
@@ -589,7 +598,7 @@ describe('Part 2 full-stack UI flows', () => {
     ]
     const user = userEvent.setup()
     renderApp('/app/notes')
-    await user.selectOptions(await screen.findByLabelText('Category'), 'tasks')
+    await user.click(await screen.findByRole('tab', { name: /tasks/i }))
     await user.click(await screen.findByRole('button', { name: 'Mark File taxes complete' }))
     expect(await screen.findByRole('button', { name: 'Mark File taxes incomplete' })).toBeInTheDocument()
     expect(state.itemsList[0].status).toBe('COMPLETED')
@@ -604,7 +613,7 @@ describe('Part 2 full-stack UI flows', () => {
     ]
     const user = userEvent.setup()
     renderApp('/app/notes')
-    await user.selectOptions(await screen.findByLabelText('Category'), 'tasks')
+    await user.click(await screen.findByRole('tab', { name: /tasks/i }))
     expect(screen.queryByRole('button', { name: 'Mark Book tickets complete' })).not.toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: /choose items to tick in trip prep/i }))
     const dialog = await screen.findByRole('dialog')
@@ -637,6 +646,7 @@ describe('Part 2 full-stack UI flows', () => {
     await user.click(screen.getByRole('button', { name: /log in/i }))
     expect(await screen.findByRole('heading', { name: /good (morning|afternoon|evening|night), bob user/i })).toBeInTheDocument()
     await user.click(screen.getAllByRole('link', { name: /notes$/i })[0])
+    await user.click(await screen.findByRole('button', { name: /all notes/i }))
     expect(await screen.findByText('Bob private note')).toBeInTheDocument()
     expect(screen.queryByText('Buy eggs.')).not.toBeInTheDocument()
   })

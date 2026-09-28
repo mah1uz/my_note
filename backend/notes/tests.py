@@ -1,11 +1,12 @@
 from django.contrib import admin
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from accounts.models import AppUser
+from accounts.models import AppUser, UserAiEntitlement
 from .models import Note
+from .services import derive_note_heading
 
 
 class NoteModelTests(TestCase):
@@ -102,6 +103,79 @@ class EmptyProcessedRepairTests(TestCase):
         self.assertEqual(drafts_only.items.count(), 1)
         self.assertEqual(healthy.processing_status, Note.ProcessingStatus.PROCESSED)
         self.assertEqual(Note.objects.count(), 3)
+
+
+class NoteHeadingTests(TestCase):
+    def test_derive_prefers_summary_falls_back_to_item_title(self):
+        self.assertEqual(derive_note_heading({'summary': 'Buy milk tomorrow', 'items': []}), 'Buy milk tomorrow')
+        self.assertEqual(
+            derive_note_heading({'summary': '', 'items': [{'title': 'First item'}]}),
+            'First item',
+        )
+        self.assertEqual(derive_note_heading({'summary': '', 'items': []}), '')
+        self.assertEqual(derive_note_heading(None), '')
+        long_summary = 'word ' * 30
+        heading = derive_note_heading({'summary': long_summary.strip(), 'items': []})
+        self.assertLessEqual(len(heading), 120)
+        self.assertTrue(long_summary.startswith(heading.split()[0]))
+
+    def test_new_notes_start_without_heading(self):
+        user = AppUser.objects.create(email='heading-owner@example.com')
+        note = Note.objects.create(app_user=user, raw_text='Just saved')
+        self.assertEqual(note.ai_title, '')
+
+
+@override_settings(GROQ_API_KEY='synthetic-test-key')
+class NoteHeadingApiTests(APITestCase):
+    def setUp(self):
+        from unittest.mock import patch
+
+        from .test_fixtures import example_output
+        import json
+
+        self.user = AppUser.objects.create(email='heading-api@example.com')
+        UserAiEntitlement.objects.create(user=self.user, trial_limit=100)
+        self.client.force_authenticate(self.user)
+        self.note = Note.objects.create(app_user=self.user, raw_text='I need eggs from Agora.')
+        text = 'I need eggs from Agora.'
+        self.patcher = patch(
+            'ai.services.groq_service.analyze_note',
+            return_value=json.dumps(example_output(text)),
+        )
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
+    def test_analyze_stores_heading_and_edit_clears_it(self):
+        analyze = self.client.post(
+            f'/api/v1/notes/{self.note.pk}/analyze/',
+            {'revision': self.note.revision},
+            format='json',
+            HTTP_X_GROQ_TRIAL='true',
+        )
+        self.assertEqual(analyze.status_code, 200)
+        self.note.refresh_from_db()
+        self.assertTrue(self.note.ai_title)
+        self.assertEqual(analyze.data['note']['ai_title'], self.note.ai_title)
+
+        update = self.client.patch(
+            f'/api/v1/notes/{self.note.pk}/',
+            {'raw_text': 'Completely different text', 'revision': self.note.revision},
+            format='json',
+        )
+        self.assertEqual(update.status_code, 200)
+        self.note.refresh_from_db()
+        self.assertEqual(self.note.ai_title, '')
+        self.assertEqual(self.note.processing_status, Note.ProcessingStatus.UNPROCESSED)
+
+    def test_ai_title_is_read_only_on_write(self):
+        response = self.client.post(
+            '/api/v1/notes/',
+            {'raw_text': 'Buy eggs', 'ai_title': 'Injected heading'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['ai_title'], '')
+        self.assertEqual(Note.objects.get(pk=response.data['id']).ai_title, '')
 
 
 class AdminAccessTests(TestCase):

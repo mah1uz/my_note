@@ -172,6 +172,32 @@ def snapshot(items):
     return json.loads(json.dumps(NoteItemSerializer(items, many=True).data))
 
 
+def derive_note_heading(payload):
+    """Short card heading derived only from validated LLM output.
+
+    Prefers the note-level summary (first line, word-truncated to 80 chars)
+    and falls back to the first item title. Returns '' when neither exists.
+    Never invents text: empty payloads stay empty so cards fall back to the
+    raw-text preview instead of a fabricated heading.
+    """
+    if not isinstance(payload, dict):
+        return ''
+    summary = payload.get('summary')
+    if isinstance(summary, str):
+        first_line = summary.strip().splitlines()[0].strip() if summary.strip() else ''
+        if first_line:
+            if len(first_line) > 80:
+                cut = first_line[:80].rsplit(' ', 1)[0] or first_line[:80]
+                return cut.strip()[:120]
+            return first_line[:120]
+    items = payload.get('items') or []
+    if items and isinstance(items[0], dict):
+        title = str(items[0].get('title') or '').strip().splitlines()
+        if title and title[0].strip():
+            return title[0].strip()[:120]
+    return ''
+
+
 def record_confirmation(note, source_log=None, operation='CONFIRM'):
     AIProcessingLog.objects.create(
         note=note, note_revision=note.revision, input_text=note.raw_text,
@@ -306,9 +332,11 @@ def analyze(note, revision, user_api_key=None, trial=False, provider='groq'):
 
     with transaction.atomic():
         # An edit/deletion/new attempt while HTTP was in flight must win.
+        heading = '' if failure else derive_note_heading(payload)
         changed = Note.objects.filter(pk=note.pk, revision=attempt_revision, processing_status='PROCESSING').update(
             processing_status='FAILED' if failure else 'REVIEW_REQUIRED',
             analysis_started_at=None, updated_at=timezone.now(),
+            **({} if failure else {'ai_title': heading}),
         )
         if not changed:
             AIProcessingLog.objects.filter(pk=log.pk).update(status='SUPERSEDED', completed_at=timezone.now())
@@ -354,7 +382,17 @@ def confirm(note, revision, items):
         # Confirmed items are never implicitly overwritten or deleted by a new review.
         note.items.filter(is_confirmed=False).delete()
         note.processing_status = 'PROCESSED' if items else 'REVIEW_REQUIRED'
-        note.save(update_fields=['processing_status', 'updated_at'])
+        # Manual confirmations without a prior analysis have no heading yet:
+        # fall back to the first confirmed title so cards still show an
+        # LLM/user-approved heading instead of raw text only.
+        if not note.ai_title and items:
+            try:
+                candidate = str(items[0].get('title', '')).strip().splitlines()[0].strip() if isinstance(items[0], dict) else ''
+            except Exception:
+                candidate = ''
+            if candidate:
+                note.ai_title = candidate[:120]
+        note.save(update_fields=['processing_status', 'ai_title', 'updated_at'])
         record_confirmation(note, source_log)
 
 
@@ -397,6 +435,7 @@ def create_standalone_item(user, values):
     with transaction.atomic():
         note = Note.objects.create(
             app_user=user, raw_text=raw_text[:12000],
+            ai_title=title.strip().splitlines()[0].strip()[:120],
             processing_status=Note.ProcessingStatus.PROCESSED,
         )
         item = save_item(note, values, confirmed=True, confidence=None)
