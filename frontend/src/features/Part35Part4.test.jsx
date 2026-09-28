@@ -8,6 +8,11 @@ import TransactionsPage from './transactions/TransactionsPage'
 import SearchPage from './search/SearchPage'
 import { setAccessToken } from '../api/http'
 
+vi.mock('../context/NotesContext', () => ({ useNotes: () => ({ notes: [
+  { id: '1', originalText: 'University deadline: Submit project', processingStatus: 'UNPROCESSED' },
+], loading: false, error: '' }) }))
+vi.mock('../context/ItemsContext', () => ({ useConfirmedItems: () => ({ items: [] }) }))
+
 function jsonResponse(data, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } }))
 }
@@ -52,12 +57,12 @@ describe('Part 3.5 and Part 4 product flows', () => {
     await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => String(url).endsWith('/transactions/') && options?.method === 'POST')).toBe(true))
   })
 
-  it('uses server search and renders result links, with a separate Ask flow', async () => {
+  it('instantly searches raw notes locally, with a separate explicit Ask flow', async () => {
     const user = userEvent.setup()
     renderPage(<SearchPage />)
     await user.type(screen.getByLabelText(/search your notes/i), 'university')
-    await user.click(screen.getByRole('button', { name: /^search$/i }))
-    expect(await screen.findByRole('heading', { name: 'University deadline' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'University deadline: Submit project' })).toBeInTheDocument()
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/search/'))).toBe(false)
     await user.click(screen.getByRole('button', { name: /ask my notes/i }))
     await user.type(screen.getByLabelText(/ask a question/i), 'how much did I spend?')
     await user.click(screen.getByRole('button', { name: /^ask$/i }))

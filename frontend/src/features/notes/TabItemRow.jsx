@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { resolveLinkedTransaction, useTaskCompletion } from '../items/ItemPages'
 import PriceMenu from '../items/PriceMenu'
-import { itemDate } from '../items/itemForm'
+import ExtractedDate from './ExtractedDate'
 
 /**
  * One shared tick contract, used by tab rows, card ticks, and the peek
@@ -79,6 +79,15 @@ export function SingleTick({ item, onChanged, onTicked }) {
   </>
 }
 
+/** Price editor on an organized shopping note card, one entry per shopping task. */
+export function CardShoppingPrice({ item, onChanged }) {
+  const completion = useTaskCompletion(item, onChanged)
+  return <div className="card-shopping-price" onClick={(event) => event.stopPropagation()}>
+    <span>{item.title}</span>
+    <PriceMenu item={item} completion={completion} onChanged={onChanged} />
+  </div>
+}
+
 export default function TabItemRow({ item, onChanged, onTicked, showPriceEditor = false }) {
   const completion = useTaskCompletion(item, onChanged)
   const [unexpected, setUnexpected] = useState('')
@@ -93,7 +102,7 @@ export default function TabItemRow({ item, onChanged, onTicked, showPriceEditor 
   }
   return <li className={`tab-item-row${done ? ' completed' : ''}`}>
     <button type="button" className="check-button" aria-pressed={done} disabled={completion.busy || pending} aria-label={`Mark ${item.title} ${done ? 'incomplete' : 'complete'}`} onClick={toggle}>{done ? '✓' : ''}</button>
-    <span className="tab-item-main"><strong>{item.title}</strong><small>{item.item_type === 'EVENT' ? itemDate(item) : itemDate(item, 'due')}</small></span>
+    <span className="tab-item-main"><strong>{item.title}</strong><small><ExtractedDate item={item} /></small></span>
     {shopping && item.amount != null && <span className="shopping-price">{item.currency || ''} {item.amount}</span>}
     {showPriceEditor && shopping && <PriceMenu item={item} completion={completion} onChanged={onChanged} />}
     {completion.recordMsg && <span className="record-message" role="status">{completion.recordMsg}</span>}

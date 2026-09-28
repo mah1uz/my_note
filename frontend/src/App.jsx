@@ -28,11 +28,12 @@ import OnboardingPage from './features/onboarding/OnboardingPage'
 import SearchFeaturePage from './features/search/SearchPage'
 import ProcessButtons from './features/processing/ProcessButtons'
 import QueueProgress from './features/processing/QueueProgress'
-import { NOTE_TABS, countPendingNotes, getNoteHeading, getNoteTags, groupItemsByNote, isDueToday, primaryCategory } from './features/notes/noteTaxonomy'
+import { NOTE_TABS, countPendingNotes, getNoteHeading, getNoteTags, groupItemsByNote, isDueToday, noteMatchesQuery, primaryCategory } from './features/notes/noteTaxonomy'
 import { NOTE_MAX_WORDS, countWords, previewNote } from './features/notes/noteText'
 import { formatNoteStamp, getGreeting } from './features/dashboard/datetime'
 import { useConfirmedItems } from './context/ItemsContext'
-import { SingleTick } from './features/notes/TabItemRow'
+import { CardShoppingPrice, SingleTick } from './features/notes/TabItemRow'
+import ExtractedDate from './features/notes/ExtractedDate'
 import { autoOrganize, isAiConfigured, useAutoOrganize } from './features/processing/autoOrganize'
 import { analyzeNote } from './api/itemsApi'
 import { useNotifications } from './features/notifications/useNotifications'
@@ -110,6 +111,7 @@ function HeaderSearch() {
     event.preventDefault()
     if (!value.trim()) return
     navigate(`/app/search?q=${encodeURIComponent(value.trim())}`)
+    setValue('')
   }
   return <form className="header-search" role="search" onSubmit={submit}>
     <RetroSearchBox
@@ -353,6 +355,8 @@ function NoteCard({ note, onPeek, items = [], onChanged = () => {}, onTicked = (
     <h3 className="note-heading">{heading}</h3>
     {subtitle && subtitle !== heading && <p className="note-subtitle note-clamp">{subtitle}</p>}
     {(primary || tags.length > 0) && <div className="note-tags" aria-label="Discovered tags">{primary && <span className="note-tag note-tag-primary"><span aria-hidden="true">◇ </span>{primary}</span>}{tags.filter((tag) => tag !== primary).map((tag) => <span key={tag} className="note-tag"><span aria-hidden="true">◇ </span>{tag}</span>)}</div>}
+    {items.some((item) => item.start_date || item.start_datetime || item.due_date || item.due_datetime) && <div className="note-outcome-dates">{items.map((item) => <ExtractedDate key={item.id} item={item} showTitle={items.length > 1} />)}</div>}
+    {note.processingStatus === 'PROCESSED' && group?.shopping && <div className="note-shopping-prices">{items.filter((item) => item.item_type === 'TASK' && (item.domains || []).includes('shopping')).map((item) => <CardShoppingPrice key={item.id} item={item} onChanged={onChanged} />)}</div>}
     <div className="note-card-bottom"><NoteStamp iso={note.createdAt} timeZone={timeZone} />{items.length > 1 && <small>{items.length} items — tick to choose</small>}{auto?.running && <small>Analyzing…</small>}{analyzing && <small>Analyzing…</small>}</div>
     <div className="note-card-actions">
       {needsReview && <Link className="button button-primary button-small" to={`/app/notes/${note.id}`} onClick={(event) => event.stopPropagation()}>Verify &amp; Review</Link>}
@@ -421,16 +425,7 @@ function NotesPage() {
     if (key === 'categories') return notes.filter(hasConfirmedItems).length
     return countPendingNotes(notes, items, key)
   }
-  const matchesQuery = (note) => {
-    const q = query.trim().toLowerCase()
-    if (!q) return true
-    const noteItems = itemsForNote(note)
-    const heading = getNoteHeading(note, noteItems).toLowerCase()
-    if (heading.includes(q)) return true
-    if (String(note.originalText || '').toLowerCase().includes(q)) return true
-    return noteItems.some((item) => String(item.title || '').toLowerCase().includes(q)
-      || (item.domains || []).some((domain) => String(domain).toLowerCase().includes(q)))
-  }
+  const matchesQuery = (note) => noteMatchesQuery(note, itemsForNote(note), query)
   const visible = (tab === 'all' ? notes
     : tab === 'categories' ? notes.filter(hasConfirmedItems)
     : notes.filter((note) => groups[String(note.id)]?.[tab])).filter(matchesQuery)

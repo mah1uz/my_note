@@ -101,7 +101,7 @@ export function getNoteHeading(note, items = []) {
 /**
  * Small LLM-derived tags for a card: unique domain slugs plus the item-type
  * label, from already-loaded confirmed items. No per-card fetch.
- * Returns at most 4 lowercase tags, e.g. ['shopping', 'task'].
+ * Returns at most 4 lowercase tags, e.g. ['shopping', 'tasks'].
  */
 export function getNoteTags(items = []) {
   const tags = []
@@ -115,7 +115,8 @@ export function getNoteTags(items = []) {
         tags.push(tag)
       }
     }
-    const kind = String(item.item_type || '').trim().toLowerCase()
+    const kind = ({ TASK: 'tasks', EVENT: 'events' })[item.item_type]
+      || String(item.item_type || '').trim().toLowerCase()
     if (kind && !seen.has(kind)) {
       seen.add(kind)
       tags.push(kind)
@@ -135,6 +136,15 @@ export function primaryCategory(group, tags = []) {
   if (group?.events) return 'events'
   if (group?.study) return 'study-notes'
   return tags[0] || ''
+}
+
+/** Same literal, case-insensitive match on the Notes page and Search notes. */
+export function noteMatchesQuery(note, items = [], query = '') {
+  const term = query.trim().toLowerCase()
+  if (!term) return true
+  return [getNoteHeading(note, items), note?.originalText,
+    ...items.flatMap((item) => [item.title, ...(item.domains || [])])]
+    .some((text) => String(text || '').toLowerCase().includes(term))
 }
 
 export const DUE_TODAY_RE = /\b(today|tonight|this\s+morning|this\s+afternoon|this\s+evening|by\s+today|by\s+tonight|before\s+tonight|end\s+of\s+day|eod)\b/i

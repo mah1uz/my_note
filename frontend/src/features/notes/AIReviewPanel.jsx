@@ -3,7 +3,8 @@ import { analyzeNote, confirmAnalysis, getReview } from '../../api/itemsApi'
 import { useAuth } from '../../context/AuthContext'
 import { useAiKey } from '../../context/AiKeyContext'
 import ItemFields, { Confidence } from '../items/ItemFields'
-import { itemDate, itemForm, itemPayload, requestErrorText } from '../items/itemForm'
+import { itemForm, itemPayload, requestErrorText } from '../items/itemForm'
+import ExtractedDate from './ExtractedDate'
 
 export default function AIReviewPanel({ note, onNoteChanged, disabled = false }) {
   const { currentUser } = useAuth()
@@ -76,7 +77,7 @@ export default function AIReviewPanel({ note, onNoteChanged, disabled = false })
 
   return <section className="ai-review" aria-label="AI organization">
     <div className="section-heading"><div><span className="eyebrow">Organize after capture</span><h2>AI review</h2></div></div>
-    <p className="field-help">Analyze sends this saved note to Groq. Your original stays saved even if AI fails. Confidence is a review signal, not a guarantee.</p>
+    <p className="field-help">Analyze sends this saved note to your selected AI provider. Your original stays saved even if AI fails. Confidence is a review signal, not a guarantee.</p>
     {loading && <p role="status">Loading organization…</p>}
     {error && <div role="alert" className="form-error">{error} <button type="button" onClick={() => { setError(''); setReload((value) => value + 1) }} disabled={Boolean(busy)}>Reload saved review</button></div>}
     {message && <p role="status" className="review-message">{message}</p>}
@@ -91,7 +92,7 @@ export default function AIReviewPanel({ note, onNoteChanged, disabled = false })
       <p className="field-help">Retry replaces unconfirmed drafts only after success. Confirmed items stay unchanged; remove any overlapping new candidates before confirming.</p>
       {confirmed.length > 0 && <div className="confirmed-items"><h3>Confirmed items</h3>{confirmed.map((item) => <article key={item.id} className="confirmed-item">
         <span className="pill">{item.item_type}</span><h4>{item.title}</h4><p>{item.summary}</p><p>{item.domains.join(' · ')}</p>
-        <p>{itemDate(item, item.item_type === 'TASK' ? 'due' : 'start')}</p>
+        <p><ExtractedDate item={item} /></p>
         {item.amount != null && <p>{item.currency || 'Currency unknown'} {item.amount}</p>}
         {item.quantity != null && <p>{item.quantity} {item.unit || 'unit unknown'}</p>}
       </article>)}<p className="field-help">Confirmed items are snapshots of your approved facts. Editing raw text does not overwrite them. Tasks can be edited on the Tasks page.</p></div>}

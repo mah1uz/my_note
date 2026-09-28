@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { findLinkedTransactionId, updateTransaction } from '../../api/transactionsApi'
 import { requestErrorText } from './itemForm'
+import { useAuth } from '../../context/AuthContext'
 
 /**
  * Per-item price editor for shopping rows. Shows the current (AI-extracted
@@ -10,12 +11,22 @@ import { requestErrorText } from './itemForm'
  * price is cleared) so the expense list stays perfect.
  */
 export default function PriceMenu({ item, completion, onChanged = () => {} }) {
+  const { currentUser } = useAuth()
   const [open, setOpen] = useState(false)
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState('')
+  const [changeCurrency, setChangeCurrency] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+
+  // The account profile can arrive after a user opens the editor. Do not
+  // overwrite an existing item currency or an explicit user override.
+  useEffect(() => {
+    if (open && !item.currency && !changeCurrency && currentUser?.default_currency) {
+      setCurrency(currentUser.default_currency)
+    }
+  }, [open, item.currency, changeCurrency, currentUser?.default_currency])
 
   const extracted = item.amount != null
     ? `${item.currency || ''} ${item.amount}`.trim()
@@ -23,7 +34,8 @@ export default function PriceMenu({ item, completion, onChanged = () => {} }) {
 
   const openMenu = () => {
     setAmount(item.amount ?? '')
-    setCurrency(item.currency || '')
+    setCurrency(item.currency || currentUser?.default_currency || 'BDT')
+    setChangeCurrency(false)
     setError('')
     setMessage('')
     setOpen(true)
@@ -31,11 +43,9 @@ export default function PriceMenu({ item, completion, onChanged = () => {} }) {
 
   const validate = () => {
     const amountBlank = String(amount).trim() === ''
-    const currencyBlank = String(currency).trim() === ''
-    if (amountBlank !== currencyBlank) return 'Set both amount and currency, or clear both.'
     if (!amountBlank) {
       const value = Number(amount)
-      if (!Number.isFinite(value) || value <= 0) return 'Enter an amount greater than 0, or clear both fields.'
+      if (!Number.isFinite(value) || value <= 0) return 'Enter an amount greater than 0, or clear the amount.'
       if (!/^[A-Za-z]{3}$/.test(String(currency).trim())) return 'Currency needs 3 letters, e.g. BDT.'
     }
     return ''
@@ -54,7 +64,7 @@ export default function PriceMenu({ item, completion, onChanged = () => {} }) {
     try {
       const payload = {
         amount: String(amount).trim() === '' ? null : String(amount).trim(),
-        currency: String(currency).trim() === '' ? null : String(currency).trim().toUpperCase(),
+        currency: String(amount).trim() === '' ? null : String(currency).trim().toUpperCase(),
       }
       const saved = await completion.save(payload)
       if (!saved) {
@@ -93,7 +103,7 @@ export default function PriceMenu({ item, completion, onChanged = () => {} }) {
     <p className="field-help">{extracted ? `Current price: ${extracted}` : 'No price set yet — add one below.'}</p>
     <div className="price-input-row">
       <label>Amount<input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" aria-label="Price amount" /></label>
-      <label>Currency<input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} maxLength={3} placeholder="BDT" aria-label="Price currency" /></label>
+      <div className="price-currency"><span>Currency: <strong>{currency}</strong></span> <button type="button" className="text-button" onClick={() => setChangeCurrency((current) => !current)}>{changeCurrency ? 'Hide currency field' : 'Change currency'}</button>{changeCurrency && <label>Currency<input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} maxLength={3} placeholder="BDT" aria-label="Price currency" /></label>}</div>
     </div>
     {error && <p className="form-error" role="alert">{error} <button type="button" className="text-button" onClick={onChanged}>Reload items</button></p>}
     {message && <p className="record-message" role="status">{message}</p>}

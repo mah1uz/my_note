@@ -135,6 +135,17 @@ class GeminiServiceTests(SimpleTestCase):
                 self.assertEqual(raised.exception.code, code)
                 self.assertEqual(raised.exception.status_code, status)
 
+    def test_gemini_429_explains_daily_quota_without_leaking_provider_details(self):
+        from ai.services import gemini_service
+
+        body = '{"error":{"message":"Quota exceeded for customer@example.com", "details":[{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}}'
+        with patch.object(gemini_service.urllib.request, 'urlopen', side_effect=http_error(429, body)):
+            with self.assertRaises(ProviderFailure) as raised:
+                gemini_service.analyze_note('Buy eggs', timezone.now(), api_key='AIza-test-key-12345678901234567890')
+        self.assertEqual(raised.exception.code, 'rate_limit')
+        self.assertIn('daily quota', str(raised.exception))
+        self.assertNotIn('customer@example.com', str(raised.exception))
+
     def test_empty_or_refused_response_is_incomplete(self):
         from ai.services import gemini_service
 

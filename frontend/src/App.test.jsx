@@ -462,6 +462,28 @@ describe('Part 2 full-stack UI flows', () => {
     expect(screen.getByRole('button', { name: /open note: team standup at ten/i })).toBeInTheDocument()
   })
 
+  it('shows one Tasks tag, an estimated extracted date, and price entry on a processed shopping card', async () => {
+    state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'Buy eggs by Friday', processing_status: 'PROCESSED' },
+      { id: 2, raw_text: 'File taxes by Friday', processing_status: 'PROCESSED' }]
+    state.itemsList = [{ id: 11, note: 1, revision: 0, item_type: 'TASK', title: 'Buy eggs',
+      domains: ['shopping'], status: 'PENDING', is_confirmed: true, due_date: '2026-10-02', amount: null, currency: null },
+    { id: 12, note: 2, revision: 0, item_type: 'TASK', title: 'File taxes',
+      domains: ['finance'], status: 'PENDING', is_confirmed: true, due_date: '2026-10-02' }]
+    const user = userEvent.setup()
+    renderApp('/app/notes')
+    const card = await screen.findByRole('button', { name: /open note: buy eggs by friday/i })
+    expect(within(card).getByText('Estimated outcome date:')).toBeInTheDocument()
+    expect(within(card).getByText(/2026-10-02/).tagName).toBe('STRONG')
+    expect(within(card).getByRole('button', { name: /set price for buy eggs/i })).toBeInTheDocument()
+    const taskCard = screen.getByRole('button', { name: /open note: file taxes by friday/i })
+    expect(within(taskCard).getByText('tasks')).toBeInTheDocument()
+    expect(within(taskCard).queryByText(/^task$/i)).not.toBeInTheDocument()
+    await user.click(within(card).getByRole('button', { name: /set price for buy eggs/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(within(card).getByLabelText('Price amount')).toBeInTheDocument()
+  })
+
   it('resolveLinkedTransaction finds the ledger row without trusting memory', async () => {
     state.authenticated = true
     state.transactions = [{ id: 'tx-9', note_item: 21, direction: 'DEBIT', amount: '100.00', currency: 'BDT', label: 'Buy shampoo' }]
@@ -732,32 +754,40 @@ describe('Part 2 full-stack UI flows', () => {
     expect(await screen.findByRole('heading', { name: /^settings$/i })).toBeInTheDocument()
   })
 
-  it('routes header search to the search page and executes it', async () => {
+  it('routes header search to instant note matches and clears the header input', async () => {
     state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'Exam time is tomorrow', processing_status: 'UNPROCESSED' }]
     const user = userEvent.setup()
     renderApp('/app')
     const box = await screen.findByRole('searchbox', { name: /global search/i })
     expect(box.closest('.retro-search')).toBeInTheDocument()
     expect(screen.getByText('⌘K')).toBeInTheDocument()
     await user.type(box, 'exam time{enter}')
-    expect(await screen.findByText('Mocked lecture notes')).toBeInTheDocument()
-    expect(screen.getByText('Lexical matches')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Exam time is tomorrow' })).toBeInTheDocument()
+    expect(box).toHaveValue('')
+    expect(screen.getByRole('searchbox', { name: /search your notes/i })).toHaveValue('exam time')
+    expect(screen.getByText('Literal matches')).toBeInTheDocument()
+    expect(fetch.mock.calls.some(([url]) => new URL(url).pathname.endsWith('/search/'))).toBe(false)
     const answerCalls = fetch.mock.calls.filter(([url, options]) => new URL(url).pathname.endsWith('/search/answer/') && options?.method === 'POST')
     expect(answerCalls).toHaveLength(0)
   })
 
-  it('auto-runs a shared ?q= link without another click', async () => {
+  it('filters all written notes from a shared ?q= link without another click', async () => {
     state.authenticated = true
+    state.notes = [{ id: 1, raw_text: 'University exam notes', processing_status: 'FAILED' }]
     renderApp('/app/search?q=university')
-    expect(await screen.findByText('Mocked lecture notes')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'University exam notes' })).toBeInTheDocument()
     expect(screen.getByRole('searchbox', { name: /search your notes/i })).toHaveValue('university')
   })
 
-  it('auto-asks on the Ask tab when a query is present', async () => {
+  it('does not auto-ask on tab switch; asks only after entering a question', async () => {
     state.authenticated = true
     const user = userEvent.setup()
     renderApp('/app/search?q=fees')
     await user.click(await screen.findByRole('button', { name: /ask my notes/i }))
+    expect(fetch.mock.calls.some(([url]) => new URL(url).pathname.endsWith('/search/answer/'))).toBe(false)
+    await user.type(screen.getByRole('searchbox', { name: /ask a question/i }), 'fees')
+    await user.click(screen.getByRole('button', { name: /^ask$/i }))
     expect(await screen.findByText('Grounded answer for fees.')).toBeInTheDocument()
     const sourceLink = await screen.findByRole('link', { name: 'Mocked lecture notes' })
     expect(sourceLink).toHaveAttribute('href', '/app/notes/1')

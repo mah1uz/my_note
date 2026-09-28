@@ -990,6 +990,12 @@ a.profile-block:hover .profile-text strong { color: var(--accent-deep); }
 .note-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .note-tag { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px; background: var(--chip); color: var(--ink-soft); font-size: 11.5px; font-weight: 600; }
 .note-tag-primary { background: var(--accent); color: #fff; }
+.note-outcome-dates { display: grid; gap: 5px; margin-top: 10px; }
+.extracted-date { color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.extracted-date strong { color: var(--ink); font-weight: 700; }
+.note-shopping-prices { display: grid; gap: 6px; margin-top: 10px; }
+.card-shopping-price { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.price-currency { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
 .note-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .button-small { padding: 8px 14px; font-size: 12.5px; }
 @media (max-width: 640px) {

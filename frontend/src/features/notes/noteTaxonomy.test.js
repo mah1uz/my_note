@@ -7,9 +7,18 @@ import {
   hasAnyCategory,
   isStudyCategory,
   primaryCategory,
+  noteMatchesQuery,
 } from './noteTaxonomy'
 
 describe('category-first taxonomy helpers', () => {
+  it('matches literal text, headings, item titles and domains across all notes', () => {
+    const note = { originalText: 'University exam is Monday', aiTitle: 'Exam preparation' }
+    const items = [{ title: 'Review notes', domains: ['education'] }]
+    expect(noteMatchesQuery(note, items, 'EXAM')).toBe(true)
+    expect(noteMatchesQuery(note, items, 'review')).toBe(true)
+    expect(noteMatchesQuery(note, items, 'education')).toBe(true)
+    expect(noteMatchesQuery(note, items, 'Tuesday')).toBe(false)
+  })
   it('counts notes with pending items, not total items or completed notes', () => {
     const notes = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }]
     const items = [
@@ -63,7 +72,7 @@ describe('category-first taxonomy helpers', () => {
     expect(getNoteTags([
       { item_type: 'TASK', domains: ['shopping', 'finance'] },
       { item_type: 'TASK', domains: ['shopping'] },
-    ])).toEqual(['shopping', 'finance', 'task'])
+    ])).toEqual(['shopping', 'finance', 'tasks'])
     expect(primaryCategory({ shopping: true }, ['shopping'])).toBe('shopping')
     expect(primaryCategory({ study: true }, ['education'])).toBe('study-notes')
     expect(primaryCategory(null, ['work'])).toBe('work')

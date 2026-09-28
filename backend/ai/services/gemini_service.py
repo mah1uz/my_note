@@ -83,7 +83,15 @@ def _call_provider(raw_text, now, candidate_key, tz_name=None):
             raise ProviderFailure(
                 'invalid_key', 'The Gemini API key was rejected. Enter a valid key and try again.', 502) from error
         if error.code == 429:
-            raise ProviderFailure('rate_limit', 'The AI provider is rate-limited. Try again later.', 503) from error
+            # Google returns 429 both for short-term request limits and for
+            # exhausted daily/free-tier quota. Do not expose the provider's
+            # raw response (it can contain account/project details).
+            daily = any(marker in lowered for marker in ('perday', 'per_day', 'per day', 'daily quota'))
+            hint = ('Your Gemini daily quota is exhausted. Check your Gemini API quota or billing in AI Studio, '
+                    'or choose another provider in Settings.' if daily else
+                    'Gemini rejected this request due to a rate or quota limit. Check your Gemini API quota in AI Studio, '
+                    'wait for it to reset, or choose another provider in Settings.')
+            raise ProviderFailure('rate_limit', hint, 503) from error
         raise ProviderFailure(
             'provider',
             f'The AI provider could not complete the request (status {error.code}). {detail}',

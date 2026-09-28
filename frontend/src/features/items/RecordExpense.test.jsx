@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ShoppingPage, TasksPage } from './ItemPages'
 import { setAccessToken } from '../../api/http'
 import { installSupabaseMock } from '../../test/supabaseMock'
-import { AuthProvider } from '../../context/AuthContext'
+import { AuthProvider, useAuth } from '../../context/AuthContext'
 
 const profile = { id: '11111111-1111-4111-8111-111111111111', username: 'maya@example.com', email: 'maya@example.com', name: 'Maya' }
 let taskState
@@ -83,14 +83,20 @@ function renderTasks() {
   return render(<MemoryRouter><AuthProvider><TasksPage /></AuthProvider></MemoryRouter>)
 }
 
-function renderShopping() {
+function AuthReady() {
+  const { currentUser } = useAuth()
+  return <span data-testid="loaded-currency">{currentUser?.default_currency || ''}</span>
+}
+
+function renderShopping(withAuthProbe = false) {
   window.history.pushState({}, '', '/app/shopping')
-  return render(<MemoryRouter><AuthProvider><ShoppingPage /></AuthProvider></MemoryRouter>)
+  return render(<MemoryRouter><AuthProvider>{withAuthProbe && <AuthReady />}<ShoppingPage /></AuthProvider></MemoryRouter>)
 }
 
 describe('tick-done expense recording', () => {
   beforeEach(() => {
     setAccessToken(null)
+    profile.default_currency = 'BDT'
     taskState = baseTask()
     recorded = []
     failNextPost = false
@@ -192,11 +198,31 @@ describe('tick-done expense recording', () => {
     await user.click(await screen.findByRole('button', { name: /set price for buy shampoo/i }))
     expect(screen.getByText(/no price set yet/i)).toBeInTheDocument()
     await user.type(screen.getByLabelText('Price amount'), '75')
-    await user.type(screen.getByLabelText('Price currency'), 'BDT')
+    expect(screen.queryByLabelText('Price currency')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /save price/i }))
     expect(await screen.findByText('BDT 75')).toBeInTheDocument()
     expect(taskState.amount).toBe('75')
     expect(taskState.currency).toBe('BDT')
+  })
+
+  it('defaults a missing price currency to the account preference but permits an override', async () => {
+    profile.default_currency = 'USD'
+    taskState = { ...baseTask(), status: 'PENDING', amount: null, currency: null }
+    const user = userEvent.setup()
+    renderShopping(true)
+    await waitFor(() => expect(screen.getByTestId('loaded-currency')).toHaveTextContent('USD'))
+    await user.click(await screen.findByRole('button', { name: /set price for buy shampoo/i }))
+    expect(screen.getAllByText('USD')).toHaveLength(2)
+    await user.type(screen.getByLabelText('Price amount'), '25')
+    await user.click(screen.getByRole('button', { name: /save price/i }))
+    await waitFor(() => expect(taskState.currency).toBe('USD'))
+    if (screen.queryByRole('button', { name: /^close$/i })) await user.click(screen.getByRole('button', { name: /^close$/i }))
+    await user.click(await screen.findByRole('button', { name: /set price for buy shampoo/i }))
+    await user.click(screen.getByRole('button', { name: /change currency/i }))
+    await user.clear(screen.getByLabelText('Price currency'))
+    await user.type(screen.getByLabelText('Price currency'), 'EUR')
+    await user.click(screen.getByRole('button', { name: /save price/i }))
+    await waitFor(() => expect(taskState.currency).toBe('EUR'))
   })
 
   it('shows no record action for tasks without a price', async () => {

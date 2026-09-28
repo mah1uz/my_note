@@ -107,7 +107,7 @@ export function AddNotePopup({ open, onClose }) {
           const code = requestError?.data?.code
           setOrganizeError({
             message: requestError?.message || 'Saved, but automatic organization failed.',
-            showSettings: code === 'trial_exhausted' || code === 'invalid_key',
+            showSettings: code === 'trial_exhausted' || code === 'invalid_key' || code === 'rate_limit',
           })
         } finally {
           setOrganizing(false)
