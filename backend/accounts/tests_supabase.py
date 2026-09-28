@@ -51,6 +51,36 @@ class RememberedSessionTests(APITestCase):
         session.save()
         self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 401)
 
+    def test_cross_site_cookie_blocked_uses_revocable_72_hour_session_header(self):
+        from django.utils import timezone
+
+        response = self.client.post('/api/v1/auth/session/start/', {}, format='json')
+        key = response.data['remembered_session']
+        self.assertTrue(key)
+        self.client.cookies.clear()  # Browser blocks the cross-site cookie.
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 401)
+        self.client.credentials(HTTP_X_REMEMBERED_SESSION=key)
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 200)
+        # The header is not a standalone credential: it is tied to the JWT user.
+        other = AppUser.objects.create(email='other-remembered@example.com')
+        with patch.object(SupabaseJWTAuthentication, 'authenticate', return_value=(other, {})):
+            self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 401)
+        store = self.client.session.__class__(session_key=key)
+        store['login_at'] = timezone.now().timestamp() - 71 * 60 * 60
+        store.save()
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 200)
+        store = self.client.session.__class__(session_key=key)
+        store['login_at'] = timezone.now().timestamp() - 73 * 60 * 60
+        store.save()
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 401)
+
+        response = self.client.post('/api/v1/auth/session/start/', {}, format='json')
+        new_key = response.data['remembered_session']
+        self.client.cookies.clear()
+        self.client.credentials(HTTP_X_REMEMBERED_SESSION=new_key)
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 200)
+        self.assertEqual(self.client.post('/api/v1/auth/session/end/', {}, format='json').status_code, 204)
+        self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 401)
 
 class SupabaseProvisioningTests(TestCase):
     def claims(self, subject='supabase-user-1', email='user@example.com'):

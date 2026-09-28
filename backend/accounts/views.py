@@ -2,7 +2,6 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
 from .authentication import SupabaseJWTAuthentication
 from django.utils import timezone
 
@@ -23,7 +22,7 @@ def _require_app_user(request):
 
 
 class SessionStartView(APIView):
-    """Exchange a freshly authenticated Supabase JWT for a 72-hour cookie."""
+    """Exchange a freshly authenticated Supabase JWT for a 72-hour session."""
     authentication_classes = [SupabaseJWTAuthentication]
 
     def post(self, request):
@@ -34,14 +33,20 @@ class SessionStartView(APIView):
         request.session['app_user_id'] = str(request.user.pk)
         request.session['login_at'] = timezone.now().timestamp()
         request.session.set_expiry(72 * 60 * 60)
-        return Response(AppUserSerializer(request.user).data)
+        request.session.save()
+        return Response({**AppUserSerializer(request.user).data,
+                         'remembered_session': request.session.session_key})
 
 
 class SessionEndView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    authentication_classes = [SupabaseJWTAuthentication]
 
     def post(self, request):
+        fallback = request.headers.get('X-Remembered-Session', '')
+        if fallback and len(fallback) <= 128:
+            session = request.session.__class__(session_key=fallback)
+            if session.get('app_user_id') == str(request.user.pk):
+                session.delete()
         request.session.flush()
         return Response(status=204)
 

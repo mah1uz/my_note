@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { completeOAuthSession, loginAccount, logoutAccount, registerAccount, restoreSession } from '../api/authApi'
 import { supabase } from '../api/supabaseClient'
-import { setAccessToken, setUnauthorizedHandler } from '../api/http'
+import { setAccessToken, setRememberedSession, setUnauthorizedHandler } from '../api/http'
 import { clearSessionGroqKey } from './AiKeyContext'
 
 const AuthContext = createContext(null)
@@ -12,7 +12,7 @@ export function AuthProvider({ children }) {
   const restorePromiseRef = useRef(Promise.resolve())
 
   useEffect(() => {
-    setUnauthorizedHandler(() => { clearSessionGroqKey(); setCurrentUser(null) })
+    setUnauthorizedHandler(() => { setRememberedSession(null); clearSessionGroqKey(); setCurrentUser(null) })
     return () => setUnauthorizedHandler(() => {})
   }, [])
 

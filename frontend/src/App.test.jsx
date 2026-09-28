@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { resolveLinkedTransaction } from './features/items/ItemPages'
 import { AiKeyContext } from './context/AiKeyContext'
-import { setAccessToken } from './api/http'
+import { setAccessToken, setRememberedSession } from './api/http'
 import { installSupabaseMock } from './test/supabaseMock'
 import { AppStateProvider } from './context/AppStateContext'
 import { AuthProvider } from './context/AuthContext'
@@ -59,7 +59,7 @@ function installApiMock() {
       if (method === 'PATCH') state.profile = { ...state.profile, ...JSON.parse(options.body) }
       return jsonResponse(state.profile)
     }
-    if (path.endsWith('/auth/session/start/')) return jsonResponse(state.profile)
+    if (path.endsWith('/auth/session/start/')) return jsonResponse({ ...state.profile, remembered_session: 'mock-server-session-key' })
     if (path.endsWith('/auth/session/end/')) return jsonResponse(null, 204)
     if (path.endsWith('/auth/preferences/')) {
       if (!state.authenticated) return jsonResponse({ detail: 'Authentication required.' }, 401)
@@ -240,6 +240,7 @@ describe('Part 2 full-stack UI flows', () => {
     state.txSummary = null
     state.failLogin = false
     setAccessToken(null)
+    setRememberedSession(null)
     window.history.pushState({}, '', '/')
     installSupabaseMock(state)
     installApiMock()
@@ -274,6 +275,8 @@ describe('Part 2 full-stack UI flows', () => {
     const exchange = fetch.mock.calls.find(([url]) => new URL(url).pathname.endsWith('/auth/session/start/'))
     expect(exchange).toBeDefined()
     expect(exchange[1].credentials).toBe('include')
+    await user.click(screen.getAllByRole('link', { name: /notes$/i })[0])
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => new URL(url).pathname.endsWith('/notes/') && options?.headers?.['X-Remembered-Session'] === 'mock-server-session-key')).toBe(true))
   })
 
   it('registers and logs out through the API', async () => {

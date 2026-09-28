@@ -1,4 +1,4 @@
-import { apiRequest, setAccessToken } from './http'
+import { apiRequest, setAccessToken, setRememberedSession } from './http'
 import { supabase } from './supabaseClient'
 
 function requireSupabase() {
@@ -12,7 +12,9 @@ async function supabaseProfile(session) {
 
 async function startRememberedSession(session) {
   setAccessToken(session?.access_token || null)
-  return apiRequest('/auth/session/start/', { method: 'POST', body: '{}' }, false)
+  const { remembered_session: sessionKey, ...user } = await apiRequest('/auth/session/start/', { method: 'POST', body: '{}' }, false)
+  setRememberedSession(sessionKey)
+  return user
 }
 
 export async function registerAccount(payload) {
@@ -57,6 +59,7 @@ export async function completeOAuthSession() {
 export async function logoutAccount() {
   requireSupabase()
   try { await apiRequest('/auth/session/end/', { method: 'POST', body: '{}' }, false) } catch { /* Supabase logout still runs. */ }
+  setRememberedSession(null)
   const { error } = await supabase.auth.signOut()
   setAccessToken(null)
   if (error) throw error

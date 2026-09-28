@@ -54,9 +54,10 @@ class SupabaseJWTAuthentication(authentication.BaseAuthentication):
 class RememberedJWTAuthentication(SupabaseJWTAuthentication):
     """Require both a valid Supabase JWT and the 72-hour server session.
 
-    The cookie alone cannot authenticate API requests, so cross-site form
-    submissions cannot use it as a bearer credential. The exchange endpoint
-    uses SupabaseJWTAuthentication directly and runs only after sign-in.
+    The cookie alone cannot authenticate API requests. Browsers that block
+    cross-site cookies may send the same server session key in a header; a
+    valid Supabase JWT and the matching, unexpired server record are still
+    required. The exchange endpoint runs only after sign-in.
     """
 
     def authenticate(self, request):
@@ -64,12 +65,21 @@ class RememberedJWTAuthentication(SupabaseJWTAuthentication):
         if result is None:
             return None
         user, claims = result
-        session = request._request.session
-        if session.get('app_user_id') != str(user.pk) or not session.get('login_at'):
-            raise exceptions.AuthenticationFailed('Your remembered login has expired. Please log in again.')
         from django.utils import timezone
 
-        if timezone.now().timestamp() - session['login_at'] >= 72 * 60 * 60:
-            session.flush()
+        now = timezone.now().timestamp()
+
+        def valid(session):
+            login_at = session.get('login_at')
+            return (session.get('app_user_id') == str(user.pk)
+                    and isinstance(login_at, (int, float))
+                    and 0 <= now - login_at < 72 * 60 * 60)
+
+        session = request._request.session
+        if not valid(session):
+            fallback = request.headers.get('X-Remembered-Session', '')
+            if fallback and len(fallback) <= 128:
+                session = session.__class__(session_key=fallback)
+        if not valid(session):
             raise exceptions.AuthenticationFailed('Your remembered login has expired. Please log in again.')
         return user, claims

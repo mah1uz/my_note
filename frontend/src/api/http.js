@@ -5,6 +5,9 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `http://${defaultHost}
 
 let accessToken = null
 let unauthorizedHandler = () => {}
+const REMEMBERED_KEY = 'rememberly-remembered-session'
+let rememberedSession = ''
+try { rememberedSession = window.localStorage.getItem(REMEMBERED_KEY) || '' } catch { /* Cookie-only browsers still work. */ }
 
 export class ApiError extends Error {
   constructor(message, status, data) {
@@ -26,6 +29,14 @@ const DEFAULT_TIMEOUT_MS = 30000
 
 export function setAccessToken(token) {
   accessToken = token
+}
+
+export function setRememberedSession(value) {
+  rememberedSession = String(value || '')
+  try {
+    if (rememberedSession) window.localStorage.setItem(REMEMBERED_KEY, rememberedSession)
+    else window.localStorage.removeItem(REMEMBERED_KEY)
+  } catch { /* The HttpOnly cookie may still be available. */ }
 }
 
 export function setUnauthorizedHandler(handler) {
@@ -53,6 +64,7 @@ export async function apiRequest(path, options = {}, retry = true) {
   const headers = { ...fetchOptions.headers }
   if (fetchOptions.body && !(fetchOptions.body instanceof FormData)) headers['Content-Type'] = 'application/json'
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+  if (rememberedSession) headers['X-Remembered-Session'] = rememberedSession
   // A hung connection must never leave the UI stuck on a spinner: every
   // request races a timeout, and navigation/unmount can still abort early.
   const controller = new AbortController()

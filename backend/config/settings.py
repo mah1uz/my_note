@@ -125,7 +125,7 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = not DEBUG
 # Cross-site deployments must set SESSION_COOKIE_SAMESITE=None and use HTTPS.
 SESSION_COOKIE_SAMESITE = os.getenv('SESSION_COOKIE_SAMESITE', 'Lax')
-CORS_ALLOW_HEADERS = (*default_headers, 'x-groq-api-key', 'x-groq-trial', 'x-ai-provider', 'x-ai-api-key', 'x-ai-trial')
+CORS_ALLOW_HEADERS = (*default_headers, 'x-groq-api-key', 'x-groq-trial', 'x-ai-provider', 'x-ai-api-key', 'x-ai-trial', 'x-remembered-session')
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 REST_FRAMEWORK = {
