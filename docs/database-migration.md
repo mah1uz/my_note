@@ -27,3 +27,16 @@ frontend Data API path. Enable the `vector` extension during Part 4.
 Remaining gates are final AppUser-only ownership, UUID content tables, the AI
 run/artifact split, explicit NoteItemDomain, safe admin projections/audits,
 Supabase Auth cutover, and full PostgreSQL regression/user-isolation tests.
+
+## Supabase Data API lockdown
+
+Supabase exposes every `public` table to the `anon` and `authenticated` roles
+through its REST Data API. Rememberly never uses that path: the frontend uses
+Supabase only for Auth, and Django (connecting as the table owner, which
+bypasses RLS) is the sole data path. `accounts.apps.lock_down_data_api` runs
+after every `migrate` on PostgreSQL and (re)enables Row Level Security on every
+`public` table, with no policies, and revokes all table, sequence and function
+grants from `anon` and `authenticated`, including default privileges for future
+tables. This closes the `rls_disabled_in_public` and
+`sensitive_columns_exposed` advisories. Do not add RLS policies for those roles
+unless the frontend is deliberately changed to query tables directly.

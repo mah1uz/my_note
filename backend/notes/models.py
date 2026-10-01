@@ -30,7 +30,7 @@ class Note(models.Model):
     analysis_started_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ('-created_at',)
+        ordering = ('-created_at', '-id')
         # Measured: notes-list filters by app_user and orders by created_at;
         # EXPLAIN showed TEMP B-TREE FOR ORDER BY without this composite index.
         indexes = [models.Index(fields=('app_user', '-created_at'), name='note_owner_created_idx')]

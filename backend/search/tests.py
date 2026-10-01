@@ -5,6 +5,7 @@ from unittest.mock import patch
 import json
 
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -52,7 +53,7 @@ class SearchApiTests(APITestCase):
         NoteItem.objects.create(note=other_note, item_type='TASK', title='Private university task', is_confirmed=True)
         FinanceTransaction.objects.create(
             user=self.user, direction='DEBIT', amount=Decimal('1200'), currency='BDT',
-            label='University books', transaction_at='2026-09-10T12:00:00+06:00',
+            label='University books', transaction_at=timezone.now(),
         )
 
     def test_search_is_owner_scoped_and_returns_canonical_kinds(self):
